@@ -1,14 +1,19 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
-use ramzes_connectors::{ConnectionConfig, SendOutcome};
-use ramzes_core::{Next, build_message, new_id, next_attempt};
+use ramzes_connectors::SendOutcome;
+use ramzes_core::{Next, new_id, next_attempt};
 use ramzes_store::{Attempt, Delivery, DeliveryState, Finish};
+use tokio::sync::Semaphore;
 
 use crate::{Change, Engine, Result};
 
 /// Deliveries claimed per pass.
 const BATCH: i64 = 32;
 /// Deliveries sent at the same time.
-const CONCURRENCY: usize = 8;
+const CONCURRENCY: usize = 16;
+/// Requests one connection may have in flight, so ramzes does not flood a single service.
+const PER_CONNECTION: usize = 4;
 
 /// What one attempt produced, before it is written down.
 struct Sent {
@@ -191,6 +196,18 @@ impl Engine {
         Ok(())
     }
 
+    /// A permit to send through a connection; at most [`PER_CONNECTION`] are out at a time.
+    async fn slot(&self, connection_id: &str) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let semaphore = self
+            .connection_slots
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(connection_id.to_owned())
+            .or_insert_with(|| Arc::new(Semaphore::new(PER_CONNECTION)))
+            .clone();
+        semaphore.acquire_owned().await.ok()
+    }
+
     /// Builds the message and hands it to the connector. Problems with the connection itself
     /// are reported as a permanent failure of the delivery.
     async fn send(&self, delivery: &Delivery) -> Result<Sent> {
@@ -209,44 +226,29 @@ impl Engine {
         else {
             return Ok(fail("the connection was deleted".into(), "unknown"));
         };
-        let Some(connector) = self.config.registry.get(&connection.kind) else {
-            return Ok(fail(
-                format!(
-                    "this version of ramzes has no connector of kind {:?}",
-                    connection.kind
-                ),
-                &connection.kind,
-            ));
+        let (connector, config) = match self.connector_for(&connection) {
+            Ok(found) => found,
+            Err(reason) => return Ok(fail(reason, &connection.kind)),
         };
-        let credentials = match self.config.opener.open(&connection.credentials) {
-            Ok(credentials) => credentials,
-            Err(e) => {
-                return Ok(fail(
-                    format!("the connection's credentials could not be read: {e}"),
-                    &connection.kind,
-                ));
-            }
-        };
-        let Some(event) = events.first() else {
+        let template_id = store
+            .notification_template(&delivery.notification_id)
+            .await?;
+        let Some(composed) = self
+            .compose_for(&delivery.workspace_id, &events, template_id.as_deref())
+            .await?
+        else {
             return Ok(fail("the event was deleted".into(), &connection.kind));
         };
-
-        let public_url = match &self.config.public_url {
-            Some(url) => Some(url.clone()),
-            None => store
-                .get_setting(&delivery.workspace_id, "public_url")
-                .await?
-                .filter(|url| !url.is_empty()),
-        };
-        let message = build_message(event, public_url.as_deref());
-        let config = ConnectionConfig {
-            settings: connection.settings,
-            credentials,
-        };
+        if let Some(warning) = &composed.warning {
+            if delivery.warning.as_ref() != Some(warning) {
+                store.set_delivery_warning(&delivery.id, warning).await?;
+            }
+        }
+        let _slot = self.slot(&connection.id).await;
         let outcome = connector
             .send(
                 &config,
-                &message,
+                &composed.message,
                 delivery.destination.as_deref(),
                 self.now(),
             )

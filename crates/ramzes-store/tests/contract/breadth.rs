@@ -120,6 +120,13 @@ async fn a_route_error_is_stored_and_cleared(store: Store) {
     );
     store.set_route_error(&r.id, None, 10).await.unwrap();
     assert!(store.route_errors(&ws).await.unwrap().is_empty());
+    // Saving the route forgets the error: it may have been fixed.
+    store
+        .set_route_error(&r.id, Some("again"), 11)
+        .await
+        .unwrap();
+    store.update_route(&ws, &r, 12).await.unwrap();
+    assert!(store.route_errors(&ws).await.unwrap().is_empty());
     // The expression and the target's template survive storage.
     assert_eq!(store.list_routes(&ws).await.unwrap()[0].targets, r.targets);
     assert_eq!(store.list_routes(&ws).await.unwrap()[0].r#match, r.r#match);

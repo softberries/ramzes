@@ -57,10 +57,11 @@ impl Store {
         Ok(())
     }
 
-    /// Replaces everything about a route except its position.
+    /// Replaces everything about a route except its position, and forgets its last error.
     pub async fn update_route(&self, workspace_id: &str, r: &Route, now_ms: i64) -> Result<()> {
         let sql = self.sql(
-            "UPDATE routes SET name = $1, enabled = $2, stop = $3, match_json = $4, targets_json = $5, updated_at = $6 \
+            "UPDATE routes SET name = $1, enabled = $2, stop = $3, match_json = $4, targets_json = $5, updated_at = $6, \
+             last_error = NULL, last_error_at = NULL \
              WHERE workspace_id = $7 AND id = $8",
         );
         let (match_json, targets_json) = (json(&r.r#match)?, json(&r.targets)?);

@@ -679,3 +679,288 @@ async fn a_delivery_past_its_maximum_age_is_given_up_without_sending() {
     );
     assert_eq!(w.engine.deliver_once().await.unwrap(), 0);
 }
+
+// ---- milestone 2: expressions, templates, connection limits ----
+
+impl World {
+    async fn route_with(
+        &self,
+        m: RouteMatch,
+        connection: &str,
+        template_id: Option<&str>,
+    ) -> String {
+        let r = Route {
+            id: new_id(),
+            name: "custom".into(),
+            enabled: true,
+            r#match: m,
+            targets: vec![Target {
+                connection_id: connection.into(),
+                destination: None,
+                template_id: template_id.map(str::to_owned),
+            }],
+            ..Route::default()
+        };
+        self.store.create_route(&self.ws, &r, 0).await.unwrap();
+        r.id
+    }
+
+    async fn template(&self, title: &str, body: &str) -> String {
+        let t = ramzes_core::Template {
+            id: new_id(),
+            name: "ops wording".into(),
+            title: title.into(),
+            body: body.into(),
+        };
+        self.store.create_template(&self.ws, &t, 0).await.unwrap();
+        t.id
+    }
+
+    async fn event_with_payload(&self, payload: serde_json::Value) -> Event {
+        let mut e = self.event("orders.failed").await;
+        // Stored again under a new id with the payload set.
+        e.id = new_id();
+        e.payload = payload;
+        self.store
+            .insert_events(std::slice::from_ref(&e), None)
+            .await
+            .unwrap();
+        e
+    }
+
+    async fn warning(&self, e: &Event) -> Option<String> {
+        let j = self.store.journey(&self.ws, &e.id).await.unwrap().unwrap();
+        j.notifications[0].deliveries[0].delivery.warning.clone()
+    }
+}
+
+fn expr(source: &str) -> RouteMatch {
+    RouteMatch {
+        expr: Some(source.into()),
+        ..RouteMatch::default()
+    }
+}
+
+#[tokio::test]
+async fn a_route_expression_selects_events_by_payload() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.route_with(expr("payload.amount > 100"), &c, None).await;
+    let big = w.event_with_payload(json!({"amount": 500})).await;
+    let small = w.event_with_payload(json!({"amount": 5})).await;
+    w.engine.route_once().await.unwrap();
+    w.engine.deliver_once().await.unwrap();
+    assert_eq!(w.states(&big).await, vec![DeliveryState::Delivered]);
+    assert!(w.states(&small).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_failing_route_expression_is_recorded_on_the_route_and_other_routes_still_fire() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    let broken = w
+        .route_with(expr("payload.amount | nosuchfilter"), &c, None)
+        .await;
+    w.route("*", &[(&c, None)]).await;
+    let e = w.event("orders.failed").await;
+    w.engine.route_once().await.unwrap();
+    assert_eq!(w.states(&e).await.len(), 1);
+    let errors = w.store.route_errors(&w.ws).await.unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].0, broken);
+    assert!(errors[0].1.contains("nosuchfilter"), "{}", errors[0].1);
+}
+
+#[tokio::test]
+async fn a_template_words_the_message() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    let t = w
+        .template(
+            "[{{ labels.env }}] {{ title }}",
+            "amount {{ payload.amount }}",
+        )
+        .await;
+    w.route_with(RouteMatch::default(), &c, Some(&t)).await;
+    let e = w.event_with_payload(json!({"amount": 7})).await;
+    w.engine.route_once().await.unwrap();
+    w.engine.deliver_once().await.unwrap();
+    let sent = w.connector.sent.lock().unwrap().clone();
+    let (message, _, _) = sent
+        .iter()
+        .find(|(m, _, _)| m.event_ids == vec![e.id.clone()])
+        .unwrap();
+    assert_eq!(message.title, "[prod] orders.failed happened");
+    assert_eq!(message.body.as_deref(), Some("amount 7"));
+    assert_eq!(w.warning(&e).await, None);
+}
+
+#[tokio::test]
+async fn a_template_that_fails_sends_the_default_wording_with_a_warning() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    let t = w.template("{{ title | nosuchfilter }}", "").await;
+    w.route_with(RouteMatch::default(), &c, Some(&t)).await;
+    let e = w.event("orders.failed").await;
+    w.engine.route_once().await.unwrap();
+    w.engine.deliver_once().await.unwrap();
+    assert_eq!(w.states(&e).await, vec![DeliveryState::Delivered]);
+    let sent = w.connector.sent.lock().unwrap().clone();
+    assert_eq!(sent[0].0.title, "orders.failed happened");
+    let warning = w.warning(&e).await.unwrap();
+    assert!(
+        warning.contains("ops wording") && warning.contains("default wording"),
+        "{warning}"
+    );
+}
+
+#[tokio::test]
+async fn a_deleted_template_sends_the_default_wording_with_a_warning() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    let t = w.template("x {{ title }}", "").await;
+    w.route_with(RouteMatch::default(), &c, Some(&t)).await;
+    let e = w.event("orders.failed").await;
+    w.engine.route_once().await.unwrap();
+    w.store.delete_template(&w.ws, &t).await.unwrap();
+    w.engine.deliver_once().await.unwrap();
+    assert_eq!(
+        w.connector.sent.lock().unwrap()[0].0.title,
+        "orders.failed happened"
+    );
+    assert!(w.warning(&e).await.unwrap().contains("deleted"));
+}
+
+/// A connector that takes a while and counts how many sends overlap.
+#[derive(Default)]
+struct Slow {
+    in_flight: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl Connector for Slow {
+    fn descriptor(&self) -> ConnectorDescriptor {
+        ConnectorDescriptor {
+            kind: "slow".into(),
+            name: "Slow".into(),
+            description: String::new(),
+            fields: Vec::new(),
+            capabilities: Capabilities {
+                rich: false,
+                update: false,
+                threads: false,
+                buttons: false,
+                max_len: 100,
+            },
+            destination_label: None,
+            custom: false,
+        }
+    }
+
+    fn validate(&self, _c: &ConnectionConfig) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn preview(
+        &self,
+        _c: &ConnectionConfig,
+        _m: &Message,
+        _d: Option<&str>,
+        _now: i64,
+    ) -> Result<Preview, String> {
+        Err("no preview".into())
+    }
+
+    async fn send(
+        &self,
+        _c: &ConnectionConfig,
+        _m: &Message,
+        _d: Option<&str>,
+        _now: i64,
+    ) -> SendOutcome {
+        let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        SendOutcome::Delivered {
+            external_ref: None,
+            status: Some(200),
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_connection_has_at_most_four_sends_in_flight() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::connect(&format!(
+        "sqlite://{}",
+        dir.path().join("ramzes.db").display()
+    ))
+    .await
+    .unwrap();
+    store.migrate().await.unwrap();
+    let ws = store.ensure_workspace(0).await.unwrap();
+    let source = store
+        .create_source(&ws, "s", "native", "hash", "rz_src_abcd", 0)
+        .await
+        .unwrap()
+        .id;
+    let slow = Arc::new(Slow::default());
+    let mut registry = Registry::builtin(Duration::from_secs(1));
+    registry.add(slow.clone());
+    let clock = Arc::new(FakeClock(AtomicI64::new(1_000_000)));
+    let engine = Engine::new(EngineConfig {
+        store: store.clone(),
+        registry,
+        opener: Arc::new(PlainOpener),
+        clock: clock.clone(),
+        policy: RetryPolicy::default(),
+        public_url: None,
+        lease_ms: 60_000,
+        jitter: Arc::new(|| 0.5),
+    });
+    let connection = Connection {
+        id: new_id(),
+        workspace_id: ws.clone(),
+        kind: "slow".into(),
+        name: "slow".into(),
+        settings: json!({}),
+        credentials: "{}".into(),
+        created_at: 0,
+        updated_at: 0,
+    };
+    store.create_connection(&connection).await.unwrap();
+    let route = Route {
+        id: new_id(),
+        name: "all".into(),
+        enabled: true,
+        targets: vec![Target {
+            connection_id: connection.id.clone(),
+            ..Target::default()
+        }],
+        ..Route::default()
+    };
+    store.create_route(&ws, &route, 0).await.unwrap();
+    let events: Vec<Event> = (0..12)
+        .map(|i| Event {
+            id: new_id(),
+            workspace_id: ws.clone(),
+            source_id: source.clone(),
+            topic: "a".into(),
+            severity: Severity::Info,
+            status: EventStatus::Firing,
+            title: format!("event {i}"),
+            body: None,
+            labels: Default::default(),
+            payload: json!(null),
+            dedup_key: None,
+            occurred_at: 0,
+            received_at: 0,
+        })
+        .collect();
+    store.insert_events(&events, None).await.unwrap();
+    engine.route_once().await.unwrap();
+    assert_eq!(engine.deliver_once().await.unwrap(), 12);
+    assert_eq!(slow.most.load(Ordering::SeqCst), 4);
+}

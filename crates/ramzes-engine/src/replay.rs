@@ -24,7 +24,8 @@ impl Engine {
             .await?
             .ok_or(EngineError::NotFound)?;
         let routes = store.list_routes(workspace_id).await?;
-        let dispatches = dispatches(&event, &routes, true);
+        let (dispatches, errors) = dispatches(&event, &routes, true);
+        self.note_route_errors(&errors).await;
         store
             .write_routing(&event, &dispatches, false, self.now())
             .await?;

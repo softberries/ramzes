@@ -8,8 +8,17 @@ use crate::{Change, Engine, Result};
 /// Events routed per pass.
 const BATCH: i64 = 100;
 
-pub(crate) fn dispatches(event: &Event, routes: &[Route], replay: bool) -> Vec<NewDispatch> {
-    route_event(event, routes)
+/// How often the same error of the same route is written again.
+const ERROR_REWRITE_MS: i64 = 60_000;
+
+/// The deliveries an event's routing asks for, and the routes whose expression failed.
+pub(crate) fn dispatches(
+    event: &Event,
+    routes: &[Route],
+    replay: bool,
+) -> (Vec<NewDispatch>, Vec<(String, String)>) {
+    let routed = route_event(event, routes);
+    let dispatches = routed
         .matched
         .into_iter()
         .map(|m| NewDispatch {
@@ -22,7 +31,8 @@ pub(crate) fn dispatches(event: &Event, routes: &[Route], replay: bool) -> Vec<N
             template_id: m.target.template_id.clone(),
             replay,
         })
-        .collect()
+        .collect();
+    (dispatches, routed.errors)
 }
 
 impl Engine {
@@ -40,7 +50,8 @@ impl Engine {
                 routes_by_workspace.insert(event.workspace_id.clone(), routes);
             }
             let routes = &routes_by_workspace[&event.workspace_id];
-            let dispatches = dispatches(event, routes, false);
+            let (dispatches, errors) = dispatches(event, routes, false);
+            self.note_route_errors(&errors).await;
             // On failure the event keeps its lease and is routed again once it expires.
             if let Err(e) = store
                 .write_routing(event, &dispatches, true, self.now())
@@ -58,5 +69,33 @@ impl Engine {
             self.delivery_wake.notify_one();
         }
         Ok(events.len())
+    }
+
+    /// Stores why routes failed to evaluate, so the UI can show it on the route.
+    pub(crate) async fn note_route_errors(&self, errors: &[(String, String)]) {
+        let now = self.now();
+        for (route_id, reason) in errors {
+            let is_news = {
+                let mut known = self.route_errors.lock().unwrap_or_else(|p| p.into_inner());
+                let stale = known
+                    .get(route_id)
+                    .is_none_or(|(last, at)| last != reason || now - at >= ERROR_REWRITE_MS);
+                if stale {
+                    known.insert(route_id.clone(), (reason.clone(), now));
+                }
+                stale
+            };
+            if !is_news {
+                continue;
+            }
+            if let Err(e) = self
+                .config
+                .store
+                .set_route_error(route_id, Some(reason), now)
+                .await
+            {
+                tracing::warn!(route_id = %route_id, error = %e, "could not record a route error");
+            }
+        }
     }
 }

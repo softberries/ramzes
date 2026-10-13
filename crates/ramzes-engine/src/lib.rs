@@ -4,17 +4,21 @@
 //! the result; if it dies in between, the lease expires and another pass picks the rows up.
 
 mod delivery_worker;
+mod render;
 mod replay;
 mod retention;
 mod route_worker;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ramzes_connectors::Registry;
 use ramzes_core::RetryPolicy;
 use ramzes_store::{DeliveryState, Store, StoreError};
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{Notify, Semaphore, broadcast};
+
+pub use render::{Composed, compose};
 use tokio_util::sync::CancellationToken;
 
 pub trait Clock: Send + Sync {
@@ -92,6 +96,10 @@ pub struct Engine {
     route_wake: Notify,
     delivery_wake: Notify,
     changes: broadcast::Sender<Change>,
+    /// One semaphore per connection, bounding how many sends it has in flight.
+    connection_slots: Mutex<HashMap<String, Arc<Semaphore>>>,
+    /// The last error written for each route and when, so the same error is not written per event.
+    route_errors: Mutex<HashMap<String, (String, i64)>>,
 }
 
 /// Pause after a failed pass, so a broken database is not hammered.
@@ -105,6 +113,8 @@ impl Engine {
             route_wake: Notify::new(),
             delivery_wake: Notify::new(),
             changes,
+            connection_slots: Mutex::default(),
+            route_errors: Mutex::default(),
         })
     }
 
