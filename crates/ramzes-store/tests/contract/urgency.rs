@@ -7,6 +7,8 @@ crate::contract!(
     an_escalation_step_adds_deliveries_to_other_connections,
     resolving_tells_the_listed_targets,
     the_first_reference_of_a_place_is_remembered,
+    retention_leaves_events_that_still_have_work_waiting,
+    a_failure_that_was_sent_again_is_no_longer_listed,
 );
 
 async fn a_route_keeps_its_escalation_chain(store: Store) {
@@ -241,4 +243,155 @@ async fn the_first_reference_of_a_place_is_remembered(store: Store) {
     let refs = store.message_refs(&d.notification_id).await.unwrap();
     assert_eq!(refs.len(), 2);
     assert_eq!(refs[0], ("c1".to_string(), None, "C1:111.1".to_string()));
+}
+
+async fn retention_leaves_events_that_still_have_work_waiting(store: Store) {
+    use ramzes_core::shaping::NotificationState;
+    let (ws, source) = crate::seed(&store).await;
+    let event = |title: &str| {
+        let mut e = crate::event(&ws, &source, "orders.failed", 100);
+        e.title = title.into();
+        e
+    };
+    let (done, retrying, grouping, unrouted) = (
+        event("done"),
+        event("retrying"),
+        event("grouping"),
+        event("unrouted"),
+    );
+    store
+        .insert_events(
+            &[
+                done.clone(),
+                retrying.clone(),
+                grouping.clone(),
+                unrouted.clone(),
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+    let dispatch = |state, delivery: bool| NewDispatch {
+        notification_id: ramzes_core::new_id(),
+        delivery_id: delivery.then(ramzes_core::new_id),
+        route_id: "r".into(),
+        route_name: "r".into(),
+        connection_id: "c1".into(),
+        target_key: "r|c1|".into(),
+        state,
+        ..NewDispatch::default()
+    };
+    store
+        .write_routing(
+            &done,
+            &[dispatch(NotificationState::Sent, true)],
+            &[],
+            true,
+            100,
+        )
+        .await
+        .unwrap();
+    let claimed = store
+        .claim_due_deliveries(100, 100_000, 10)
+        .await
+        .unwrap()
+        .remove(0);
+    let attempt = Attempt {
+        id: ramzes_core::new_id(),
+        delivery_id: claimed.id.clone(),
+        started_at: 100,
+        duration_ms: 1,
+        outcome: "delivered".into(),
+        status: Some(200),
+        detail: None,
+    };
+    store
+        .finish_attempt(
+            &claimed,
+            &attempt,
+            &Finish::Delivered { external_ref: None },
+            100,
+        )
+        .await
+        .unwrap();
+    store
+        .write_routing(
+            &retrying,
+            &[dispatch(NotificationState::Sent, true)],
+            &[],
+            true,
+            100,
+        )
+        .await
+        .unwrap();
+    store
+        .write_routing(
+            &grouping,
+            &[dispatch(NotificationState::Grouping, false)],
+            &[],
+            true,
+            100,
+        )
+        .await
+        .unwrap();
+
+    let deleted = store
+        .delete_events_before(&ws, 1_000_000, None, &[], 100)
+        .await
+        .unwrap();
+    assert_eq!(deleted, 2);
+    let filter = ramzes_store::EventFilter {
+        limit: 10,
+        ..Default::default()
+    };
+    let mut left: Vec<String> = store
+        .list_events(&ws, &filter)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.event.title)
+        .collect();
+    left.sort();
+    assert_eq!(left, vec!["grouping", "retrying"]);
+}
+
+async fn a_failure_that_was_sent_again_is_no_longer_listed(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let first = sent(&store, &ws, &source).await;
+    let second = sent(&store, &ws, &source).await;
+    for delivery in store.claim_due_deliveries(100, 100_000, 10).await.unwrap() {
+        let attempt = Attempt {
+            id: ramzes_core::new_id(),
+            delivery_id: delivery.id.clone(),
+            started_at: 100,
+            duration_ms: 1,
+            outcome: "failed".into(),
+            status: Some(400),
+            detail: None,
+        };
+        store
+            .finish_attempt(
+                &delivery,
+                &attempt,
+                &Finish::Failed {
+                    error: "HTTP 400".into(),
+                },
+                100,
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(store.list_failures(&ws, 10).await.unwrap().len(), 2);
+    store
+        .requeue_delivery(
+            &ws,
+            first.delivery_id.as_deref().unwrap(),
+            &ramzes_core::new_id(),
+            200,
+        )
+        .await
+        .unwrap();
+    let listed = store.list_failures(&ws, 10).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].delivery.id, second.delivery_id.unwrap());
 }

@@ -28,7 +28,7 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-pub use auth::Auth;
+pub use auth::{Auth, LoginGuard};
 pub use config::{ImportError, import_yaml, refresh_custom_connectors, to_yaml, validate_config};
 pub use crypto::SecretKey;
 pub use error::ApiError;
@@ -44,6 +44,8 @@ pub struct AppState {
     pub workspace_id: String,
     /// Mark the session cookie `Secure`. Set when ramzes is served over HTTPS.
     pub secure_cookies: bool,
+    /// Counts wrong passwords per email. Start with `Default::default()`.
+    pub login_guard: Arc<LoginGuard>,
 }
 
 #[derive(OpenApi)]

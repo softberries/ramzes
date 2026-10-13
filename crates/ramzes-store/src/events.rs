@@ -521,6 +521,16 @@ impl Store {
         if !except_topics.is_empty() {
             select.push(" AND topic NOT IN ").list(except_topics);
         }
+        // An event that still has something waiting is kept: a delivery being retried, or a
+        // notification that is collecting or held and has yet to be sent.
+        select.push(
+            " AND NOT EXISTS (SELECT 1 FROM notification_events ne \
+             JOIN deliveries d ON d.notification_id = ne.notification_id \
+             WHERE ne.event_id = events.id AND d.state IN ('pending', 'in_progress')) \
+             AND NOT EXISTS (SELECT 1 FROM notification_events ne \
+             JOIN notifications n ON n.id = ne.notification_id \
+             WHERE ne.event_id = events.id AND n.state IN ('grouping', 'held'))",
+        );
         select.push(" ORDER BY id LIMIT ").int(limit);
         let text = self.sql(&select.text).into_owned();
         let ids: Vec<String> = with_db!(self, |pool| {

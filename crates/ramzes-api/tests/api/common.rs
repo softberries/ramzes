@@ -189,6 +189,7 @@ impl Api {
             clock: clock.clone(),
             workspace_id: ws.clone(),
             secure_cookies: false,
+            login_guard: Default::default(),
         };
         let (api, openapi) = ramzes_api::router(state);
         let ingest = ramzes_ingest::router(IngestState::new(

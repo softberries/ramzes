@@ -121,6 +121,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         clock,
         workspace_id: workspace_id.clone(),
         secure_cookies: config.secure_cookies,
+        login_guard: Default::default(),
     });
     let app = api
         .merge(ramzes_ingest::router(ingest))

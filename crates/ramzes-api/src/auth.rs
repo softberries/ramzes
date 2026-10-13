@@ -232,25 +232,85 @@ pub(crate) async fn setup(
 /// Sign in with email and password.
 #[utoipa::path(
     post, path = "/api/auth/login", tag = "auth", request_body = Credentials,
-    responses((status = 200, body = Me), (status = 401, body = ErrorBody))
+    responses((status = 200, body = Me), (status = 401, body = ErrorBody), (status = 429, body = ErrorBody))
 )]
 pub(crate) async fn login(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
 ) -> Result<Response, ApiError> {
-    let user = state
-        .store
-        .user_by_email(&body.email.trim().to_lowercase())
-        .await?;
+    let email = body.email.trim().to_lowercase();
+    let now = state.clock.now_ms();
+    if let Some(wait_ms) = state.login_guard.locked_for(&email, now) {
+        let minutes = (wait_ms + 59_999) / 60_000;
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_attempts",
+            format!("too many wrong passwords for this email; try again in {minutes} minutes"),
+        ));
+    }
+    let user = state.store.user_by_email(&email).await?;
     let hash = user.as_ref().map(|u| u.password_hash.clone());
     let verified = verify_password(hash, body.password).await;
     match user {
-        Some(user) if verified => start_session(&state, &user).await,
-        _ => Err(ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "wrong email or password",
-        )),
+        Some(user) if verified => {
+            state.login_guard.succeeded(&email);
+            start_session(&state, &user).await
+        }
+        _ => {
+            state.login_guard.failed(&email, now);
+            Err(ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "wrong email or password",
+            ))
+        }
+    }
+}
+
+/// Wrong passwords allowed per email within [`LOCK_WINDOW_MS`].
+const ATTEMPTS: usize = 10;
+const LOCK_WINDOW_MS: i64 = 15 * 60_000;
+/// Emails tracked at once, so a flood of made-up addresses cannot grow the map without bound.
+const TRACKED: usize = 10_000;
+
+/// Slows down password guessing: after ten wrong passwords for an email within fifteen
+/// minutes, sign-in for that email is refused until the oldest of them is that old.
+#[derive(Default)]
+pub struct LoginGuard {
+    failures: std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>,
+}
+
+impl LoginGuard {
+    fn recent(times: &mut Vec<i64>, now_ms: i64) {
+        times.retain(|at| now_ms - at < LOCK_WINDOW_MS);
+    }
+
+    /// Milliseconds until sign-in is allowed again for `email`, when it is locked.
+    fn locked_for(&self, email: &str, now_ms: i64) -> Option<i64> {
+        let mut failures = self.failures.lock().unwrap_or_else(|p| p.into_inner());
+        let times = failures.get_mut(email)?;
+        Self::recent(times, now_ms);
+        (times.len() >= ATTEMPTS).then(|| times[0] + LOCK_WINDOW_MS - now_ms)
+    }
+
+    fn failed(&self, email: &str, now_ms: i64) {
+        let mut failures = self.failures.lock().unwrap_or_else(|p| p.into_inner());
+        if failures.len() >= TRACKED && !failures.contains_key(email) {
+            failures.retain(|_, times| times.iter().any(|at| now_ms - at < LOCK_WINDOW_MS));
+            if failures.len() >= TRACKED {
+                return;
+            }
+        }
+        let times = failures.entry(email.to_owned()).or_default();
+        Self::recent(times, now_ms);
+        times.push(now_ms);
+    }
+
+    fn succeeded(&self, email: &str) {
+        self.failures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(email);
     }
 }
 

@@ -464,7 +464,8 @@ impl Store {
         })
     }
 
-    /// Failed and dead deliveries, newest first.
+    /// Failed and dead deliveries, newest first. One that was sent again is left out: the
+    /// newer delivery speaks for it.
     pub async fn list_failures(&self, workspace_id: &str, limit: i64) -> Result<Vec<FailureRow>> {
         let cols = DELIVERY_COLS
             .split(", ")
@@ -480,7 +481,10 @@ impl Store {
                  JOIN events e ON e.id = \
                    (SELECT MIN(ne.event_id) FROM notification_events ne WHERE ne.notification_id = n.id) \
                  LEFT JOIN connections c ON c.id = d.connection_id \
-                 WHERE d.workspace_id = $1 AND d.state IN ('failed', 'dead') ORDER BY d.id DESC LIMIT $2"
+                 WHERE d.workspace_id = $1 AND d.state IN ('failed', 'dead') \
+                 AND NOT EXISTS (SELECT 1 FROM deliveries later WHERE later.notification_id = d.notification_id \
+                 AND later.connection_id = d.connection_id AND later.id > d.id) \
+                 ORDER BY d.id DESC LIMIT $2"
             ))
             .into_owned();
         with_db!(self, |pool| {

@@ -167,3 +167,43 @@ async fn a_cookie_request_that_changes_state_needs_the_request_header() {
     // The session is still valid.
     assert_eq!(api.get("/api/auth/me").await.0, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn repeated_wrong_passwords_lock_sign_in_for_that_email_for_a_while() {
+    use std::sync::atomic::Ordering;
+    let api = Api::signed_in().await;
+    api.forget_cookie();
+    let attempt = |password: &'static str| {
+        api.post(
+            "/api/auth/login",
+            json!({"email": EMAIL, "password": password}),
+        )
+    };
+    for _ in 0..10 {
+        assert_eq!(attempt("wrong password").await.0, StatusCode::UNAUTHORIZED);
+    }
+    // Even the right password is refused now, with a hint of how long to wait.
+    let (status, body) = attempt(PASSWORD).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert!(
+        body["message"].as_str().unwrap().contains("minutes"),
+        "{body}"
+    );
+    // Another email is not affected.
+    let (status, _) = api
+        .post(
+            "/api/auth/login",
+            json!({"email": "other@example.com", "password": "x"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    api.clock.0.fetch_add(15 * 60_000 + 1, Ordering::SeqCst);
+    assert_eq!(attempt(PASSWORD).await.0, StatusCode::OK);
+    // A success clears the count.
+    api.forget_cookie();
+    for _ in 0..9 {
+        attempt("wrong password").await;
+    }
+    assert_eq!(attempt(PASSWORD).await.0, StatusCode::OK);
+}
