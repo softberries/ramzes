@@ -211,3 +211,89 @@ pub(crate) async fn replay_failures(
     }
     Ok(Json(result))
 }
+
+/// The message one target of an event received, as it would be worded and sent now.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct MessagePreview {
+    notification_id: String,
+    connection_id: String,
+    /// Absent when the connection was deleted.
+    connection_name: Option<String>,
+    connector_kind: Option<String>,
+    destination: Option<String>,
+    title: String,
+    body: Option<String>,
+    /// For example: the route's template failed and the default wording was used.
+    warning: Option<String>,
+    /// The request the connector makes, with secrets masked.
+    request: Option<ramzes_connectors::Preview>,
+    /// Why the request cannot be shown.
+    request_error: Option<String>,
+}
+
+/// The message each target of an event receives: its wording and the request that carries it.
+#[utoipa::path(
+    get, path = "/api/events/{id}/preview", tag = "events", params(("id" = String, Path)),
+    responses((status = 200, body = Vec<MessagePreview>), (status = 404, body = ErrorBody))
+)]
+pub(crate) async fn preview(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<MessagePreview>>, ApiError> {
+    let ws = &auth.workspace_id;
+    let journey = state
+        .store
+        .journey(ws, &id)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let now = state.clock.now_ms();
+    let mut previews = Vec::with_capacity(journey.notifications.len());
+    for n in journey.notifications {
+        let events = state.store.notification_events(&n.id).await?;
+        let template_id = state.store.notification_template(&n.id).await?;
+        let Some(composed) = state
+            .engine
+            .compose_for(ws, &events, template_id.as_deref())
+            .await?
+        else {
+            continue;
+        };
+        let connection = state.store.get_connection(ws, &n.connection_id).await?;
+        let (mut request, mut request_error) = (None, None);
+        match &connection {
+            None => request_error = Some("the connection was deleted".to_owned()),
+            Some(connection) => {
+                let shown =
+                    state
+                        .engine
+                        .connector_for(connection)
+                        .and_then(|(connector, config)| {
+                            connector.preview(
+                                &config,
+                                &composed.message,
+                                n.destination.as_deref(),
+                                now,
+                            )
+                        });
+                match shown {
+                    Ok(preview) => request = Some(preview),
+                    Err(reason) => request_error = Some(reason),
+                }
+            }
+        }
+        previews.push(MessagePreview {
+            notification_id: n.id,
+            connection_id: n.connection_id,
+            connector_kind: connection.as_ref().map(|c| c.kind.clone()),
+            connection_name: connection.map(|c| c.name),
+            destination: n.destination,
+            title: composed.message.title,
+            body: composed.message.body,
+            warning: composed.warning,
+            request,
+            request_error,
+        });
+    }
+    Ok(Json(previews))
+}

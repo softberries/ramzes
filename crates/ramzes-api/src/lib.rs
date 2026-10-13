@@ -1,14 +1,18 @@
 //! The admin API the web UI and automation talk to.
 
 mod auth;
+mod config;
 mod connections;
 mod crypto;
+mod definitions;
 mod error;
 mod events;
 mod routes;
 mod settings;
 mod sources;
 mod stream;
+mod templates;
+mod tester;
 
 use std::sync::Arc;
 
@@ -21,6 +25,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::Auth;
+pub use config::{ImportError, import_yaml, refresh_custom_connectors, to_yaml, validate_config};
 pub use crypto::SecretKey;
 pub use error::ApiError;
 
@@ -54,15 +59,25 @@ fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(sources::remove))
         .routes(routes!(sources::rotate))
         .routes(routes!(sources::requests))
+        .routes(routes!(sources::kinds))
+        .routes(routes!(sources::set_mapping))
+        .routes(routes!(sources::preview_mapping))
         .routes(routes!(connections::connectors))
         .routes(routes!(connections::list, connections::create))
         .routes(routes!(connections::update, connections::remove))
         .routes(routes!(connections::test))
+        .routes(routes!(definitions::list, definitions::create))
+        .routes(routes!(definitions::update, definitions::remove))
+        .routes(routes!(templates::list, templates::create))
+        .routes(routes!(templates::preview))
+        .routes(routes!(templates::update, templates::remove))
         .routes(routes!(routes::list, routes::create))
         .routes(routes!(routes::reorder))
+        .routes(routes!(tester::test))
         .routes(routes!(routes::update, routes::remove))
         .routes(routes!(events::feed))
         .routes(routes!(events::journey))
+        .routes(routes!(events::preview))
         .routes(routes!(events::replay_event))
         .routes(routes!(events::failures))
         .routes(routes!(events::replay_failures))
@@ -72,6 +87,11 @@ fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(settings::delete_user))
         .routes(routes!(settings::tokens, settings::create_token))
         .routes(routes!(settings::delete_token))
+        .routes(routes!(config::revisions))
+        .routes(routes!(config::revision))
+        .routes(routes!(config::rollback))
+        .routes(routes!(config::export))
+        .routes(routes!(config::import))
         .routes(routes!(stream::stream))
 }
 

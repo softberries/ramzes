@@ -9,14 +9,14 @@ use serde_json::{Value, json};
 use crate::common::Api;
 
 /// Creates a scripted connection and returns its id.
-async fn connection(api: &Api, name: &str) -> String {
+pub(crate) async fn connection(api: &Api, name: &str) -> String {
     let body = json!({"kind": "scripted", "name": name, "settings": {"room": "ops"}, "credentials": {"token": "t0p-secret"}});
     let (status, created) = api.post("/api/connections", body).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     created["id"].as_str().unwrap().to_owned()
 }
 
-async fn catch_all_route(api: &Api, connection_id: &str) -> String {
+pub(crate) async fn catch_all_route(api: &Api, connection_id: &str) -> String {
     let body =
         json!({"name": "everything", "match": {}, "targets": [{"connection_id": connection_id}]});
     let (status, created) = api.post("/api/routes", body).await;
@@ -25,7 +25,7 @@ async fn catch_all_route(api: &Api, connection_id: &str) -> String {
 }
 
 /// Creates a source and returns `(id, key)`.
-async fn source(api: &Api) -> (String, String) {
+pub(crate) async fn source(api: &Api) -> (String, String) {
     let (status, created) = api
         .post("/api/sources", json!({"name": "orders-api"}))
         .await;
@@ -37,7 +37,7 @@ async fn source(api: &Api) -> (String, String) {
 }
 
 /// Sends events through the real ingest endpoint and returns their ids.
-async fn ingest(api: &Api, key: &str, body: Value) -> Vec<String> {
+pub(crate) async fn ingest(api: &Api, key: &str, body: Value) -> Vec<String> {
     let request = Request::post("/v1/events")
         .header(header::AUTHORIZATION, format!("Bearer {key}"))
         .header(header::CONTENT_TYPE, "application/json")
@@ -53,7 +53,7 @@ async fn ingest(api: &Api, key: &str, body: Value) -> Vec<String> {
         .collect()
 }
 
-async fn process(api: &Api) {
+pub(crate) async fn process(api: &Api) {
     api.engine.route_once().await.unwrap();
     api.engine.deliver_once().await.unwrap();
 }
@@ -107,6 +107,25 @@ async fn every_endpoint_requires_authentication() {
         (Method::POST, "/api/tokens"),
         (Method::DELETE, "/api/tokens/x"),
         (Method::GET, "/api/stream"),
+        (Method::GET, "/api/source-kinds"),
+        (Method::PUT, "/api/sources/x/mapping"),
+        (Method::POST, "/api/sources/preview-mapping"),
+        (Method::GET, "/api/connector-definitions"),
+        (Method::POST, "/api/connector-definitions"),
+        (Method::PUT, "/api/connector-definitions/x"),
+        (Method::DELETE, "/api/connector-definitions/x"),
+        (Method::GET, "/api/templates"),
+        (Method::POST, "/api/templates"),
+        (Method::POST, "/api/templates/preview"),
+        (Method::PUT, "/api/templates/x"),
+        (Method::DELETE, "/api/templates/x"),
+        (Method::POST, "/api/routes/test"),
+        (Method::GET, "/api/events/x/preview"),
+        (Method::GET, "/api/config/revisions"),
+        (Method::GET, "/api/config/revisions/x"),
+        (Method::POST, "/api/config/revisions/x/rollback"),
+        (Method::GET, "/api/config/export"),
+        (Method::POST, "/api/config/import"),
     ];
     for (method, path) in endpoints {
         let (status, body) = api.call(method.clone(), path, Some(json!({}))).await;
@@ -146,6 +165,21 @@ async fn the_openapi_document_lists_every_path() {
         ("/api/tokens", vec!["get", "post"]),
         ("/api/tokens/{id}", vec!["delete"]),
         ("/api/stream", vec!["get"]),
+        ("/api/source-kinds", vec!["get"]),
+        ("/api/sources/{id}/mapping", vec!["put"]),
+        ("/api/sources/preview-mapping", vec!["post"]),
+        ("/api/connector-definitions", vec!["get", "post"]),
+        ("/api/connector-definitions/{id}", vec!["put", "delete"]),
+        ("/api/templates", vec!["get", "post"]),
+        ("/api/templates/preview", vec!["post"]),
+        ("/api/templates/{id}", vec!["put", "delete"]),
+        ("/api/routes/test", vec!["post"]),
+        ("/api/events/{id}/preview", vec!["get"]),
+        ("/api/config/revisions", vec!["get"]),
+        ("/api/config/revisions/{id}", vec!["get"]),
+        ("/api/config/revisions/{id}/rollback", vec!["post"]),
+        ("/api/config/export", vec!["get"]),
+        ("/api/config/import", vec!["post"]),
     ];
     for (path, methods) in expected {
         let item = paths
@@ -157,7 +191,7 @@ async fn the_openapi_document_lists_every_path() {
     }
     assert_eq!(
         paths.len(),
-        27,
+        42,
         "undocumented or unexpected paths: {:?}",
         paths.keys().collect::<Vec<_>>()
     );
@@ -240,8 +274,14 @@ async fn connectors_are_described() {
         .iter()
         .map(|c| c["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(kinds, vec!["scripted", "slack", "webhook"]);
-    let slack = &connectors[1];
+    assert_eq!(
+        kinds,
+        vec![
+            "discord", "email", "ntfy", "pushover", "scripted", "slack", "teams", "telegram",
+            "webhook"
+        ]
+    );
+    let slack = &connectors[5];
     assert_eq!(slack["fields"][0]["key"], json!("webhook_url"));
     assert_eq!(slack["fields"][0]["secret"], json!(true));
 }

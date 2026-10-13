@@ -28,6 +28,7 @@ tokio-stream.workspace = true
 tracing.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
+serde_norway = "0.9"
 
 [dev-dependencies]
 async-trait.workspace = true

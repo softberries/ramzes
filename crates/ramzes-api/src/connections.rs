@@ -3,11 +3,12 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use ramzes_connectors::{ConnectionConfig, ConnectorDescriptor, SendOutcome};
 use ramzes_core::{EventStatus, Message, Severity, new_id};
-use ramzes_store::Connection;
+use ramzes_store::{Connection, ConnectionHealth};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use utoipa::ToSchema;
 
+use crate::config::record;
 use crate::error::ErrorBody;
 use crate::sources::clean_name;
 use crate::{ApiError, AppState, Auth};
@@ -23,9 +24,13 @@ pub(crate) struct ConnectionView {
     settings: Value,
     /// Whether secret fields have been stored. Their values are never returned.
     has_credentials: bool,
+    /// How its deliveries of the last 24 hours went. Absent when there were none.
+    health: Option<ConnectionHealth>,
     created_at: i64,
     updated_at: i64,
 }
+
+const HEALTH_WINDOW_MS: i64 = 24 * 3_600_000;
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct NewConnection {
@@ -71,6 +76,7 @@ fn view(state: &AppState, c: Connection) -> ConnectionView {
         name: c.name,
         settings: c.settings,
         has_credentials,
+        health: None,
         created_at: c.created_at,
         updated_at: c.updated_at,
     }
@@ -115,8 +121,23 @@ pub(crate) async fn list(
     auth: Auth,
 ) -> Result<Json<Vec<ConnectionView>>, ApiError> {
     let connections = state.store.list_connections(&auth.workspace_id).await?;
+    let since = state.clock.now_ms() - HEALTH_WINDOW_MS;
+    let mut health = state
+        .store
+        .connection_health(&auth.workspace_id, since)
+        .await?;
     Ok(Json(
-        connections.into_iter().map(|c| view(&state, c)).collect(),
+        connections
+            .into_iter()
+            .map(|c| {
+                let mut shown = view(&state, c);
+                shown.health = health
+                    .iter()
+                    .position(|h| h.connection_id == shown.id)
+                    .map(|at| health.swap_remove(at));
+                shown
+            })
+            .collect(),
     ))
 }
 
@@ -140,7 +161,7 @@ pub(crate) async fn create(
     let now = state.clock.now_ms();
     let connection = Connection {
         id: new_id(),
-        workspace_id: auth.workspace_id,
+        workspace_id: auth.workspace_id.clone(),
         kind: body.kind,
         name,
         settings: body.settings,
@@ -149,6 +170,12 @@ pub(crate) async fn create(
         updated_at: now,
     };
     state.store.create_connection(&connection).await?;
+    record(
+        &state,
+        &auth,
+        format!("added connection {}", connection.name),
+    )
+    .await;
     Ok((StatusCode::CREATED, Json(view(&state, connection))))
 }
 
@@ -183,6 +210,12 @@ pub(crate) async fn update(
     connection.credentials = state.key.seal(&credentials);
     connection.updated_at = state.clock.now_ms();
     state.store.update_connection(&connection).await?;
+    record(
+        &state,
+        &auth,
+        format!("changed connection {}", connection.name),
+    )
+    .await;
     Ok(Json(view(&state, connection)))
 }
 
@@ -200,6 +233,7 @@ pub(crate) async fn remove(
         .store
         .delete_connection(&auth.workspace_id, &id)
         .await?;
+    record(&state, &auth, "deleted a connection").await;
     Ok(StatusCode::NO_CONTENT)
 }
 

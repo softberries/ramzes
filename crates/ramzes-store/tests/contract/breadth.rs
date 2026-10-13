@@ -17,6 +17,7 @@ crate::contract!(
     connection_health_counts_recent_deliveries,
     applying_a_config_replaces_routes_templates_and_definitions,
     applying_a_config_keeps_source_keys,
+    feed_rows_name_their_targets,
 );
 
 fn template(name: &str) -> Template {
@@ -443,5 +444,47 @@ async fn applying_a_config_keeps_source_keys(store: Store) {
     assert_eq!(
         store.source_by_key_hash("hash").await.unwrap().unwrap().id,
         s.id
+    );
+}
+
+async fn feed_rows_name_their_targets(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    store
+        .create_connection(&connection(&ws, "a", "x"))
+        .await
+        .unwrap();
+    let event = crate::event(&ws, &source, "orders.failed", 10);
+    store
+        .insert_events(std::slice::from_ref(&event), None)
+        .await
+        .unwrap();
+    let to = |connection: &str| NewDispatch {
+        notification_id: ramzes_core::new_id(),
+        delivery_id: ramzes_core::new_id(),
+        route_id: "r".into(),
+        route_name: "r".into(),
+        connection_id: connection.into(),
+        destination: None,
+        template_id: None,
+        replay: false,
+    };
+    store
+        .write_routing(&event, &[to("a"), to("a"), to("gone")], true, 10)
+        .await
+        .unwrap();
+    let quiet = crate::event(&ws, &source, "quiet", 11);
+    store
+        .insert_events(std::slice::from_ref(&quiet), None)
+        .await
+        .unwrap();
+    let filter = ramzes_store::EventFilter {
+        limit: 10,
+        ..Default::default()
+    };
+    let rows = store.list_events(&ws, &filter).await.unwrap();
+    assert_eq!(rows[0].targets, Vec::<String>::new());
+    assert_eq!(
+        rows[1].targets,
+        vec!["hook a".to_string(), "deleted connection".to_string()]
     );
 }

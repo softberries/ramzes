@@ -56,6 +56,8 @@ pub struct EventRow {
     pub deliveries_total: i64,
     pub deliveries_delivered: i64,
     pub deliveries_failed: i64,
+    /// Names of the connections the event was sent to, in order of first use.
+    pub targets: Vec<String>,
 }
 
 pub(crate) const EVENT_COLS: &str = "id, workspace_id, source_id, topic, severity, status, title, body, payload, dedup_key, \
@@ -314,6 +316,34 @@ impl Store {
         Ok(self.with_labels(raw.into_iter().collect()).await?.pop())
     }
 
+    /// For each event, the names of the connections it was dispatched to. A deleted connection
+    /// is shown as "deleted connection".
+    async fn event_targets(&self, event_ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
+        let mut by_event: HashMap<String, Vec<String>> = HashMap::new();
+        if event_ids.is_empty() {
+            return Ok(by_event);
+        }
+        let mut sql = Sql::new(
+            "SELECT ne.event_id, COALESCE(c.name, 'deleted connection') AS name FROM notification_events ne \
+             JOIN notifications n ON n.id = ne.notification_id \
+             LEFT JOIN connections c ON c.id = n.connection_id WHERE ne.event_id IN ",
+        );
+        sql.list(event_ids).push(" ORDER BY n.id");
+        let text = self.sql(&sql.text).into_owned();
+        let rows: Vec<(String, String)> = with_db!(self, |pool| {
+            bind_args!(sqlx::query_as(AssertSqlSafe(text.as_str())), sql.args)
+                .fetch_all(pool)
+                .await
+        })?;
+        for (event_id, name) in rows {
+            let names = by_event.entry(event_id).or_default();
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        Ok(by_event)
+    }
+
     /// A page of events, newest first.
     pub async fn list_events(&self, workspace_id: &str, f: &EventFilter) -> Result<Vec<EventRow>> {
         let cols = EVENT_COLS
@@ -420,10 +450,13 @@ impl Store {
 
         let (raw, extras): (Vec<RawEvent>, Vec<Extra>) = rows.into_iter().unzip();
         let events = self.with_labels(raw).await?;
+        let ids: Vec<String> = events.iter().map(|e| e.id.clone()).collect();
+        let mut targets = self.event_targets(&ids).await?;
         Ok(events
             .into_iter()
             .zip(extras)
             .map(|(event, x)| EventRow {
+                targets: targets.remove(&event.id).unwrap_or_default(),
                 event,
                 routed: x.routed,
                 route_count: x.route_count,

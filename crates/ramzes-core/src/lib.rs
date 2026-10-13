@@ -19,4 +19,6 @@ pub use keys::{generate_key, hash_key};
 pub use mapping::{FieldMap, Mapping, Verify};
 pub use matching::{LabelCond, MatchError, RouteMatch};
 pub use message::{Message, Template, apply_template, build_message};
-pub use routing::{Matched, Route, Routed, Target, route_event};
+pub use routing::{
+    Matched, Route, RouteOutcome, RouteTrace, Routed, Target, route_event, trace_routes,
+};

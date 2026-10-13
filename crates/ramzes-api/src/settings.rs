@@ -158,6 +158,7 @@ pub(crate) async fn put(
         .store
         .set_setting(ws, "public_url", &public_url)
         .await?;
+    crate::config::record(&state, &auth, "changed settings").await;
     Ok(Json(load(&state, ws).await?))
 }
 

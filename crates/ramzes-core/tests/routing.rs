@@ -270,3 +270,32 @@ fn no_match_returns_empty() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_trace_says_what_happened_at_every_route() {
+    use ramzes_core::{RouteOutcome, trace_routes};
+    let mut stop = route("stop", 2, topic("orders.*"), &["c1"]);
+    stop.stop = true;
+    let mut disabled = route("disabled", 1, topic("*"), &["c1"]);
+    disabled.enabled = false;
+    let mut broken = route("broken", 0, topic("*"), &["c1"]);
+    broken.r#match.expr = Some("payload | nosuchfilter".into());
+    let routes = vec![
+        route("after", 3, topic("*"), &["c1"]),
+        stop,
+        disabled,
+        broken,
+        route("miss", 1, topic("billing.*"), &["c1"]),
+    ];
+    let trace = trace_routes(&event("orders.failed", Severity::Info, &[]), &routes);
+    let got: Vec<(&str, &RouteOutcome)> = trace
+        .iter()
+        .map(|t| (t.route.id.as_str(), &t.outcome))
+        .collect();
+    assert_eq!(got[0].0, "broken");
+    assert!(matches!(got[0].1, RouteOutcome::Error(reason) if reason.contains("nosuchfilter")));
+    assert_eq!(got[1], ("disabled", &RouteOutcome::Disabled));
+    assert_eq!(got[2], ("miss", &RouteOutcome::NotMatched));
+    assert_eq!(got[3], ("stop", &RouteOutcome::Matched));
+    assert_eq!(got[4], ("after", &RouteOutcome::Skipped));
+}

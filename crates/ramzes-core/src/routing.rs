@@ -42,24 +42,64 @@ pub struct Routed<'a> {
     pub errors: Vec<(String, String)>,
 }
 
-pub fn route_event<'a>(e: &Event, routes: &'a [Route]) -> Routed<'a> {
-    let mut ordered: Vec<&Route> = routes.iter().filter(|r| r.enabled).collect();
+/// What happened when an event was checked against one route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteOutcome {
+    Matched,
+    NotMatched,
+    /// The route is switched off.
+    Disabled,
+    /// A route before this one matched and stops evaluation.
+    Skipped,
+    /// The route's expression failed; the route counts as not matching.
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteTrace<'a> {
+    pub route: &'a Route,
+    pub outcome: RouteOutcome,
+}
+
+/// Checks an event against every route in evaluation order and says what happened at each.
+pub fn trace_routes<'a>(e: &Event, routes: &'a [Route]) -> Vec<RouteTrace<'a>> {
+    let mut ordered: Vec<&Route> = routes.iter().collect();
     ordered.sort_by_key(|r| r.position);
+    let mut stopped = false;
+    ordered
+        .into_iter()
+        .map(|route| {
+            let outcome = if !route.enabled {
+                RouteOutcome::Disabled
+            } else if stopped {
+                RouteOutcome::Skipped
+            } else {
+                match route.r#match.evaluate(e) {
+                    Ok(true) => {
+                        stopped = route.stop;
+                        RouteOutcome::Matched
+                    }
+                    Ok(false) => RouteOutcome::NotMatched,
+                    Err(reason) => RouteOutcome::Error(reason),
+                }
+            };
+            RouteTrace { route, outcome }
+        })
+        .collect()
+}
+
+pub fn route_event<'a>(e: &Event, routes: &'a [Route]) -> Routed<'a> {
     let mut routed = Routed::default();
-    for route in ordered {
-        match route.r#match.evaluate(e) {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(reason) => {
-                routed.errors.push((route.id.clone(), reason));
-                continue;
+    for trace in trace_routes(e, routes) {
+        match trace.outcome {
+            RouteOutcome::Matched => {
+                let route = trace.route;
+                routed
+                    .matched
+                    .extend(route.targets.iter().map(|target| Matched { route, target }));
             }
-        }
-        routed
-            .matched
-            .extend(route.targets.iter().map(|target| Matched { route, target }));
-        if route.stop {
-            break;
+            RouteOutcome::Error(reason) => routed.errors.push((trace.route.id.clone(), reason)),
+            RouteOutcome::NotMatched | RouteOutcome::Disabled | RouteOutcome::Skipped => {}
         }
     }
     routed
