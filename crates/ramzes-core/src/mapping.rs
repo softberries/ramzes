@@ -156,10 +156,11 @@ impl Mapping {
         payload: &Value,
         headers: &BTreeMap<String, String>,
     ) -> Result<Vec<NewEvent>, String> {
-        let base = json!({"payload": payload, "headers": headers});
+        // The payload is converted once and shared by every expression of every item.
+        let base = expr::Scope::new(&json!({"payload": payload, "headers": headers}));
         let items: Vec<Value> = match &self.events {
             None => vec![payload.clone()],
-            Some(source) => match expr::eval(source, &base).map_err(|e| format!("events: {e}"))? {
+            Some(source) => match base.eval(source).map_err(|e| format!("events: {e}"))? {
                 Value::Array(items) => items,
                 Value::Null => Vec::new(),
                 _ => return Err("events: the expression must give a list".into()),
@@ -172,9 +173,9 @@ impl Mapping {
         }
         let mut events = Vec::with_capacity(items.len());
         for item in items {
-            let ctx = json!({"payload": payload, "headers": headers, "item": item});
+            let ctx = base.with("item", &item);
             if let Some(when) = &self.when
-                && !expr::eval_bool(when, &ctx).map_err(|e| format!("when: {e}"))?
+                && !ctx.eval_bool(when).map_err(|e| format!("when: {e}"))?
             {
                 continue;
             }
@@ -183,10 +184,10 @@ impl Mapping {
         Ok(events)
     }
 
-    fn event(&self, ctx: &Value, item: Value) -> Result<NewEvent, String> {
+    fn event(&self, ctx: &expr::Scope, item: Value) -> Result<NewEvent, String> {
         let f = &self.fields;
         let text = |name: &str, source: &str| -> Result<Option<String>, String> {
-            let value = expr::eval(source, ctx).map_err(|e| format!("{name}: {e}"))?;
+            let value = ctx.eval(source).map_err(|e| format!("{name}: {e}"))?;
             Ok(text_of(&value)
                 .map(|t| t.trim().to_owned())
                 .filter(|t| !t.is_empty()))
@@ -210,7 +211,7 @@ impl Mapping {
 
         let mut labels = BTreeMap::new();
         if let Some(source) = &f.labels {
-            match expr::eval(source, ctx).map_err(|e| format!("labels: {e}"))? {
+            match ctx.eval(source).map_err(|e| format!("labels: {e}"))? {
                 Value::Object(found) => {
                     for (key, value) in found {
                         let key: String = key

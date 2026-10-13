@@ -82,6 +82,43 @@ pub fn check_template(source: &str) -> Result<(), String> {
         .map_err(|e| describe(&e))
 }
 
+/// Values an expression can read, converted once and shared by every evaluation against them.
+#[derive(Clone)]
+pub struct Scope(minijinja::Value);
+
+impl Scope {
+    pub fn new(ctx: &Value) -> Scope {
+        Scope(minijinja::Value::from(minijinja::value::Serde(ctx)))
+    }
+
+    /// This scope with one more name in it. What is already in the scope is shared, not copied.
+    pub fn with(&self, name: &str, value: &Value) -> Scope {
+        let extra = minijinja::Value::from_pairs([(
+            name.to_owned(),
+            minijinja::Value::from(minijinja::value::Serde(value)),
+        )]);
+        Scope(minijinja::value::merge_maps([extra, self.0.clone()]))
+    }
+
+    /// Evaluates an expression. A missing value is `null`.
+    pub fn eval(&self, source: &str) -> Result<Value, String> {
+        check_size(source)?;
+        let expression = ENV.compile_expression(source).map_err(|e| describe(&e))?;
+        let value = expression.eval(self.0.clone()).map_err(|e| describe(&e))?;
+        serde_json::to_value(&value).map_err(|e| e.to_string())
+    }
+
+    /// Evaluates an expression and reports whether its result is truthy.
+    pub fn eval_bool(&self, source: &str) -> Result<bool, String> {
+        check_size(source)?;
+        let expression = ENV.compile_expression(source).map_err(|e| describe(&e))?;
+        Ok(expression
+            .eval(self.0.clone())
+            .map_err(|e| describe(&e))?
+            .is_true())
+    }
+}
+
 /// Evaluates an expression against `ctx`. A missing value is `null`.
 pub fn eval(source: &str, ctx: &Value) -> Result<Value, String> {
     check_size(source)?;

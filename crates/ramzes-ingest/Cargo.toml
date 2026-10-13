@@ -24,6 +24,7 @@ hmac.workspace = true
 sha2.workspace = true
 hex.workspace = true
 subtle.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 [dev-dependencies]
 hex.workspace = true
 hmac.workspace = true

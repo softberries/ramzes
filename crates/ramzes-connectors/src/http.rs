@@ -52,16 +52,30 @@ pub(crate) fn is_private(ip: IpAddr) -> bool {
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
+                // "This network" 0.0.0.0/8, and the reserved and broadcast block 240.0.0.0/4.
+                || a == 0
+                || a >= 240
                 // Carrier-grade NAT, 100.64.0.0/10.
                 || (a == 100 && (64..128).contains(&b))
+                // Benchmarking, 198.18.0.0/15.
+                || (a == 198 && (18..20).contains(&b))
         }
         IpAddr::V6(v6) => {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_private(IpAddr::V4(v4));
             }
-            let first = v6.segments()[0];
+            let segments = v6.segments();
+            // An IPv4 address carried in IPv6: NAT64 64:ff9b::/96 and the old ::a.b.c.d form.
+            let carries_v4 =
+                (segments[0] == 0x64 && segments[1] == 0xff9b && segments[2..6] == [0; 4])
+                    || (segments[..6] == [0; 6] && !v6.is_loopback() && !v6.is_unspecified());
+            if carries_v4 {
+                let [.., hi, lo] = segments;
+                let v4 =
+                    std::net::Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8);
+                return is_private(IpAddr::V4(v4));
+            }
+            let first = segments[0];
             v6.is_loopback()
                 || v6.is_unspecified()
                 // Unique local fc00::/7 and link-local fe80::/10.
@@ -98,6 +112,22 @@ pub(crate) struct Outgoing<'a> {
     pub success: &'a [u16],
     /// The response header that says how many seconds to wait before retrying.
     pub retry_after_header: &'a str,
+}
+
+/// Most of an answer that is read. Connectors need at most a short JSON document or an excerpt.
+const ANSWER_MAX: usize = 64 * 1024;
+
+/// Reads the answer's body up to [`ANSWER_MAX`] bytes and leaves the rest unread.
+async fn read_limited(mut response: reqwest::Response) -> Vec<u8> {
+    let mut body = Vec::new();
+    while let Ok(Some(chunk)) = response.chunk().await {
+        let room = ANSWER_MAX - body.len();
+        body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        if body.len() >= ANSWER_MAX {
+            break;
+        }
+    }
+    body
 }
 
 /// What a service answered.
@@ -213,7 +243,7 @@ impl Http {
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
         // A NUL cannot be stored as text in Postgres; binary answers are kept without them.
-        let body = response.text().await.unwrap_or_default().replace('\0', "");
+        let body = String::from_utf8_lossy(&read_limited(response).await).replace('\0', "");
         Ok(Answer {
             status,
             retry_after,
@@ -262,5 +292,45 @@ impl Http {
             retry_after_header: "retry-after",
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_private;
+
+    #[test]
+    fn inward_addresses_are_recognised_in_every_spelling() {
+        for inward in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "0.1.2.3",
+            "100.64.0.1",
+            "198.18.0.1",
+            "240.0.0.1",
+            "255.255.255.255",
+            "::1",
+            "::",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:10.0.0.1",
+            "64:ff9b::a00:1",
+            "::10.0.0.1",
+        ] {
+            assert!(is_private(inward.parse().unwrap()), "{inward}");
+        }
+        for outward in [
+            "1.1.1.1",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+            "64:ff9b::101:101",
+            "198.20.0.1",
+        ] {
+            assert!(!is_private(outward.parse().unwrap()), "{outward}");
+        }
     }
 }

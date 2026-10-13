@@ -271,7 +271,8 @@ pub(crate) async fn revision(
     }))
 }
 
-/// Make the configuration what it was after a past change. Source keys are not affected.
+/// Make the configuration what it was after a past change. Source keys are not affected, and
+/// connections that still exist keep their current credentials.
 #[utoipa::path(
     post, path = "/api/config/revisions/{id}/rollback", tag = "config", params(("id" = String, Path)),
     responses((status = 204), (status = 404, body = ErrorBody))
@@ -286,8 +287,23 @@ pub(crate) async fn rollback(
         .get_revision(&auth.workspace_id, &id)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    let config: ConfigSnapshot = serde_json::from_str(&revision.snapshot)
+    let mut config: ConfigSnapshot = serde_json::from_str(&revision.snapshot)
         .map_err(|e| ApiError::internal("a stored revision could not be read", e))?;
+    // A connection that still exists keeps the credentials it has now: they may have been
+    // replaced since, and the old ones revoked. Only a connection that is brought back gets
+    // the credentials it had.
+    let existing: HashSet<String> = state
+        .store
+        .list_connections(&auth.workspace_id)
+        .await?
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    for connection in &mut config.connections {
+        if existing.contains(&connection.id) {
+            connection.credentials = None;
+        }
+    }
     state
         .store
         .apply_config(&auth.workspace_id, &config, state.clock.now_ms())

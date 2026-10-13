@@ -119,6 +119,10 @@ pub(crate) async fn test(
                     .r#match
                     .validate()
                     .map_err(|e| ApiError::invalid(format!("route {:?}: {e}", route.name)))?;
+                route
+                    .shaping
+                    .validate()
+                    .map_err(|e| ApiError::invalid(format!("route {:?}: {e}", route.name)))?;
                 route.position = position;
                 routes.push(route);
             }

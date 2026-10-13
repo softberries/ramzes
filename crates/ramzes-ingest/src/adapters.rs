@@ -280,7 +280,17 @@ async fn accept(
     let invalid = |message: String| {
         Rejection::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid_event", message)
     };
-    let mapped = mapping.apply(&payload, headers).map_err(invalid)?;
+    // Mapping a large request is CPU work; it runs off the threads that serve other requests.
+    let mapped = {
+        let (mapping, headers) = (mapping.clone(), headers.clone());
+        tokio::task::spawn_blocking(move || mapping.apply(&payload, &headers))
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "mapping a request failed unexpectedly");
+                Rejection::unavailable()
+            })?
+            .map_err(invalid)?
+    };
     if mapped.is_empty() {
         return Ok((
             StatusCode::ACCEPTED,

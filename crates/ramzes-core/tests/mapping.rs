@@ -209,3 +209,31 @@ fn verification_methods_are_read_from_the_definition() {
         }
     );
 }
+
+#[test]
+fn a_thousand_alerts_are_mapped_in_time_proportional_to_their_number() {
+    let mapping = ramzes_core::adapters::mapping_for("alertmanager", None)
+        .unwrap()
+        .unwrap();
+    let alerts = |n: usize| {
+        let alerts: Vec<serde_json::Value> = (0..n)
+            .map(|i| json!({"status": "firing", "fingerprint": format!("f{i}"),
+                "labels": {"alertname": "HighErrorRate", "instance": format!("host-{i}"), "severity": "critical"},
+                "annotations": {"summary": "Error rate above 5%", "description": "x".repeat(400)},
+                "startsAt": "2026-10-13T09:41:07Z"}))
+            .collect();
+        json!({"version": "4", "status": "firing", "alerts": alerts})
+    };
+    let time = |n: usize| {
+        let payload = alerts(n);
+        let started = std::time::Instant::now();
+        assert_eq!(mapping.apply(&payload, &headers(&[])).unwrap().len(), n);
+        started.elapsed().as_secs_f64()
+    };
+    let (small, large) = (time(100).max(0.001), time(1000));
+    // Ten times the alerts may take a little more than ten times as long, not a hundred.
+    assert!(
+        large < small * 30.0,
+        "100 alerts took {small:.3} s, 1000 took {large:.3} s"
+    );
+}

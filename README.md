@@ -255,6 +255,10 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
   outcome and a substring of the title.
 - Pushing an acknowledgement made in ramzes to PagerDuty or Opsgenie.
 - GitLab's signing-token verification.
+- A memory limit for templates and expressions. They are stopped after a fixed
+  amount of work, but a signed-in user can still write one that builds a very
+  large string. Everyone who can sign in is an administrator; do not give
+  accounts or API tokens to people you would not trust with the server.
 
 The design is in
 [docs/superpowers/specs/2026-10-13-ramzes-design.md](docs/superpowers/specs/2026-10-13-ramzes-design.md).

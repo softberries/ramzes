@@ -716,3 +716,65 @@ async fn an_import_that_does_not_hold_together_is_refused_whole() {
         1
     );
 }
+
+#[tokio::test]
+async fn a_rollback_keeps_the_credentials_a_connection_has_now() {
+    let api = Api::signed_in().await;
+    let c = connection(&api, "ops").await;
+    let route = catch_all_route(&api, &c).await;
+    let (_, revisions) = api.get("/api/config/revisions").await;
+    let before_rotation = revisions[0]["id"].as_str().unwrap().to_owned();
+
+    // The token is rotated, then an unrelated change is undone by rolling back.
+    let rotated =
+        json!({"name": "ops", "settings": {"room": "ops"}, "credentials": {"token": "new-token"}});
+    assert_eq!(
+        api.put(&format!("/api/connections/{c}"), rotated).await.0,
+        StatusCode::OK
+    );
+    api.delete(&format!("/api/routes/{route}")).await;
+    let (status, _) = api
+        .post(
+            &format!("/api/config/revisions/{before_rotation}/rollback"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    api.post(&format!("/api/connections/{c}/test"), json!({}))
+        .await;
+    let sent = api.connector.sent.lock().unwrap().clone();
+    assert_eq!(sent.last().unwrap().1.credentials["token"], "new-token");
+
+    // A connection that was deleted comes back with the credentials it had.
+    api.delete(&format!("/api/routes/{route}")).await;
+    api.delete(&format!("/api/connections/{c}")).await;
+    api.post(
+        &format!("/api/config/revisions/{before_rotation}/rollback"),
+        json!({}),
+    )
+    .await;
+    api.post(&format!("/api/connections/{c}/test"), json!({}))
+        .await;
+    let sent = api.connector.sent.lock().unwrap().clone();
+    assert_eq!(sent.last().unwrap().1.credentials["token"], "t0p-secret");
+}
+
+#[tokio::test]
+async fn the_route_tester_refuses_a_policy_that_could_not_be_saved() {
+    let api = Api::signed_in().await;
+    let c = connection(&api, "ops").await;
+    let event = json!({"topic": "a", "title": "x"});
+    let routes = json!([{"name": "r", "match": {}, "targets": [{"connection_id": c}], "shaping": {"rate_limit": {"max": 1, "window_s": 9_000_000_000_000_000_i64}}}]);
+    let (status, error) = api
+        .post(
+            "/api/routes/test",
+            json!({"event": event, "routes": routes}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{error}");
+    assert!(
+        error["message"].as_str().unwrap().contains("rate limit"),
+        "{error}"
+    );
+}
