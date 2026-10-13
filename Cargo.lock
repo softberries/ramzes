@@ -1844,6 +1844,8 @@ name = "ramzes-ingest"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "hex",
+ "hmac",
  "ramzes-connectors",
  "ramzes-core",
  "ramzes-engine",
@@ -1851,6 +1853,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
+ "sha2 0.11.1",
+ "subtle",
  "tempfile",
  "tokio",
  "tokio-util",

@@ -73,6 +73,7 @@ async fn world_with(limits: IngestLimits) -> World {
         engine.clone(),
         limits,
         clock.clone(),
+        Arc::new(NoOpener),
     ));
     World {
         app,

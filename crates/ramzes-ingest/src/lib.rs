@@ -1,4 +1,7 @@
-//! The HTTP endpoint services send events to.
+//! The HTTP endpoints services send events to: `/v1/events` for ramzes's own format and
+//! `/v1/in/{source_id}` for third parties, whose payloads a mapping turns into events.
+
+mod adapters;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -10,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use ramzes_core::{Event, NewEvent, hash_key, new_id};
-use ramzes_engine::{Clock, Engine};
+use ramzes_engine::{Clock, Engine, Opener};
 use ramzes_store::{Source, Store};
 use serde_json::{Value, json};
 
@@ -42,6 +45,8 @@ struct Inner {
     engine: Arc<Engine>,
     limits: IngestLimits,
     clock: Arc<dyn Clock>,
+    /// Opens the sealed source keys that signatures are checked with.
+    opener: Arc<dyn Opener>,
     /// Per source: the minute being counted and the events accepted in it.
     windows: Mutex<HashMap<String, (i64, u32)>>,
     ingested: AtomicU64,
@@ -56,12 +61,14 @@ impl IngestState {
         engine: Arc<Engine>,
         limits: IngestLimits,
         clock: Arc<dyn Clock>,
+        opener: Arc<dyn Opener>,
     ) -> IngestState {
         IngestState(Arc::new(Inner {
             store,
             engine,
             limits,
             clock,
+            opener,
             windows: Mutex::new(HashMap::new()),
             ingested: AtomicU64::new(0),
         }))
@@ -96,6 +103,7 @@ impl IngestState {
 pub fn router(state: IngestState) -> Router {
     Router::new()
         .route("/v1/events", post(ingest))
+        .route("/v1/in/{source_id}", post(adapters::receive))
         .with_state(state)
 }
 
@@ -284,28 +292,40 @@ async fn accept(
             };
             invalid(format!("{position}{field}{}", e.inner()))
         })?;
-        new.validate()
-            .map_err(|e| invalid(format!("{position}{e}")))?;
-        let occurred_at = new
-            .occurred_at(now)
-            .map_err(|e| invalid(format!("{position}{e}")))?;
-        events.push(Event {
-            id: new_id(),
-            workspace_id: source.workspace_id.clone(),
-            source_id: source.id.clone(),
-            topic: new.topic,
-            severity: new.severity,
-            status: new.status,
-            title: new.title,
-            body: new.body,
-            labels: new.labels,
-            payload: new.payload,
-            dedup_key: new.dedup_key,
-            occurred_at,
-            received_at: now,
-        });
+        events.push(to_event(source, new, now).map_err(|e| invalid(format!("{position}{e}")))?);
     }
+    commit(state, source, events, idempotency_key, now).await
+}
 
+/// Checks an event a sender or a mapping produced and gives it an id.
+fn to_event(source: &Source, new: NewEvent, now: i64) -> Result<Event, String> {
+    new.validate().map_err(|e| e.to_string())?;
+    let occurred_at = new.occurred_at(now).map_err(|e| e.to_string())?;
+    Ok(Event {
+        id: new_id(),
+        workspace_id: source.workspace_id.clone(),
+        source_id: source.id.clone(),
+        topic: new.topic,
+        severity: new.severity,
+        status: new.status,
+        title: new.title,
+        body: new.body,
+        labels: new.labels,
+        payload: new.payload,
+        dedup_key: new.dedup_key,
+        occurred_at,
+        received_at: now,
+    })
+}
+
+/// Counts the events against the source's allowance, stores them and wakes the workers.
+async fn commit(
+    state: &IngestState,
+    source: &Source,
+    events: Vec<Event>,
+    idempotency_key: Option<&str>,
+    now: i64,
+) -> Result<Response, Rejection> {
     if let Err(wait_seconds) = state.admit(&source.id, events.len(), now) {
         let limit = state.0.limits.per_source_per_minute;
         let mut rejection = Rejection::new(

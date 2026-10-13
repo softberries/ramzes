@@ -169,7 +169,7 @@ impl Api {
             store: store.clone(),
             engine: engine.clone(),
             registry,
-            key,
+            key: key.clone(),
             clock: clock.clone(),
             workspace_id: ws.clone(),
             secure_cookies: false,
@@ -180,6 +180,7 @@ impl Api {
             engine.clone(),
             IngestLimits::default(),
             clock.clone(),
+            key,
         ));
         Api {
             app: api.merge(ingest),
