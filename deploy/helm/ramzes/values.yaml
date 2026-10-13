@@ -1,0 +1,52 @@
+image:
+  repository: ghcr.io/softberries/ramzes
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Address people reach ramzes at, used for links in messages. Example: https://ramzes.example.com
+publicUrl: ""
+
+# Set when ramzes is served over HTTPS, so the session cookie is marked Secure.
+secureCookies: false
+
+# Refuse to deliver to loopback, private and link-local addresses.
+blockPrivateAddresses: false
+
+database:
+  # Empty uses SQLite on the persistent volume. With SQLite the chart runs exactly one replica.
+  # For Postgres, put the URL in a Secret and name it here; ramzes reads it from the key below.
+  existingSecret: ""
+  secretKey: database-url
+
+secretKey:
+  # The key that encrypts stored credentials: base64 of 32 bytes (openssl rand -base64 32).
+  # Empty lets ramzes generate one on the persistent volume. With Postgres and no volume you
+  # must supply it, or the credentials become unreadable when the pod is replaced.
+  existingSecret: ""
+  secretKey: secret-key
+
+persistence:
+  # Holds the SQLite database and the generated secret key.
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  port: 7269
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ramzes.example.com
+  # Name of a TLS Secret for the host. Empty serves plain HTTP.
+  tlsSecret: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+extraEnv: []

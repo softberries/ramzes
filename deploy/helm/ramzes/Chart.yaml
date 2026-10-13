@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ramzes
+description: Self-hosted notification router
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/softberries/ramzes

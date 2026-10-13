@@ -1,0 +1,130 @@
+{{- if and (not .Values.persistence.enabled) (not .Values.database.existingSecret) }}
+{{- fail "SQLite needs persistence.enabled=true; or set database.existingSecret to use Postgres" }}
+{{- end }}
+{{- if and (not .Values.persistence.enabled) (not .Values.secretKey.existingSecret) }}
+{{- fail "without a persistent volume, set secretKey.existingSecret so stored credentials survive a restart" }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ramzes.name" . }}
+  labels:
+    {{- include "ramzes.labels" . | nindent 4 }}
+spec:
+  # One instance: ramzes does not yet coordinate several nodes.
+  replicas: 1
+  serviceName: {{ include "ramzes.name" . }}
+  selector:
+    matchLabels:
+      {{- include "ramzes.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ramzes.labels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ramzes
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 7269
+          env:
+            - name: RAMZES_LISTEN
+              value: "0.0.0.0:7269"
+            - name: RAMZES_DATA_DIR
+              value: /data
+            - name: RAMZES_LOG_FORMAT
+              value: json
+            {{- with .Values.publicUrl }}
+            - name: RAMZES_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: RAMZES_SECURE_COOKIES
+              value: {{ .Values.secureCookies | quote }}
+            - name: RAMZES_BLOCK_PRIVATE_ADDRESSES
+              value: {{ .Values.blockPrivateAddresses | quote }}
+            {{- if .Values.database.existingSecret }}
+            - name: RAMZES_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.secretKey }}
+            {{- end }}
+            {{- if .Values.secretKey.existingSecret }}
+            - name: RAMZES_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretKey.existingSecret }}
+                  key: {{ .Values.secretKey.secretKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # The root file system is read-only; SQLite may need scratch space.
+            - name: tmp
+              mountPath: /tmp
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

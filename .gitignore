@@ -11,3 +11,4 @@ ui/build/
 ui/.svelte-kit/
 ui/test-results/
 ui/playwright-report/
+.claude/
