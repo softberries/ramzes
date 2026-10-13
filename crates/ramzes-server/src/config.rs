@@ -65,7 +65,12 @@ pub struct Options {
     #[arg(long, env = "RAMZES_BLOCK_PRIVATE_ADDRESSES", global = true)]
     pub block_private_addresses: Option<bool>,
     /// Ask for this token on /metrics, as `Authorization: Bearer <token>`.
-    #[arg(long, env = "RAMZES_METRICS_TOKEN", global = true, hide_env_values = true)]
+    #[arg(
+        long,
+        env = "RAMZES_METRICS_TOKEN",
+        global = true,
+        hide_env_values = true
+    )]
     pub metrics_token: Option<String>,
     /// Milliseconds a worker may hold a claimed item before another may take it.
     #[arg(long, env = "RAMZES_LEASE_MS", global = true, hide = true)]

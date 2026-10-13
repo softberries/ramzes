@@ -10,8 +10,8 @@ use ramzes_core::{EventStatus, Message};
 
 use crate::http::{PRIVATE_REFUSED, is_private};
 use crate::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, HttpOptions, Preview,
-    SendOutcome, truncate,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, HttpOptions,
+    Preview, SendOutcome, truncate,
 };
 
 const SUBJECT_MAX: usize = 200;

@@ -87,9 +87,8 @@ fn spellings(secret: &str) -> Vec<String> {
         .replace('>', "\\u003e")
         .replace('&', "\\u0026")
         .replace('\'', "\\u0027");
-    let in_path =
-        percent_encoding::utf8_percent_encode(secret, percent_encoding::NON_ALPHANUMERIC)
-            .to_string();
+    let in_path = percent_encoding::utf8_percent_encode(secret, percent_encoding::NON_ALPHANUMERIC)
+        .to_string();
     let mut spellings = vec![secret.to_owned(), in_json, from_filter, in_path];
     spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
     spellings.dedup();

@@ -337,7 +337,9 @@ async fn a_definition_can_say_how_an_acknowledgement_is_passed_on() {
 
     // A service that refuses says why; a definition without the section does nothing.
     let refusing = MockServer::start().await;
-    let refused = chat.acknowledge(&config(&refusing.uri()), &m, None, 1).await;
+    let refused = chat
+        .acknowledge(&config(&refusing.uri()), &m, None, 1)
+        .await;
     assert!(refused.is_err(), "{refused:?}");
     let plain = self::registry().get("chat").unwrap();
     plain

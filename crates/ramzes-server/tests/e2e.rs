@@ -762,12 +762,35 @@ async fn metrics_ask_for_the_token_when_one_is_set() {
     let url = format!("{}/metrics", ramzes.base);
     let open = ramzes.http.get(&url).send().await.unwrap();
     assert_eq!(open.status(), StatusCode::UNAUTHORIZED);
-    let wrong = ramzes.http.get(&url).bearer_auth("guess").send().await.unwrap();
+    let wrong = ramzes
+        .http
+        .get(&url)
+        .bearer_auth("guess")
+        .send()
+        .await
+        .unwrap();
     assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
-    let right = ramzes.http.get(&url).bearer_auth("scrape-me").send().await.unwrap();
+    let right = ramzes
+        .http
+        .get(&url)
+        .bearer_auth("scrape-me")
+        .send()
+        .await
+        .unwrap();
     assert_eq!(right.status(), StatusCode::OK);
-    assert!(right.text().await.unwrap().contains("ramzes_queue_unrouted"));
+    assert!(
+        right
+            .text()
+            .await
+            .unwrap()
+            .contains("ramzes_queue_unrouted")
+    );
     // Health checks stay open: an orchestrator has no token.
-    let health = ramzes.http.get(format!("{}/healthz", ramzes.base)).send().await.unwrap();
+    let health = ramzes
+        .http
+        .get(format!("{}/healthz", ramzes.base))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(health.status(), StatusCode::OK);
 }

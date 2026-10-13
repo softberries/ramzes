@@ -144,11 +144,13 @@ pub fn route_event<'a>(e: &Event, routes: &'a [Route]) -> Routed<'a> {
             RouteOutcome::Matched | RouteOutcome::ClosesOnly => {
                 let route = trace.route;
                 let closes_only = trace.outcome == RouteOutcome::ClosesOnly;
-                routed.matched.extend(route.targets.iter().map(|target| Matched {
-                    route,
-                    target,
-                    closes_only,
-                }));
+                routed
+                    .matched
+                    .extend(route.targets.iter().map(|target| Matched {
+                        route,
+                        target,
+                        closes_only,
+                    }));
             }
             RouteOutcome::Error(reason) => routed.errors.push((trace.route.id.clone(), reason)),
             RouteOutcome::NotMatched | RouteOutcome::Disabled | RouteOutcome::Skipped => {}

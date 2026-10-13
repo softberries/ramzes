@@ -373,10 +373,16 @@ fn a_resolved_event_below_the_minimum_severity_only_closes() {
 
     // Still firing, or resolved but otherwise not matching: the route is not involved.
     let firing = event("ci.build", Severity::Info, &[]);
-    assert_eq!(trace_routes(&firing, &routes)[0].outcome, RouteOutcome::NotMatched);
+    assert_eq!(
+        trace_routes(&firing, &routes)[0].outcome,
+        RouteOutcome::NotMatched
+    );
     let mut elsewhere = event("orders.paid", Severity::Info, &[]);
     elsewhere.status = EventStatus::Resolved;
-    assert_eq!(trace_routes(&elsewhere, &routes)[0].outcome, RouteOutcome::NotMatched);
+    assert_eq!(
+        trace_routes(&elsewhere, &routes)[0].outcome,
+        RouteOutcome::NotMatched
+    );
     // Severe enough: an ordinary match, and the route stops.
     let mut severe = event("ci.build", Severity::Error, &[]);
     severe.status = EventStatus::Resolved;

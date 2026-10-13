@@ -903,7 +903,14 @@ async fn the_feed_finds_events_that_wait_and_events_that_were_not_sent(store: St
     let waits = stored_event(&store, &ws, &source, "in a group", 100).await;
     let silenced = stored_event(&store, &ws, &source, "silenced", 100).await;
     let went = stored_event(&store, &ws, &source, "sent", 100).await;
-    let both = stored_event(&store, &ws, &source, "silenced on one route, grouped on another", 100).await;
+    let both = stored_event(
+        &store,
+        &ws,
+        &source,
+        "silenced on one route, grouped on another",
+        100,
+    )
+    .await;
     let suppressed = || NewDispatch {
         delivery_id: None,
         state: NotificationState::Suppressed,
@@ -943,5 +950,8 @@ async fn the_feed_finds_events_that_wait_and_events_that_were_not_sent(store: St
     let mut waiting = vec![waits.id.clone(), both.id.clone()];
     waiting.sort();
     assert_eq!(ids(ramzes_store::Outcome::Waiting).await, waiting);
-    assert_eq!(ids(ramzes_store::Outcome::NotSent).await, vec![silenced.id.clone()]);
+    assert_eq!(
+        ids(ramzes_store::Outcome::NotSent).await,
+        vec![silenced.id.clone()]
+    );
 }

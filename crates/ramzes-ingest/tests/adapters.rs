@@ -98,22 +98,11 @@ impl World {
     async fn source_with_key(&self, kind: &str, mapping: Option<&str>, key: &str) -> String {
         let source = self
             .store
-            .create_source(
-                &self.ws,
-                kind,
-                kind,
-                &hash_key(key),
-                "rz_src_test",
-                0,
-            )
+            .create_source(&self.ws, kind, kind, &hash_key(key), "rz_src_test", 0)
             .await
             .unwrap();
         self.store
-            .set_source_secret(
-                &self.ws,
-                &source.id,
-                &json!({"key": key}).to_string(),
-            )
+            .set_source_secret(&self.ws, &source.id, &json!({"key": key}).to_string())
             .await
             .unwrap();
         if mapping.is_some() {

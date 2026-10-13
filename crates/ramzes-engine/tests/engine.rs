@@ -37,6 +37,9 @@ impl Opener for PlainOpener {
 }
 
 /// A connector that answers from a script and records what it was asked to send.
+/// Credentials token, destination and dedup key of an acknowledgement passed on.
+type Told = (String, Option<String>, Option<String>);
+
 #[derive(Default)]
 struct Scripted {
     outcomes: Mutex<VecDeque<SendOutcome>>,
@@ -44,7 +47,7 @@ struct Scripted {
     /// `(reference, note)` of every message it was asked to rewrite.
     updates: Mutex<Vec<(String, String)>>,
     /// `(credentials token, destination, dedup key)` of every acknowledgement it was told of.
-    acknowledged: Mutex<Vec<(String, Option<String>, Option<String>)>>,
+    acknowledged: Mutex<Vec<Told>>,
 }
 
 #[async_trait]
@@ -130,7 +133,10 @@ impl Connector for Scripted {
         _now_ms: i64,
     ) -> Result<(), String> {
         self.acknowledged.lock().unwrap().push((
-            c.credentials["token"].as_str().unwrap_or_default().to_owned(),
+            c.credentials["token"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
             destination.map(str::to_owned),
             m.dedup_key.clone(),
         ));
@@ -2079,7 +2085,10 @@ async fn when_a_pause_ends_one_delivery_tests_the_connection() {
     w.settle().await;
     assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before + 6);
     let status = w.store.connection_status(&w.ws).await.unwrap();
-    assert_eq!((status[&c].paused_until, status[&c].failure_streak), (None, 0));
+    assert_eq!(
+        (status[&c].paused_until, status[&c].failure_streak),
+        (None, 0)
+    );
 }
 
 #[tokio::test]
