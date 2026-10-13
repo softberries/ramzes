@@ -1,0 +1,94 @@
+---
+import Section from './Section.astro';
+import { href } from '../../lib/links';
+
+const features = [
+	{
+		title: 'Routes',
+		body: 'Match on topic, severity, source, labels or an expression over the payload, and send to one or more channels. The tester shows what every route would do with an event before you save.',
+		link: 'concepts/routes/',
+	},
+	{
+		title: 'Noise control',
+		body: 'Per route: count duplicates instead of repeating them, collect a burst into one message, hold messages during quiet hours, cap the rate. Silences mute matching events everywhere.',
+		link: 'concepts/noise-control/',
+	},
+	{
+		title: 'Escalation and acknowledgement',
+		body: 'If nobody acknowledges a notification in time, tell someone else, then someone else. Acknowledge from the app, the API, a link in the message or a button in Slack.',
+		link: 'concepts/escalation/',
+	},
+	{
+		title: 'The journey of every event',
+		body: 'For each event: which routes matched, what shaping decided, every delivery attempt with the answer the service gave, and the message as it was worded.',
+		link: 'guide/feed/',
+	},
+	{
+		title: 'Delivery you can rely on',
+		body: 'An event is acknowledged only after it is stored. Deliveries retry with backoff, a connection that keeps failing is paused, and failed deliveries can be sent again in bulk.',
+		link: 'concepts/delivery/',
+	},
+	{
+		title: 'Configuration as data',
+		body: 'Every change to routes, connections, templates and silences is kept with a diff and can be rolled back. Export the configuration from one instance and import it into another.',
+		link: 'operations/backup/',
+	},
+];
+---
+
+<Section id="features" title="What it does" lede="ramzes sits between the things that notice a problem and the people who should hear about it.">
+	<ul class="rz-features">
+		{
+			features.map((f) => (
+				<li>
+					<a href={href(f.link)}>
+						<h3>{f.title}</h3>
+						<p>{f.body}</p>
+					</a>
+				</li>
+			))
+		}
+	</ul>
+</Section>
+
+<style>
+	.rz-features {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+		gap: 1rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	a {
+		display: grid;
+		gap: 0.5rem;
+		height: 100%;
+		padding: 1.35rem 1.4rem;
+		border: 1px solid var(--rz-panel-line);
+		border-radius: var(--rz-radius-card);
+		background: var(--rz-panel);
+		color: inherit;
+		text-decoration: none;
+		transition:
+			border-color 0.2s ease,
+			transform 0.2s ease;
+	}
+	a:hover {
+		border-color: var(--sl-color-accent);
+		transform: translateY(-2px);
+	}
+	h3 {
+		margin: 0;
+		color: var(--sl-color-white);
+		font-size: 1.08rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	p {
+		margin: 0;
+		color: var(--sl-color-gray-2);
+		font-size: 0.925rem;
+		line-height: 1.65;
+	}
+</style>

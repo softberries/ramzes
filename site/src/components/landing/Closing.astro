@@ -1,0 +1,76 @@
+---
+import { GITHUB_URL, href } from '../../lib/links';
+---
+
+<section class="rz-closing" aria-labelledby="start">
+	<h2 id="start">Run it yourself</h2>
+	<p>One container with a built-in database, built from a checkout of the repository. The setup screen takes you from an empty instance to a message in your channel.</p>
+	<pre><code>docker compose -f deploy/compose.yaml up --build</code></pre>
+	<div>
+		<a class="primary" href={href('getting-started/quickstart/')}>Quickstart</a>
+		<a href={GITHUB_URL}>Source on GitHub</a>
+	</div>
+</section>
+
+<style>
+	.rz-closing {
+		display: grid;
+		gap: 1.1rem;
+		justify-items: center;
+		margin-block: clamp(4rem, 9vw, 7rem) 2rem;
+		padding: clamp(2rem, 6vw, 3.5rem) 1.5rem;
+		border: 1px solid var(--rz-panel-line);
+		border-radius: var(--rz-radius-panel);
+		background:
+			radial-gradient(40rem 16rem at 50% 0, color-mix(in srgb, var(--rz-gold) var(--rz-glow), transparent), transparent 70%),
+			var(--rz-panel);
+		text-align: center;
+	}
+	h2 {
+		margin: 0;
+		color: var(--sl-color-white);
+		font-size: clamp(1.6rem, 1.2rem + 1.8vw, 2.3rem);
+		font-weight: 650;
+		letter-spacing: -0.03em;
+	}
+	p {
+		margin: 0;
+		max-width: 36rem;
+		color: var(--sl-color-gray-2);
+		line-height: 1.65;
+	}
+	pre {
+		max-width: 100%;
+		margin: 0.25rem 0;
+		padding: 0.8rem 1.1rem;
+		border: 1px solid var(--rz-panel-line);
+		border-radius: var(--rz-radius-field);
+		background: var(--rz-inner);
+		color: var(--sl-color-gray-1);
+		font-family: var(--__sl-font-mono);
+		font-size: 0.8125rem;
+		overflow-x: auto;
+	}
+	div {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.75rem 1.5rem;
+		align-items: center;
+	}
+	a {
+		color: var(--sl-color-text-accent);
+		font-weight: 600;
+	}
+	a.primary {
+		display: inline-flex;
+		align-items: center;
+		height: 2.75rem;
+		padding-inline: 1.3rem;
+		border-radius: var(--rz-radius-field);
+		background: linear-gradient(135deg, var(--rz-cta-from), var(--rz-cta-to));
+		color: #fff;
+		text-decoration: none;
+		box-shadow: var(--rz-shadow-cta);
+	}
+</style>

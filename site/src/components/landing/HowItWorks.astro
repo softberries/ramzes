@@ -1,0 +1,103 @@
+---
+import Section from './Section.astro';
+import { href } from '../../lib/links';
+
+const steps = [
+	{
+		title: 'Send',
+		body: 'A service posts JSON to /v1/events with a source key. Alertmanager, Grafana, GitHub, GitLab and Sentry post their own webhooks to a source address instead, and any other JSON is mapped in the app.',
+		link: 'sending/events-api/',
+		more: 'Sending events',
+	},
+	{
+		title: 'Route',
+		body: 'Routes are checked in order. A route that matches opens a notification for each of its targets, and its policy decides whether that is sent now, counted, grouped or held.',
+		link: 'concepts/routes/',
+		more: 'Routes',
+	},
+	{
+		title: 'Deliver',
+		body: 'The message goes to Slack, Teams, Discord, email, a pager, a phone or any URL, and is retried until it arrives. Each attempt is recorded where you can see it.',
+		link: 'channels/overview/',
+		more: 'Channels',
+	},
+];
+---
+
+<Section id="how" title="How it works" lede="Three steps, each of which you can look at afterwards.">
+	<ol class="rz-steps">
+		{
+			steps.map((s) => (
+				<li>
+					<h3>{s.title}</h3>
+					<p>{s.body}</p>
+					<a href={href(s.link)}>{s.more}</a>
+				</li>
+			))
+		}
+	</ol>
+	<div class="rz-code">
+		<pre><code>{`curl -X POST http://localhost:7269/v1/events \\
+  -H "Authorization: Bearer <source key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"topic": "orders.failed", "title": "Order 7 failed", "severity": "error"}'`}</code></pre>
+	</div>
+</Section>
+
+<style>
+	.rz-steps {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+		gap: 1.5rem 2.5rem;
+		margin: 0 0 2rem;
+		padding: 0;
+		list-style: none;
+		counter-reset: step;
+	}
+	li {
+		display: grid;
+		align-content: start;
+		gap: 0.5rem;
+		padding-top: 1rem;
+		border-top: 2px solid var(--rz-panel-line);
+		counter-increment: step;
+	}
+	h3 {
+		margin: 0;
+		color: var(--sl-color-white);
+		font-size: 1.15rem;
+		font-weight: 600;
+	}
+	/* The steps happen in this order, so they are numbered. */
+	h3::before {
+		content: counter(step) '. ';
+		color: var(--rz-gold);
+		font-family: var(--__sl-font-mono);
+		font-weight: 500;
+	}
+	p {
+		margin: 0;
+		color: var(--sl-color-gray-2);
+		font-size: 0.925rem;
+		line-height: 1.65;
+	}
+	a {
+		color: var(--sl-color-text-accent);
+		font-size: 0.925rem;
+		font-weight: 500;
+	}
+	.rz-code {
+		border: 1px solid var(--rz-panel-line);
+		border-radius: var(--rz-radius-card);
+		background: var(--rz-inner);
+		overflow-x: auto;
+	}
+	pre {
+		margin: 0;
+		padding: 1.1rem 1.3rem;
+		color: var(--sl-color-gray-1);
+		font-family: var(--__sl-font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.7;
+	}
+</style>

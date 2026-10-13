@@ -1,0 +1,46 @@
+---
+/** A landing section: heading, optional lede, then content. */
+interface Props {
+	id: string;
+	title: string;
+	lede?: string;
+}
+const { id, title, lede } = Astro.props;
+---
+
+<section class="rz-section" aria-labelledby={id}>
+	<header>
+		<h2 id={id}>{title}</h2>
+		{lede && <p>{lede}</p>}
+	</header>
+	<slot />
+</section>
+
+<style>
+	.rz-section {
+		padding-block: clamp(3.5rem, 8vw, 6rem) 0;
+	}
+	header {
+		display: grid;
+		gap: 0.85rem;
+		max-width: 44rem;
+		margin-bottom: clamp(1.75rem, 4vw, 2.75rem);
+	}
+	h2 {
+		margin: 0;
+		scroll-margin-top: calc(var(--sl-nav-height) + 2rem);
+		color: var(--sl-color-white);
+		font-size: clamp(1.7rem, 1.2rem + 2vw, 2.5rem);
+		font-weight: 650;
+		line-height: 1.12;
+		letter-spacing: -0.03em;
+		text-wrap: balance;
+	}
+	p {
+		margin: 0;
+		color: var(--sl-color-gray-2);
+		font-size: 1.05rem;
+		line-height: 1.7;
+		text-wrap: pretty;
+	}
+</style>

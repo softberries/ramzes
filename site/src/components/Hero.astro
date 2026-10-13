@@ -1,0 +1,176 @@
+---
+/**
+ * Hero override. The landing page (the only page with `hero` frontmatter) gets ramzes's own hero:
+ * what it is, where to start, and a real screenshot of the app. Any other page that sets `hero`
+ * falls back to Starlight's default.
+ */
+import { Image } from 'astro:assets';
+import Default from '@astrojs/starlight/components/Hero.astro';
+import { GITHUB_URL, href } from '../lib/links';
+import { shot } from './screens';
+
+const isLanding = Astro.locals.starlightRoute.id === '';
+const { dark, light } = shot('overview');
+---
+
+{
+	isLanding ? (
+		<section class="rz-hero not-content" aria-labelledby="_top">
+			<div class="rz-hero__copy">
+				<p class="rz-hero__kind">Self-hosted notification router, written in Rust</p>
+				<h1 id="_top" class="rz-hero__title">
+					Every event, to whoever needs to know.
+				</h1>
+				<p class="rz-hero__lede">
+					Your services send events to one HTTP endpoint. Routes decide who is told, on which
+					channel and how often: duplicates are counted instead of repeated, bursts are grouped
+					into one message, and what nobody acknowledges is escalated.
+				</p>
+				<div class="rz-actions">
+					<a class="rz-btn rz-btn--primary" href={href('getting-started/quickstart/')}>Quickstart</a>
+					<a class="rz-btn rz-btn--secondary" href={href('getting-started/what-is-ramzes/')}>Read the docs</a>
+					<a class="rz-btn rz-btn--ghost" href={GITHUB_URL}>GitHub</a>
+				</div>
+				<ul class="rz-hero__facts" aria-label="At a glance">
+					<li>One binary</li>
+					<li>SQLite or Postgres</li>
+					<li>Web UI built in</li>
+					<li>AGPLv3</li>
+				</ul>
+			</div>
+			<figure class="rz-hero__shot">
+				<Image src={dark} alt="The ramzes overview: events received by severity over the last day, the share of deliveries that arrived, and the noisiest sources and topics." widths={[900, 1360, dark.width]} sizes="(min-width: 72rem) 68rem, 96vw" loading="eager" fetchpriority="high" class="rz-hero__dark" />
+				<Image src={light} alt="The ramzes overview: events received by severity over the last day, the share of deliveries that arrived, and the noisiest sources and topics." widths={[900, 1360, light.width]} sizes="(min-width: 72rem) 68rem, 96vw" loading="lazy" class="rz-hero__light" />
+			</figure>
+		</section>
+	) : (
+		<Default {...Astro.props}>
+			<slot />
+		</Default>
+	)
+}
+
+<style>
+	.rz-hero {
+		display: grid;
+		gap: clamp(2rem, 5vw, 3.5rem);
+		padding-block: clamp(2rem, 6vw, 4.5rem) 0;
+		background: radial-gradient(60rem 26rem at 50% -8rem, color-mix(in srgb, var(--rz-gold) var(--rz-glow), transparent), transparent 70%);
+	}
+	.rz-hero__copy {
+		display: grid;
+		gap: 1.25rem;
+		justify-items: center;
+		max-width: 50rem;
+		margin-inline: auto;
+		text-align: center;
+	}
+	.rz-hero__kind {
+		margin: 0;
+		color: var(--rz-gold);
+		font-family: var(--__sl-font-mono);
+		font-size: 0.8125rem;
+	}
+	.rz-hero__title {
+		margin: 0;
+		color: var(--sl-color-white);
+		font-size: clamp(2.3rem, 1.3rem + 4.4vw, 4.2rem);
+		font-weight: 650;
+		line-height: 1.04;
+		letter-spacing: -0.035em;
+		text-wrap: balance;
+	}
+	.rz-hero__lede {
+		margin: 0;
+		max-width: 42rem;
+		color: var(--sl-color-gray-2);
+		font-size: clamp(1.02rem, 0.95rem + 0.35vw, 1.2rem);
+		line-height: 1.65;
+		text-wrap: pretty;
+	}
+	.rz-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.75rem;
+		margin-top: 0.5rem;
+	}
+	.rz-btn {
+		display: inline-flex;
+		align-items: center;
+		height: 2.9rem;
+		padding-inline: 1.3rem;
+		border: 1px solid transparent;
+		border-radius: var(--rz-radius-field);
+		font-weight: 600;
+		text-decoration: none;
+		transition:
+			transform 0.15s ease,
+			border-color 0.15s ease,
+			background-color 0.15s ease;
+	}
+	.rz-btn:hover {
+		transform: translateY(-1px);
+	}
+	.rz-btn--primary {
+		background: linear-gradient(135deg, var(--rz-cta-from), var(--rz-cta-to));
+		color: #fff;
+		box-shadow: var(--rz-shadow-cta);
+	}
+	.rz-btn--secondary {
+		border-color: var(--rz-panel-line);
+		background: var(--rz-panel);
+		color: var(--sl-color-white);
+	}
+	.rz-btn--secondary:hover,
+	.rz-btn--ghost:hover {
+		border-color: var(--sl-color-gray-4);
+	}
+	.rz-btn--ghost {
+		border-color: var(--rz-panel-line);
+		color: var(--sl-color-gray-2);
+	}
+	.rz-hero__facts {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.5rem 1.5rem;
+		margin: 0.5rem 0 0;
+		padding: 0;
+		list-style: none;
+		color: var(--sl-color-gray-3);
+		font-size: 0.875rem;
+	}
+	.rz-hero__facts li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.rz-hero__facts li::before {
+		content: '';
+		width: 0.35rem;
+		height: 0.35rem;
+		border-radius: 1px;
+		background: var(--rz-gold);
+		rotate: 45deg;
+	}
+	.rz-hero__shot {
+		margin: 0;
+		border: 1px solid var(--rz-panel-line);
+		border-radius: var(--rz-radius-panel);
+		background: var(--rz-panel);
+		box-shadow: var(--rz-shadow-lg);
+		overflow: hidden;
+		/* The page goes on below: the overview is shown from its top, not whole. */
+		max-height: min(46rem, 70vw);
+	}
+	.rz-hero__shot :global(img) {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	:global(:root[data-theme='light']) .rz-hero__shot :global(.rz-hero__dark),
+	:global(:root:not([data-theme='light'])) .rz-hero__shot :global(.rz-hero__light) {
+		display: none;
+	}
+</style>

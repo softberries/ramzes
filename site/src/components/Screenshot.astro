@@ -1,0 +1,178 @@
+---
+/**
+ * A screenshot of the app in both themes: the light or dark capture is shown to match the site
+ * theme (Starlight's `data-theme` on <html>). A click opens it enlarged in a <dialog>, closed with
+ * Escape, the close button or a click outside.
+ */
+import { Image } from 'astro:assets';
+import { shot } from './screens';
+
+interface Props {
+	/** Base name in `src/assets/screens`, e.g. `overview` (both `-dark` and `-light` must exist). */
+	name: string;
+	/** What the picture shows; it is the caption and the alternative text. */
+	caption: string;
+	/** Crop a tall shot to this height (CSS length); the enlarged view shows all of it. */
+	maxHeight?: string;
+	/** Fetch with high priority, for a shot at the top of a page. */
+	eager?: boolean;
+}
+
+const { name, caption, maxHeight, eager = false } = Astro.props;
+const { dark, light } = shot(name);
+const id = `shot-${name}-${Math.random().toString(36).slice(2, 8)}`;
+const variants = [
+	{ image: light, cls: 'rz-shot__light' },
+	{ image: dark, cls: 'rz-shot__dark' },
+];
+---
+
+<figure class="rz-shot not-content">
+	<button
+		type="button"
+		class:list={['rz-shot__frame', { 'rz-shot__frame--crop': maxHeight }]}
+		style={maxHeight ? `--rz-shot-max:${maxHeight}` : undefined}
+		data-shot-open={id}
+		aria-haspopup="dialog"
+		aria-label={`Enlarge screenshot: ${caption}`}
+	>
+		{
+			variants.map(({ image, cls }) => (
+				<Image
+					src={image}
+					alt={caption}
+					widths={[640, 960, 1360, image.width]}
+					sizes="(min-width: 72rem) 47rem, calc(100vw - 2rem)"
+					loading="lazy"
+					fetchpriority={eager ? 'high' : undefined}
+					decoding="async"
+					class:list={['rz-shot__img', cls]}
+				/>
+			))
+		}
+		{maxHeight ? <span class="rz-shot__more">Select to see the whole page</span> : null}
+	</button>
+	<figcaption>{caption}</figcaption>
+	<dialog id={id} class="rz-shot__dialog" aria-label={caption}>
+		<div class="rz-shot__bar">
+			<span>{caption}</span>
+			<button type="button" data-shot-close aria-label="Close enlarged screenshot">
+				<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+					<path d="M18 6 6 18M6 6l12 12"></path>
+				</svg>
+			</button>
+		</div>
+		<div class="rz-shot__zoom">
+			{
+				variants.map(({ image, cls }) => (
+					<Image src={image} alt="" widths={[1360, image.width]} sizes="94vw" loading="lazy" class:list={[cls]} />
+				))
+			}
+		</div>
+	</dialog>
+</figure>
+
+<script>
+	// One listener for every screenshot on the page.
+	document.addEventListener('click', (event) => {
+		const target = event.target as HTMLElement;
+		const opener = target.closest<HTMLElement>('[data-shot-open]');
+		if (opener) {
+			(document.getElementById(opener.dataset.shotOpen ?? '') as HTMLDialogElement | null)?.showModal();
+			return;
+		}
+		const dialog = target.closest('dialog.rz-shot__dialog') as HTMLDialogElement | null;
+		// The close button, or the backdrop: a click on the dialog itself and not on what it holds.
+		if (dialog && (target.closest('[data-shot-close]') || target === dialog)) dialog.close();
+	});
+</script>
+
+<style>
+	.rz-shot {
+		margin: 1.75rem 0;
+	}
+	.rz-shot__frame {
+		position: relative;
+		display: block;
+		width: 100%;
+		padding: 0;
+		border: 1px solid var(--sl-color-hairline-light);
+		border-radius: var(--rz-radius-card);
+		background: var(--rz-panel);
+		box-shadow: var(--rz-shadow);
+		overflow: hidden;
+		cursor: zoom-in;
+	}
+	.rz-shot__frame--crop {
+		max-height: var(--rz-shot-max);
+	}
+	.rz-shot__more {
+		position: absolute;
+		inset: auto 0 0 0;
+		padding: 2.5rem 1rem 0.75rem;
+		background: linear-gradient(transparent, var(--rz-panel) 70%);
+		color: var(--sl-color-gray-2);
+		font-size: 0.8125rem;
+		text-align: center;
+	}
+	.rz-shot :global(img) {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	/* Only the capture that matches the site theme is shown, and only that one is fetched. */
+	:global(:root[data-theme='light']) .rz-shot :global(.rz-shot__dark),
+	:global(:root:not([data-theme='light'])) .rz-shot :global(.rz-shot__light) {
+		display: none;
+	}
+	figcaption {
+		margin-top: 0.6rem;
+		color: var(--sl-color-gray-3);
+		font-size: 0.8438rem;
+		text-align: center;
+	}
+	.rz-shot__dialog {
+		width: min(96vw, 1500px);
+		max-height: 94vh;
+		padding: 0;
+		border: 1px solid var(--sl-color-hairline-light);
+		border-radius: var(--rz-radius-panel);
+		background: var(--rz-panel);
+		color: var(--sl-color-gray-1);
+		box-shadow: var(--rz-shadow-lg);
+	}
+	.rz-shot__dialog::backdrop {
+		background: var(--sl-color-backdrop-overlay);
+	}
+	.rz-shot__bar {
+		position: sticky;
+		top: 0;
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.6rem 0.6rem 0.6rem 1rem;
+		border-bottom: 1px solid var(--sl-color-hairline-light);
+		background: var(--rz-panel);
+		font-size: 0.875rem;
+	}
+	.rz-shot__bar span {
+		margin-inline-end: auto;
+	}
+	.rz-shot__bar button {
+		display: grid;
+		place-items: center;
+		width: 2rem;
+		height: 2rem;
+		border: 0;
+		border-radius: var(--rz-radius-control);
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+	}
+	.rz-shot__bar button:hover {
+		background: var(--sl-color-gray-5);
+	}
+	.rz-shot__zoom {
+		overflow: auto;
+	}
+</style>

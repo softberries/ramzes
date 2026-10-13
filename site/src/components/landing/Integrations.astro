@@ -1,0 +1,84 @@
+---
+import Section from './Section.astro';
+import { href } from '../../lib/links';
+
+const from = [
+	['Your services', 'sending/events-api/'],
+	['Alertmanager', 'sending/alertmanager/'],
+	['Grafana', 'sending/grafana/'],
+	['GitHub', 'sending/github/'],
+	['GitLab', 'sending/gitlab/'],
+	['Sentry', 'sending/sentry/'],
+	['Any JSON webhook', 'sending/any-json/'],
+];
+const to = [
+	['Slack', 'channels/slack/'],
+	['Microsoft Teams', 'channels/teams/'],
+	['Discord', 'channels/discord/'],
+	['Email', 'channels/email/'],
+	['ntfy', 'channels/push/'],
+	['Telegram', 'channels/push/'],
+	['Pushover', 'channels/push/'],
+	['PagerDuty', 'channels/paging/'],
+	['Opsgenie', 'channels/paging/'],
+	['Webhook', 'channels/webhook/'],
+	['Your own, in YAML', 'channels/custom/'],
+];
+---
+
+<Section id="integrations" title="From anything, to anywhere" lede="Formats follow each service's documentation and are pinned by tests. None has been run against the live service yet; the page of verified claims says exactly what was checked.">
+	<div class="rz-io">
+		<div>
+			<h3>Receives from</h3>
+			<ul>{from.map(([name, link]) => <li><a href={href(link)}>{name}</a></li>)}</ul>
+		</div>
+		<div>
+			<h3>Delivers to</h3>
+			<ul>{to.map(([name, link]) => <li><a href={href(link)}>{name}</a></li>)}</ul>
+		</div>
+	</div>
+	<p class="rz-io__more"><a href={href('verified/')}>What was verified, and how</a></p>
+</Section>
+
+<style>
+	.rz-io {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+		gap: 2rem 3rem;
+	}
+	h3 {
+		margin: 0 0 0.85rem;
+		color: var(--sl-color-gray-3);
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+	ul {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	li a {
+		display: block;
+		padding: 0.45rem 0.85rem;
+		border: 1px solid var(--rz-panel-line);
+		border-radius: 999px;
+		background: var(--rz-panel);
+		color: var(--sl-color-gray-1);
+		font-size: 0.9rem;
+		text-decoration: none;
+		transition: border-color 0.15s ease;
+	}
+	li a:hover {
+		border-color: var(--sl-color-accent);
+	}
+	.rz-io__more {
+		margin: 1.5rem 0 0;
+		font-size: 0.925rem;
+	}
+	.rz-io__more a {
+		color: var(--sl-color-text-accent);
+	}
+</style>
