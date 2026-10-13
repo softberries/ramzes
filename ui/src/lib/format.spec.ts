@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, clock, duration, outcomeOf, timeOfDay, until } from './format';
+import { ago, clock, countdown, duration, outcomeOf, timeOfDay, until } from './format';
 
 describe('clock', () => {
 	it('shows local time with seconds', () => {
@@ -40,6 +40,22 @@ describe('until', () => {
 		expect(until(now + 5_000, now)).toBe('in 5 s');
 		expect(until(now + 8 * 60_000, now)).toBe('in 8 min');
 		expect(until(now - 1, now)).toBe('now');
+	});
+});
+
+describe('countdown', () => {
+	it('keeps the seconds, so it can be watched running down', () => {
+		expect(countdown(9_400)).toBe('9 s');
+		expect(countdown(60_000)).toBe('1 min');
+		expect(countdown(252_000)).toBe('4 min 12 s');
+		expect(countdown(3_600_000)).toBe('1 h');
+		expect(countdown(3_900_000 + 30_000)).toBe('1 h 5 min');
+		expect(countdown(26 * 3_600_000)).toBe('1 d 2 h');
+	});
+
+	it('is zero once the time has come', () => {
+		expect(countdown(0)).toBe('0 s');
+		expect(countdown(-5)).toBe('0 s');
 	});
 });
 

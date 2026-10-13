@@ -1,11 +1,22 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { api, messageOf } from '#lib/api/client.ts';
-	import type { ConnectorDescriptor, Route, RouteInput, RouteMatch, Target, Template } from '#lib/api/types.ts';
+	import type { ConnectorDescriptor, Route, RouteInput, RouteMatch, Template } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
+	import EscalationEditor from '#lib/components/EscalationEditor.svelte';
 	import MatchEditor from '#lib/components/MatchEditor.svelte';
 	import RouteTester from '#lib/components/RouteTester.svelte';
 	import ShapingEditor from '#lib/components/ShapingEditor.svelte';
+	import TargetRows from '#lib/components/TargetRows.svelte';
+	import {
+		chainToForm,
+		emptyTarget,
+		formToChain,
+		summarizeChain,
+		targetRow,
+		type StepForm,
+		type TargetRow
+	} from '#lib/escalation.ts';
 	import { ago } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
 	import { cleanMatch, cleanTargets, inputOfRoute, moved, routesForTest, summarize } from '#lib/routes.ts';
@@ -20,8 +31,10 @@
 		stop: boolean;
 		match: RouteMatch;
 		/** One row per target. Empty strings stand for "not chosen" and are cleaned before sending. */
-		targets: Required<Target>[];
+		targets: TargetRow[];
 		shaping: ShapingForm;
+		/** Who else is told while nobody acknowledges, in order. */
+		escalation: StepForm[];
 	}
 
 	/** Quiet hours start in the time zone of whoever sets them up. */
@@ -46,13 +59,15 @@
 
 	/** The draft as the API takes it. */
 	function inputOf(from: Draft): RouteInput {
+		const takesDestination = (id: string) => destinationLabel(id) !== null;
 		return {
 			name: from.name,
 			enabled: from.enabled,
 			stop: from.stop,
 			match: cleanMatch(from.match),
-			targets: cleanTargets(from.targets, (id) => destinationLabel(id) !== null),
-			shaping: formToShaping(from.shaping)
+			targets: cleanTargets(from.targets, takesDestination),
+			shaping: formToShaping(from.shaping),
+			escalation: formToChain(from.escalation, takesDestination)
 		};
 	}
 
@@ -78,10 +93,6 @@
 		]).catch((error) => toasts.problem(error));
 	});
 
-	function emptyTarget(connectionId: string = ''): Required<Target> {
-		return { connection_id: connectionId, destination: '', template_id: '' };
-	}
-
 	function startNew() {
 		problem = '';
 		draft = {
@@ -91,7 +102,8 @@
 			stop: false,
 			match: {},
 			targets: [emptyTarget(lookups.connections[0]?.id)],
-			shaping: shapingToForm(undefined, browserZone)
+			shaping: shapingToForm(undefined, browserZone),
+			escalation: []
 		};
 	}
 
@@ -103,12 +115,9 @@
 			enabled: route.enabled,
 			stop: route.stop,
 			match: structuredClone($state.snapshot(route.match)) as RouteMatch,
-			targets: route.targets.map((t) => ({
-				connection_id: t.connection_id,
-				destination: t.destination ?? '',
-				template_id: t.template_id ?? ''
-			})),
-			shaping: shapingToForm($state.snapshot(route.shaping), browserZone)
+			targets: route.targets.map(targetRow),
+			shaping: shapingToForm($state.snapshot(route.shaping), browserZone),
+			escalation: chainToForm($state.snapshot(route.escalation))
 		};
 	}
 
@@ -214,6 +223,11 @@
 						{#if summarizeShaping(route.shaping)}
 							<div class="text-muted break-words" data-testid="shaping-summary">{summarizeShaping(route.shaping)}</div>
 						{/if}
+						{#if summarizeChain(route.escalation, lookups.connectionNames)}
+							<div class="text-muted break-words" data-testid="chain-summary">
+								{summarizeChain(route.escalation, lookups.connectionNames)}
+							</div>
+						{/if}
 						{#if route.last_error}
 							<div class="problem break-words">
 								Expression failed{route.last_error_at ? ` ${ago(route.last_error_at)}` : ''}: {route.last_error}
@@ -257,59 +271,33 @@
 
 				<fieldset class="flex flex-col gap-2">
 					<legend class="mb-2 font-medium">Send to</legend>
-					<div class="text-muted hidden gap-2 md:grid md:grid-cols-[1fr_1fr_1fr_5rem]" aria-hidden="true">
-						<span>Connection</span>
-						<span>Destination</span>
-						<span>Wording</span>
-					</div>
-					{#each draft.targets as target, index (index)}
-						{@const label = destinationLabel(target.connection_id)}
-						<div class="border-line grid gap-2 border-b pb-2 md:grid-cols-[1fr_1fr_1fr_5rem] md:border-b-0 md:pb-0">
-							<select class="input" aria-label="Connection" bind:value={target.connection_id} required>
-								<option value="" disabled>Choose a connection</option>
-								{#each lookups.connections as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-							</select>
-							{#if label}
-								<input
-									class="input"
-									aria-label={label}
-									placeholder="{label} (optional)"
-									bind:value={target.destination}
-								/>
-							{:else}
-								<span class="text-faint hidden self-center md:block">The connection's own</span>
-							{/if}
-							<select class="input" aria-label="Template" bind:value={target.template_id}>
-								<option value="">The event's own wording</option>
-								{#each templates as template (template.id)}<option value={template.id}>{template.name}</option>{/each}
-							</select>
-							{#if draft.targets.length > 1}
-								<button
-									type="button"
-									class="btn btn-quiet justify-self-start"
-									onclick={() => draft && (draft.targets = draft.targets.filter((_, i) => i !== index))}
-								>
-									Remove
-								</button>
-							{/if}
-						</div>
-					{/each}
+					<TargetRows
+						bind:targets={draft.targets}
+						connections={lookups.connections}
+						{templates}
+						{destinationLabel}
+						header
+					/>
 					{#if lookups.connections.length === 0}
 						<p class="hint">
 							There are no connections. Add one under <a href={resolve('/connections')}>Connections</a>.
 						</p>
-					{:else}
-						<div>
-							<button type="button" class="btn" onclick={() => draft && (draft.targets = [...draft.targets, emptyTarget()])}>
-								Add another connection
-							</button>
-						</div>
 					{/if}
 					{#if templates.length === 0}
 						<p class="hint">
 							To word messages differently, write a template under <a href={resolve('/templates')}>Templates</a>.
 						</p>
 					{/if}
+				</fieldset>
+
+				<fieldset class="flex flex-col gap-3">
+					<legend class="mb-1 font-medium">If nobody acknowledges</legend>
+					<EscalationEditor
+						bind:steps={draft.escalation}
+						connections={lookups.connections}
+						{templates}
+						{destinationLabel}
+					/>
 				</fieldset>
 
 				<fieldset class="flex flex-col gap-3">

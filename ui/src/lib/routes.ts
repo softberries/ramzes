@@ -63,7 +63,8 @@ export function inputOfRoute(route: Route): RouteInput {
 		stop: route.stop,
 		match: route.match,
 		targets: route.targets,
-		...(route.shaping ? { shaping: route.shaping } : {})
+		...(route.shaping ? { shaping: route.shaping } : {}),
+		...(route.escalation ? { escalation: route.escalation } : {})
 	};
 }
 

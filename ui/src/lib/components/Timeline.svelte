@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { Journey, JourneyDelivery, MessagePreview } from '#lib/api/types.ts';
+	import { stepLabel } from '#lib/escalation.ts';
 	import { clock } from '#lib/format.ts';
 	import { journeyWords, roleWords } from '#lib/notifications.ts';
 	import DeliveryBlock, { waiting } from './DeliveryBlock.svelte';
@@ -104,50 +105,8 @@
 
 		{#each notification.deliveries as delivery (delivery.id)}
 			<li class={waiting(delivery) ? 'open' : ''} style="--node: {tone(delivery)}">
-				<DeliveryBlock {delivery} {now} {onreplay} />
+				<DeliveryBlock {delivery} {now} {onreplay} label={stepLabel(delivery, connections)} />
 			</li>
 		{/each}
 	{/each}
 </ol>
-
-<style>
-	.path {
-		--gutter: 1.75rem;
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		gap: 1.1rem;
-		padding-left: var(--gutter);
-	}
-
-	/* The line every node sits on. */
-	.path::before {
-		content: '';
-		position: absolute;
-		top: 0.55rem;
-		bottom: 0.55rem;
-		left: 0.3rem;
-		width: 2px;
-		background: var(--line);
-	}
-
-	.path > li {
-		position: relative;
-	}
-
-	.path > li::before {
-		content: '';
-		position: absolute;
-		top: 0.35rem;
-		left: calc(-1 * var(--gutter) + 0.05rem);
-		width: 0.6rem;
-		height: 0.6rem;
-		background: var(--node);
-	}
-
-	/* A step that is still in progress is drawn hollow. */
-	.path > li.open::before {
-		background: var(--bg);
-		box-shadow: inset 0 0 0 2px var(--node);
-	}
-</style>

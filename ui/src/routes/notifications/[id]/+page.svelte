@@ -2,24 +2,27 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ApiError, api } from '#lib/api/client.ts';
-	import type { NotificationDetail } from '#lib/api/types.ts';
+	import type { NotificationView } from '#lib/api/types.ts';
 	import DeliveryBlock from '#lib/components/DeliveryBlock.svelte';
+	import EscalationProgress from '#lib/components/EscalationProgress.svelte';
 	import NotificationActions from '#lib/components/NotificationActions.svelte';
 	import NotificationState from '#lib/components/NotificationState.svelte';
 	import SeverityMark from '#lib/components/SeverityMark.svelte';
+	import { stepLabel } from '#lib/escalation.ts';
 	import { clock } from '#lib/format.ts';
+	import { lookups } from '#lib/lookups.svelte.ts';
 	import { live } from '#lib/stream.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
 	const id = $derived(page.params.id ?? '');
 
-	let notification = $state<NotificationDetail | null>(null);
+	let notification = $state<NotificationView | null>(null);
 	let missing = $state(false);
 	let now = $state(Date.now());
 
 	async function load() {
 		try {
-			notification = await api<NotificationDetail>('GET', `/api/notifications/${id}`);
+			notification = await api<NotificationView>('GET', `/api/notifications/${id}`);
 			missing = false;
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 404) missing = true;
@@ -31,13 +34,15 @@
 		void id;
 		notification = null;
 		load();
+		// Deliveries of escalation steps go to other connections; their names are needed to say where.
+		lookups.load().catch((error) => toasts.problem(error));
 		const offs = [
 			live.on('notification', (m) => m.notification_id === id && load()),
 			// A delivery message names its events, not its notification, so any of them is a reason to look.
 			live.on('delivery', load),
 			live.on('resync', load)
 		];
-		// Keeps "sends in…" and "next attempt in…" current.
+		// Keeps "sends in…", "due in…" and "next attempt in…" current.
 		const tick = setInterval(() => (now = Date.now()), 1000);
 		return () => {
 			offs.forEach((off) => off());
@@ -117,6 +122,17 @@
 		</ul>
 	</section>
 
+	{#if notification.escalation.length > 0}
+		<section class="mb-8" aria-label="If nobody acknowledges">
+			<h2 class="mb-1">If nobody acknowledges</h2>
+			<p class="hint mb-3 max-w-2xl">
+				The escalation chain of {notification.route_name} as it is set up now. A step goes out only while the
+				notification is sent and not acknowledged.
+			</p>
+			<EscalationProgress {notification} {now} />
+		</section>
+	{/if}
+
 	<section aria-label="Deliveries">
 		<h2 class="mb-2">Deliveries</h2>
 		{#if notification.deliveries.length === 0}
@@ -133,7 +149,12 @@
 			<ul class="border-line flex flex-col border-t">
 				{#each notification.deliveries as delivery (delivery.id)}
 					<li class="border-line border-b px-2 py-2.5">
-						<DeliveryBlock {delivery} {now} onreplay={replayDelivery} />
+						<DeliveryBlock
+							{delivery}
+							{now}
+							onreplay={replayDelivery}
+							label={stepLabel(delivery, lookups.connectionNames)}
+						/>
 					</li>
 				{/each}
 			</ul>

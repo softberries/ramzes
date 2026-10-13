@@ -65,7 +65,8 @@ export function spanWords(seconds: number): string {
 	return `${amount} ${unit}`;
 }
 
-function toSeconds(span: Span): number {
+/** A form's length of time in seconds. An empty amount is zero. */
+export function toSeconds(span: Span): number {
 	const per = UNITS.find((u) => u.unit === span.unit)?.seconds ?? 1;
 	return Math.round((span.amount ?? 0) * per);
 }
@@ -139,7 +140,8 @@ export function formToShaping(form: ShapingForm): Shaping {
 	return shaping;
 }
 
-function listed(words: string[]): string {
+/** Words as a list in a sentence: "a", "a and b", "a, b and c". */
+export function listed(words: string[]): string {
 	return words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 

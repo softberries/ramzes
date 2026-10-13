@@ -173,12 +173,3 @@
 		<input type="checkbox" bind:checked={form.notifyResolved} /> Tell the target when it is resolved
 	</label>
 </div>
-
-<style>
-	/* The fields of a part hang from its checkbox. */
-	.part {
-		margin-left: 0.35rem;
-		padding-left: 1rem;
-		border-left: 2px solid var(--line);
-	}
-</style>

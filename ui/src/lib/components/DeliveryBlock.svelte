@@ -18,12 +18,15 @@
 		now: number;
 		/** Send this delivery again. */
 		onreplay: (deliveryId: string) => void;
+		/** Which escalation step sent it and to whom. Empty for a delivery to the route's own targets. */
+		label?: string;
 	}
 
-	let { delivery, now, onreplay }: Props = $props();
+	let { delivery, now, onreplay, label = '' }: Props = $props();
 </script>
 
 <div class="flex flex-wrap items-baseline gap-x-4">
+	{#if label}<span class="break-words" data-testid="delivery-step">{label}</span>{/if}
 	<span class="font-medium"><StateTag state={delivery.state} /></span>
 	{#if delivery.attempts.length > 0}
 		<span class="text-muted">

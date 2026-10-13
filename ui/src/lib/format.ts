@@ -45,6 +45,24 @@ export function until(ms: number, now: number = Date.now()): string {
 	return remaining <= 0 ? 'now' : `in ${span(remaining)}`;
 }
 
+/** Time left, in its two largest units so the smaller one can be watched running down: "4 min 12 s". */
+export function countdown(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	const parts: [number, string][] = [
+		[Math.floor(seconds / 86_400), 'd'],
+		[Math.floor(seconds / 3600) % 24, 'h'],
+		[Math.floor(seconds / 60) % 60, 'min'],
+		[seconds % 60, 's']
+	];
+	const first = parts.findIndex(([amount]) => amount > 0);
+	if (first < 0) return '0 s';
+	return parts
+		.slice(first, first + 2)
+		.filter(([amount]) => amount > 0)
+		.map(([amount, unit]) => `${amount} ${unit}`)
+		.join(' ');
+}
+
 /** A length of time: milliseconds below one second, seconds above. */
 export function duration(ms: number): string {
 	return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;

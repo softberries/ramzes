@@ -31,15 +31,10 @@ export function shortWho(who: string | null | undefined): string {
 }
 
 function sentWords(row: NotificationRow, now: number): string {
-	// The API gives no send time. The last change is the send as long as nothing happened after it.
-	const changed = ago(row.updated_at, now);
-	const sent =
-		row.sent_count > 1
-			? `${row.sent_count} times, last change ${changed}`
-			: row.event_count > 1
-				? `last change ${changed}`
-				: changed;
-	return row.next_timer_at ? `${sent}, again ${until(row.next_timer_at, now)}` : sent;
+	const last = ago(row.sent_at ?? row.updated_at, now);
+	const sent = row.sent_count > 1 ? `${row.sent_count} times, last ${last}` : last;
+	// The timer is a repeat of the message or the next escalation step; a row does not say which.
+	return row.next_timer_at ? `${sent}, next step ${until(row.next_timer_at, now)}` : sent;
 }
 
 /**

@@ -75,22 +75,26 @@ describe('stateWords', () => {
 	});
 
 	it('puts the state first and what follows it after, so the two read as one phrase', () => {
-		const words = stateWords(row('sent', { sent_count: 1 }), NOW);
-		expect(`${words.state} ${words.when}`).toBe('sent 3 min ago');
+		const words = stateWords(row('sent', { sent_count: 1, sent_at: NOW - 240_000 }), NOW);
+		expect(`${words.state} ${words.when}`).toBe('sent 4 min ago');
 	});
 
-	it('says how long ago a single message was sent', () => {
+	it('says how long ago the message was sent, whatever changed since', () => {
+		expect(stateWords(row('sent', { sent_count: 1, event_count: 4, sent_at: NOW - 240_000 }), NOW).when).toBe('4 min ago');
+	});
+
+	it('says how many messages were sent and when the last one went out', () => {
+		expect(stateWords(row('sent', { sent_count: 2, sent_at: NOW - 60_000 }), NOW).when).toBe('2 times, last 1 min ago');
+	});
+
+	it('falls back on the last change when the send time is not known', () => {
 		expect(stateWords(row('sent', { sent_count: 1 }), NOW).when).toBe('3 min ago');
 	});
 
-	it('does not claim a send time once more events or messages may have moved it', () => {
-		expect(stateWords(row('sent', { sent_count: 1, event_count: 4 }), NOW).when).toBe('last change 3 min ago');
-		expect(stateWords(row('sent', { sent_count: 2 }), NOW).when).toBe('2 times, last change 3 min ago');
-	});
-
-	it('says when a sent notification will be sent again', () => {
-		const repeating = row('sent', { sent_count: 1, next_timer_at: NOW + 4 * 3_600_000 });
-		expect(stateWords(repeating, NOW).when).toBe('3 min ago, again in 4 h');
+	it('says when the next step of a sent notification is due, without guessing what it is', () => {
+		// The row does not say whether the timer repeats the message or escalates it.
+		const timed = row('sent', { sent_count: 1, sent_at: NOW - 240_000, next_timer_at: NOW + 240_000 });
+		expect(stateWords(timed, NOW).when).toBe('4 min ago, next step in 4 min');
 	});
 
 	it('says who acknowledged it and when', () => {

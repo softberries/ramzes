@@ -149,6 +149,14 @@ describe('routesForTest', () => {
 		});
 	});
 
+	it("keeps a stored route's escalation chain", () => {
+		const escalation = [{ after_s: 300, targets: [{ connection_id: 'c2', destination: 'oncall' }] }];
+		const paged = { ...route('4', ['c1']), escalation };
+		expect(inputOfRoute(paged).escalation).toEqual(escalation);
+		expect(routesForTest([paged], null)[0].escalation).toEqual(escalation);
+		expect('escalation' in inputOfRoute(route('5', ['c1']))).toBe(false);
+	});
+
 	it('puts the draft in place of the route being edited', () => {
 		const sent = routesForTest(stored, { id: '2', input });
 		expect(sent.map((r) => r.name)).toEqual(['route 1', 'draft']);
