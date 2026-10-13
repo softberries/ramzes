@@ -5,6 +5,7 @@ import {
 	SAMPLE_EVENT,
 	cleanMatch,
 	cleanTargets,
+	inputOfRoute,
 	moved,
 	outcomeWords,
 	parseSampleEvent,
@@ -133,6 +134,19 @@ describe('routesForTest', () => {
 			{ name: 'route 1', enabled: true, stop: false, match: {}, targets: [{ connection_id: 'c1' }] },
 			{ name: 'route 2', enabled: false, stop: true, match: {}, targets: [{ connection_id: 'c2' }] }
 		]);
+	});
+
+	it("keeps a stored route's shaping policy", () => {
+		const shaped = { ...route('3', ['c1']), shaping: { group: { by: ['service'], wait_s: 30 } } };
+		expect(routesForTest([shaped], null)[0].shaping).toEqual({ group: { by: ['service'], wait_s: 30 } });
+		expect(inputOfRoute(shaped)).toEqual({
+			name: 'route 3',
+			enabled: true,
+			stop: false,
+			match: {},
+			targets: [{ connection_id: 'c1' }],
+			shaping: { group: { by: ['service'], wait_s: 30 } }
+		});
 	});
 
 	it('puts the draft in place of the route being edited', () => {

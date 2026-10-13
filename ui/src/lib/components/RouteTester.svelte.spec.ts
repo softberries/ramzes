@@ -22,8 +22,26 @@ const RESULTS: RouteResult[] = [
 		name: 'Big orders',
 		outcome: 'matched',
 		targets: [
-			{ connection_id: 'c1', connection_name: 'ops', destination: '#alerts', title: 'Order 17 failed', warning: null },
-			{ connection_id: 'c2', connection_name: null, title: 'Order 17 failed', warning: 'the template failed' }
+			{
+				connection_id: 'c1',
+				connection_name: 'ops',
+				destination: '#alerts',
+				title: 'Order 17 failed',
+				warning: null,
+				outcome: 'opens a group',
+				steps: [
+					{ step: 'dedup', outcome: 'first event with this key in the window' },
+					{ step: 'group', outcome: 'opens a group; it is sent after 30 s' }
+				]
+			},
+			{
+				connection_id: 'c2',
+				connection_name: null,
+				title: 'Order 17 failed',
+				warning: 'the template failed',
+				outcome: 'sent',
+				steps: [{ step: 'send', outcome: 'sent' }]
+			}
 		]
 	},
 	{ name: 'Rest', outcome: 'skipped', targets: [] }
@@ -59,6 +77,19 @@ describe('RouteTester', () => {
 		expect(body.routes).toEqual(ROUTES);
 		expect(body.event).toMatchObject({ topic: 'orders.payment.failed' });
 		expect(body.event_id).toBeUndefined();
+	});
+
+	it('shows what noise control would do for each target, and the steps that led there', async () => {
+		answering([], () => ({ results: RESULTS }));
+		render(RouteTester, { routes: ROUTES });
+
+		const targets = page.getByTestId('target');
+		await expect.element(targets.nth(0).getByTestId('target-outcome')).toHaveTextContent('opens a group');
+		await expect.element(targets.nth(0)).toHaveTextContent('Duplicates: first event with this key in the window');
+		await expect.element(targets.nth(0)).toHaveTextContent('Grouping: opens a group; it is sent after 30 s');
+		await expect.element(targets.nth(1).getByTestId('target-outcome')).toHaveTextContent('sent');
+		// A plain send needs no explanation.
+		await expect.element(targets.nth(1).getByTestId('target-steps')).not.toBeInTheDocument();
 	});
 
 	it('starts from the newest stored event when there is one', async () => {

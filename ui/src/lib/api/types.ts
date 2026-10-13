@@ -45,6 +45,16 @@ export type RouteResult = Schemas['RouteResult'];
 export type TargetResult = Schemas['TargetResult'];
 export type RevisionMeta = Schemas['RevisionMeta'];
 export type RevisionView = Schemas['RevisionView'];
+export type Shaping = Schemas['Shaping'];
+export type ShapingStep = Schemas['Step'];
+export type NotificationState = Schemas['NotificationState'];
+export type NotificationRow = Schemas['NotificationRow'];
+export type NotificationPage = Schemas['NotificationPage'];
+export type NotificationDetail = Schemas['NotificationDetail'];
+export type SilenceRow = Schemas['SilenceRow'];
+export type NewSilence = Schemas['NewSilence'];
+export type Overview = Schemas['OverviewView'];
+export type Bucket = Schemas['Bucket'];
 
 export const SEVERITIES: Severity[] = ['debug', 'info', 'warning', 'error', 'critical'];
 

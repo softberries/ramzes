@@ -128,13 +128,16 @@
 			<div>
 				<h2 class="mb-1">Labels</h2>
 				{#if Object.keys(event.labels).length > 0}
-					<table class="code w-full">
-						<tbody>
-							{#each Object.entries(event.labels) as [key, value] (key)}
-								<tr><td class="text-muted pr-6 align-top whitespace-nowrap">{key}</td><td class="break-all">{value}</td></tr>
-							{/each}
-						</tbody>
-					</table>
+					<!-- The padding is on a wrapper: a table takes none of its own. -->
+					<div class="code">
+						<table>
+							<tbody>
+								{#each Object.entries(event.labels) as [key, value] (key)}
+									<tr><td class="text-muted pr-6 align-top whitespace-nowrap">{key}</td><td class="break-all">{value}</td></tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
 				{:else}
 					<p class="hint">This event has no labels.</p>
 				{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { api, messageOf } from '#lib/api/client.ts';
-	import type { EventPage, EventRow, Template, TemplatePreview } from '#lib/api/types.ts';
+	import type { ConnectorDescriptor, EventPage, EventRow, Template, TemplatePreview } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
 	import RequestBlock from '#lib/components/RequestBlock.svelte';
 	import { debounced } from '#lib/debounce.ts';
@@ -33,6 +33,14 @@
 	/** The event and connection the preview is made with. Empty means a sample event, no connection. */
 	let eventId = $state('');
 	let connectionId = $state('');
+	let destination = $state('');
+	let connectors = $state<ConnectorDescriptor[]>([]);
+
+	/** What the chosen connection calls a destination, or null when its connector takes none. */
+	const destinationLabel = $derived.by(() => {
+		const kind = lookups.connections.find((c) => c.id === connectionId)?.kind;
+		return connectors.find((c) => c.kind === kind)?.destination_label ?? null;
+	});
 	let preview = $state<TemplatePreview | null>(null);
 	let previewProblem = $state('');
 
@@ -45,7 +53,8 @@
 		Promise.all([
 			load(),
 			lookups.load(),
-			api<EventPage>('GET', '/api/events?limit=20').then((page) => (events = page.events))
+			api<EventPage>('GET', '/api/events?limit=20').then((page) => (events = page.events)),
+			api<ConnectorDescriptor[]>('GET', '/api/connectors').then((list) => (connectors = list))
 		]).catch((error) => toasts.problem(error));
 	});
 
@@ -60,7 +69,8 @@
 				title: draft.title,
 				body: draft.body,
 				...(eventId ? { event_id: eventId } : {}),
-				...(connectionId ? { connection_id: connectionId } : {})
+				...(connectionId ? { connection_id: connectionId } : {}),
+				...(destinationLabel && destination.trim() ? { destination: destination.trim() } : {})
 			});
 			if (mine !== asked) return;
 			preview = answer;
@@ -75,7 +85,7 @@
 
 	$effect(() => {
 		// Everything the preview depends on.
-		void [draft?.id, draft?.title, draft?.body, eventId, connectionId];
+		void [draft?.id, draft?.title, draft?.body, eventId, connectionId, destinationLabel, destination];
 		if (draft) askSoon();
 		return askSoon.cancel;
 	});
@@ -238,6 +248,18 @@
 						{/each}
 					</select>
 				</div>
+				{#if destinationLabel}
+					<div class="md:col-start-2">
+						<label class="field-label" for="preview-destination">{destinationLabel}</label>
+						<input
+							id="preview-destination"
+							class="input"
+							placeholder="The connection's own"
+							autocomplete="off"
+							bind:value={destination}
+						/>
+					</div>
+				{/if}
 			</div>
 
 			{#if previewProblem}

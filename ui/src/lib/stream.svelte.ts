@@ -15,13 +15,15 @@ export interface StreamMessages {
 	event: { event_id: string };
 	/** A delivery attempt finished. */
 	delivery: { event_ids: string[]; delivery_id: string; state: DeliveryState };
+	/** A notification changed state: it was opened, sent, held, acknowledged or resolved. */
+	notification: { notification_id: string };
 	/** Changes may have been missed; reload what is on screen. */
 	resync: Record<string, never>;
 }
 
 type Handler<K extends keyof StreamMessages> = (message: StreamMessages[K]) => void;
 
-const TYPES: (keyof StreamMessages)[] = ['event', 'delivery', 'resync'];
+const TYPES: (keyof StreamMessages)[] = ['event', 'delivery', 'notification', 'resync'];
 const CLOSED = 2;
 /** Wait before opening a new connection; doubles after each failure up to the maximum. */
 const RETRY_MS = 2000;
@@ -42,7 +44,12 @@ function openEventSource(url: string): EventSourceLike {
 export class LiveStream {
 	status = $state<'connecting' | 'live' | 'reconnecting'>('connecting');
 	private source: EventSourceLike | null = null;
-	private handlers: { [K in keyof StreamMessages]: Handler<K>[] } = { event: [], delivery: [], resync: [] };
+	private handlers: { [K in keyof StreamMessages]: Handler<K>[] } = {
+		event: [],
+		delivery: [],
+		notification: [],
+		resync: []
+	};
 	private opener: ((url: string) => EventSourceLike) | null = null;
 	private retryTimer: ReturnType<typeof setTimeout> | undefined;
 	private retryMs = RETRY_MS;

@@ -45,7 +45,7 @@ describe('Palette', () => {
 		render(Palette, { open: true, onnavigate });
 		await page.getByRole('textbox', { name: 'Go to a page' }).click();
 		await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}');
-		expect(onnavigate).toHaveBeenCalledWith('/routes');
+		expect(onnavigate).toHaveBeenCalledWith('/notifications');
 	});
 
 	it('says so when nothing matches', async () => {

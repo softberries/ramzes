@@ -5,7 +5,7 @@
 	import ConnectionForm, { type ConnectionValues } from '#lib/components/ConnectionForm.svelte';
 	import ConnectorDefinitions from '#lib/components/ConnectorDefinitions.svelte';
 	import { groupConnectors, healthWords } from '#lib/connectors.ts';
-	import { ago } from '#lib/format.ts';
+	import { ago, timeOfDay } from '#lib/format.ts';
 	import { routesUsing } from '#lib/routes.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -21,6 +21,7 @@
 	let deleting = $state<ConnectionView | null>(null);
 	/** The latest test result per connection id. */
 	let tests = $state<Record<string, TestResult>>({});
+	let now = $state(Date.now());
 
 	const byKind = $derived(Object.fromEntries(connectors.map((c) => [c.kind, c])));
 	const groups = $derived(groupConnectors(connectors));
@@ -36,7 +37,24 @@
 			api<ConnectorDescriptor[]>('GET', '/api/connectors'),
 			api<Route[]>('GET', '/api/routes')
 		]);
+		now = Date.now();
 		loaded = true;
+	}
+
+	/** Until when a connection is paused, or null when it is not paused now. */
+	function pausedUntil(connection: ConnectionView): number | null {
+		const until = connection.paused_until;
+		return until && until > now ? until : null;
+	}
+
+	async function resume(connection: ConnectionView) {
+		try {
+			await api('POST', `/api/connections/${connection.id}/resume`);
+			toasts.ok(`${connection.name} resumed. Waiting deliveries are sent now.`);
+			await load();
+		} catch (error) {
+			toasts.problem(error);
+		}
 	}
 
 	$effect(() => {
@@ -107,6 +125,15 @@
 					<span class="tag">{byKind[connection.kind]?.name ?? connection.kind}</span>
 					<span class="text-faint">changed {ago(connection.updated_at)}</span>
 				</div>
+				{#if pausedUntil(connection)}
+					<div class="problem flex flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="paused">
+						<span>
+							Paused until {timeOfDay(pausedUntil(connection) ?? now, now)} after {connection.failure_streak} failed
+							{connection.failure_streak === 1 ? 'attempt' : 'attempts'} in a row
+						</span>
+						<button type="button" class="btn h-7 px-2" onclick={() => resume(connection)}>Resume now</button>
+					</div>
+				{/if}
 				{#if connection.health}
 						<div class="text-muted">
 							Last 24 hours: <span class={connection.health.failed > 0 ? 'problem' : ''}

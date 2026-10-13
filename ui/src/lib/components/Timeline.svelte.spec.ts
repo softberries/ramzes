@@ -58,6 +58,8 @@ function journey(deliveries: JourneyDelivery[] | null): Journey {
 						state: 'sent',
 						reason: null,
 						replay: false,
+						role: 'first',
+						event_count: 1,
 						created_at: NOW - 30_500,
 						deliveries
 					}
@@ -151,6 +153,43 @@ describe('Timeline', () => {
 		render(Timeline, { journey: j, ...names, previews, now: NOW, onreplay: vi.fn() });
 		await expect.element(page.getByText('The request cannot be shown: the connection was deleted')).toBeVisible();
 		await expect.element(page.getByText('the message was shortened to 1000 characters')).toBeVisible();
+	});
+
+	it('says how the event relates to a notification it did not open, and links to it', async () => {
+		const j = journey([]);
+		j.notifications[0] = { ...j.notifications[0], role: 'grouped', event_count: 4 };
+		show(j);
+		await expect.element(page.getByTestId('role')).toHaveTextContent('Joined a group of 4 events.');
+		await expect
+			.element(page.getByRole('link', { name: 'Open the notification' }))
+			.toHaveAttribute('href', '/notifications/n1');
+	});
+
+	it('says nothing more about the event that opened a notification', async () => {
+		show(journey([delivery('delivered', [])]));
+		await expect.element(page.getByRole('link', { name: 'Open the notification' })).toBeVisible();
+		await expect.element(page.getByTestId('role')).not.toBeInTheDocument();
+	});
+
+	it('says why a suppressed notification was not sent', async () => {
+		const j = journey([]);
+		j.notifications[0] = { ...j.notifications[0], state: 'suppressed', reason: 'silenced: deploy' };
+		show(j);
+		await expect.element(page.getByText('Not sent')).toBeVisible();
+		await expect.element(page.getByText('silenced: deploy')).toBeVisible();
+	});
+
+	it('says until when a held notification waits', async () => {
+		const j = journey([]);
+		j.notifications[0] = {
+			...j.notifications[0],
+			state: 'held',
+			reason: 'rate limit: 5 per 300 s already sent',
+			held_until: NOW + 60_000
+		};
+		show(j);
+		await expect.element(page.getByText(/^Held until \d\d:\d\d$/)).toBeVisible();
+		await expect.element(page.getByText('rate limit: 5 per 300 s already sent')).toBeVisible();
 	});
 
 	it('names a connection that no longer exists', async () => {

@@ -58,6 +58,14 @@ describe('LiveStream', () => {
 		expect(onDelivery).toHaveBeenCalledWith({ event_ids: ['e1'], delivery_id: 'd1', state: 'delivered' });
 	});
 
+	it('delivers a change of a notification', () => {
+		const { source, stream } = connected();
+		const onNotification = vi.fn();
+		stream.on('notification', onNotification);
+		source.emit('notification', { notification_id: 'n1' });
+		expect(onNotification).toHaveBeenCalledWith({ notification_id: 'n1' });
+	});
+
 	it('stops delivering after unsubscribe', () => {
 		const { source, stream } = connected();
 		const handler = vi.fn();
