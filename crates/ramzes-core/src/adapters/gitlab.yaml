@@ -5,9 +5,11 @@ setup: |
   In GitLab: Settings, Webhooks, Add new webhook.
   URL: {url}
   Secret token: {key}
-  Then choose the triggers. ramzes checks the secret token (X-Gitlab-Token); the newer signing token is not checked.
+  Then choose the triggers.
+  To use a signing token instead (GitLab 19.0 and later): generate it in GitLab, then replace this
+  source's key with it. ramzes then checks the signature GitLab makes with that token.
 mapping:
-  verify: { method: header, header: X-Gitlab-Token }
+  verify: { method: standard_webhooks, fallback_header: X-Gitlab-Token }
   fields:
     topic: "'gitlab.' ~ (payload.object_kind or payload.event_name or 'event')"
     title: >

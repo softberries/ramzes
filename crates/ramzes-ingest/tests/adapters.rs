@@ -91,13 +91,18 @@ struct Reply {
 impl World {
     /// A source of `kind` whose key is [`KEY`].
     async fn source(&self, kind: &str, mapping: Option<&str>) -> String {
+        self.source_with_key(kind, mapping, &format!("{KEY}-{kind}"))
+            .await
+    }
+
+    async fn source_with_key(&self, kind: &str, mapping: Option<&str>, key: &str) -> String {
         let source = self
             .store
             .create_source(
                 &self.ws,
                 kind,
                 kind,
-                &hash_key(&format!("{KEY}-{kind}")),
+                &hash_key(key),
                 "rz_src_test",
                 0,
             )
@@ -107,7 +112,7 @@ impl World {
             .set_source_secret(
                 &self.ws,
                 &source.id,
-                &json!({"key": format!("{KEY}-{kind}")}).to_string(),
+                &json!({"key": key}).to_string(),
             )
             .await
             .unwrap();
@@ -373,6 +378,56 @@ async fn a_gitlab_request_carries_the_key_in_its_token_header() {
         w.events().await[0].event.title,
         "acme/shop: pipeline #31 failed on main"
     );
+}
+
+/// A GitLab signing token: `whsec_` and 32 bytes in base64.
+const SIGNING_TOKEN: &str = "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+
+fn gitlab_signature(id: &str, timestamp: i64, body: &str) -> String {
+    use base64::Engine;
+    let standard = base64::engine::general_purpose::STANDARD;
+    let secret = standard
+        .decode(SIGNING_TOKEN.trim_start_matches("whsec_"))
+        .unwrap();
+    let mut mac = Hmac::<Sha256>::new_from_slice(&secret).unwrap();
+    mac.update(format!("{id}.{timestamp}.{body}").as_bytes());
+    format!("v1,{}", standard.encode(mac.finalize().into_bytes()))
+}
+
+#[tokio::test]
+async fn a_gitlab_request_signed_with_a_signing_token_is_checked() {
+    let w = world().await;
+    let id = w.source_with_key("gitlab", None, SIGNING_TOKEN).await;
+    let body = r#"{"object_kind":"pipeline","project":{"path_with_namespace":"acme/shop"},"object_attributes":{"id":31,"ref":"main","status":"failed"}}"#;
+    let path = format!("/v1/in/{id}");
+    let now = 1_791_884_467;
+    let signed = |message: &str, at: i64, signature: String| {
+        vec![
+            ("webhook-id", message.to_owned()),
+            ("webhook-timestamp", at.to_string()),
+            ("webhook-signature", signature),
+        ]
+    };
+    let rejected = [
+        // Signed for another body.
+        signed("m1", now, gitlab_signature("m1", now, "{}")),
+        // Signed for another message id.
+        signed("m1", now, gitlab_signature("m2", now, body)),
+        // An old request sent again.
+        signed("m1", now - 600, gitlab_signature("m1", now - 600, body)),
+        signed("m1", now, "v1,AAAA".to_owned()),
+    ];
+    for headers in rejected {
+        let reply = w.send(&path, &headers, body).await;
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{headers:?}");
+    }
+    assert!(w.events().await.is_empty());
+
+    // Several signatures may be sent; one that fits is enough.
+    let good = format!("v1,AAAA {}", gitlab_signature("m1", now, body));
+    let reply = w.send(&path, &signed("m1", now, good), body).await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.body);
+    assert_eq!(w.events().await.len(), 1);
 }
 
 const QUERY_MAPPING: &str = "verify: {method: query, param: key}\nfields:\n  topic: \"'shop.' ~ payload.kind\"\n  title: payload.title\n";

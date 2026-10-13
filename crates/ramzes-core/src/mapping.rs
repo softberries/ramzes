@@ -34,6 +34,14 @@ pub enum Verify {
     },
     /// The source key is a query parameter of the URL.
     Query { param: String },
+    /// Signed the Standard Webhooks way: `webhook-signature` carries `v1,` and the base64
+    /// HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the source key
+    /// (`whsec_` and the key bytes in base64).
+    StandardWebhooks {
+        /// A header that may carry the source key as it is, for senders not signing yet.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fallback_header: Option<String>,
+    },
 }
 
 /// One expression per event field. `topic` and `title` are required.
@@ -125,6 +133,11 @@ impl Mapping {
             Verify::Query { param } => {
                 if !is_header_name(param) {
                     return Err("verify.param: use letters, digits, - and _".into());
+                }
+            }
+            Verify::StandardWebhooks { fallback_header } => {
+                if fallback_header.as_ref().is_some_and(|h| !is_header_name(h)) {
+                    return Err("verify.fallback_header: not a valid header name".into());
                 }
             }
         }

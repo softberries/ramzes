@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use axum::extract::{Path, RawQuery, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use base64::Engine as _;
 use hmac::{Hmac, KeyInit, Mac};
 use ramzes_core::adapters::{NATIVE, mapping_for};
 use ramzes_core::{Mapping, Verify, hash_key};
@@ -18,6 +19,8 @@ use crate::{IngestState, Rejection, commit, to_event};
 /// Characters of a request body kept for the mapping editor.
 const KEPT_BODY_CHARS: usize = 64_000;
 /// Headers that identify a delivery; the first one present makes a repeated request harmless.
+/// How far a signed request's timestamp may be from now, in seconds.
+const SIGNATURE_AGE_S: i64 = 300;
 const DELIVERY_HEADERS: [&str; 3] = ["idempotency-key", "x-github-delivery", "webhook-id"];
 
 fn unauthorized(message: &str) -> Rejection {
@@ -56,6 +59,55 @@ async fn is_source_key(
     }
 }
 
+/// The source's key as it was given, which checking a signature needs.
+async fn stored_key(state: &IngestState, source: &Source) -> Result<String, Rejection> {
+    let sealed = state.0.store.source_secret(&source.id).await.map_err(|e| {
+        tracing::error!(error = %e, "could not read the source's secret");
+        Rejection::unavailable()
+    })?;
+    sealed
+        .and_then(|sealed| state.0.opener.open(&sealed).ok())
+        .and_then(|opened| opened.get("key").and_then(Value::as_str).map(str::to_owned))
+        .ok_or_else(|| {
+            unauthorized(
+                "this source has no stored secret to check signatures with; replace its key in ramzes",
+            )
+        })
+}
+
+/// Whether one of the `v1,<base64>` signatures fits the request and the request is recent.
+fn is_signed(key: &str, headers: &HeaderMap, signatures: &str, body: &[u8], now_s: i64) -> bool {
+    let standard = base64::engine::general_purpose::STANDARD;
+    let (Some(id), Some(timestamp)) = (
+        header(headers, "webhook-id"),
+        header(headers, "webhook-timestamp"),
+    ) else {
+        return false;
+    };
+    let recent = timestamp
+        .parse::<i64>()
+        .is_ok_and(|at| (now_s - at).abs() <= SIGNATURE_AGE_S);
+    let Ok(secret) = standard.decode(key.strip_prefix("whsec_").unwrap_or(key)) else {
+        return false;
+    };
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(&secret) else {
+        return false;
+    };
+    mac.update(id.as_bytes());
+    mac.update(b".");
+    mac.update(timestamp.as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    let expected = standard.encode(mac.finalize().into_bytes());
+    let fits = signatures
+        .split_ascii_whitespace()
+        .filter_map(|signature| signature.strip_prefix("v1,"))
+        .fold(false, |fits, given| {
+            fits | bool::from(given.as_bytes().ct_eq(expected.as_bytes()))
+        });
+    recent && fits
+}
+
 /// Checks that the request comes from the sender, the way the mapping says.
 async fn verify(
     state: &IngestState,
@@ -80,18 +132,7 @@ async fn verify(
             header: name,
             prefix,
         } => {
-            let sealed = state.0.store.source_secret(&source.id).await.map_err(|e| {
-                tracing::error!(error = %e, "could not read the source's secret");
-                Rejection::unavailable()
-            })?;
-            let key = sealed
-                .and_then(|sealed| state.0.opener.open(&sealed).ok())
-                .and_then(|opened| opened.get("key").and_then(Value::as_str).map(str::to_owned));
-            let Some(key) = key else {
-                return Err(unauthorized(
-                    "this source has no stored secret to check signatures with; replace its key in ramzes",
-                ));
-            };
+            let key = stored_key(state, source).await?;
             let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.as_bytes()) else {
                 return Err(unauthorized("the signature could not be checked"));
             };
@@ -108,6 +149,17 @@ async fn verify(
                     )
                 })
         }
+        Verify::StandardWebhooks { fallback_header } => {
+            match (header(headers, "webhook-signature"), fallback_header) {
+                (Some(signatures), _) => {
+                    let key = stored_key(state, source).await?;
+                    let now_s = state.0.clock.now_ms() / 1000;
+                    is_signed(&key, headers, signatures, body, now_s)
+                }
+                (None, Some(name)) => is_source_key(state, source, header(headers, name)).await?,
+                (None, None) => false,
+            }
+        }
     };
     if ok {
         Ok(())
@@ -119,6 +171,9 @@ async fn verify(
             }
             Verify::Query { .. } => "the URL does not carry this source's key",
             Verify::HmacSha256 { .. } => "the request's signature does not match this source's key",
+            Verify::StandardWebhooks { .. } => {
+                "the request's signature does not match this source's key, or the request is more than 5 minutes old"
+            }
         }))
     }
 }
@@ -130,6 +185,10 @@ fn visible_headers(headers: &HeaderMap, mapping: &Mapping) -> BTreeMap<String, S
         Verify::Header { header } | Verify::HmacSha256 { header, .. } => {
             header.to_ascii_lowercase()
         }
+        Verify::StandardWebhooks { fallback_header } => fallback_header
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase(),
         Verify::Bearer | Verify::Query { .. } => String::new(),
     };
     headers
