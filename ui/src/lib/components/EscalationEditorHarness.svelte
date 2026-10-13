@@ -1,5 +1,6 @@
 <script lang="ts">
 	// Test-only wrapper: holds the bound steps and prints the chain the editor produced.
+	import { untrack } from 'svelte';
 	import type { ConnectionView, EscalationStep, Template } from '#lib/api/types.ts';
 	import { chainToForm, formToChain, summarizeChain } from '#lib/escalation.ts';
 	import EscalationEditor from './EscalationEditor.svelte';
@@ -14,8 +15,8 @@
 
 	let { initial, connections, templates = [], destinations = {} }: Props = $props();
 
-	// svelte-ignore state_referenced_locally
-	let steps = $state(chainToForm(initial));
+	// The chain it starts from is read once; after that the editor owns the steps.
+	let steps = $state(chainToForm(untrack(() => initial)));
 
 	const names = $derived(Object.fromEntries(connections.map((c) => [c.id, c.name])));
 	const chain = $derived(formToChain(steps, (id) => id in destinations));
