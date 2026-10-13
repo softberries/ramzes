@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ramzes_connectors::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Registry, SendOutcome,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Preview, Registry, SendOutcome,
 };
 use ramzes_core::{
     Event, EventStatus, Message, RetryPolicy, Route, RouteMatch, Severity, Target, new_id,
@@ -43,9 +43,9 @@ struct Scripted {
 impl Connector for Scripted {
     fn descriptor(&self) -> ConnectorDescriptor {
         ConnectorDescriptor {
-            kind: "scripted",
-            name: "Scripted",
-            description: "",
+            kind: "scripted".into(),
+            name: "Scripted".into(),
+            description: "".into(),
             fields: vec![],
             capabilities: Capabilities {
                 rich: false,
@@ -55,11 +55,27 @@ impl Connector for Scripted {
                 max_len: 100,
             },
             destination_label: None,
+            custom: false,
         }
     }
 
     fn validate(&self, _: &ConnectionConfig) -> Result<(), String> {
         Ok(())
+    }
+
+    fn preview(
+        &self,
+        _c: &ConnectionConfig,
+        m: &Message,
+        _destination: Option<&str>,
+        _now_ms: i64,
+    ) -> Result<Preview, String> {
+        Ok(Preview {
+            method: "POST".into(),
+            url: "scripted://".into(),
+            headers: Vec::new(),
+            body: m.title.clone(),
+        })
     }
 
     async fn send(

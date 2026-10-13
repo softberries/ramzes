@@ -20,8 +20,13 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 utoipa.workspace = true
+serde_norway = "0.9"
+tokio = { workspace = true, features = ["net"] }
+url = "2.5.8"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1", "tokio1-rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [dev-dependencies]
 insta.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "macros", "rt-multi-thread"] }
 wiremock.workspace = true

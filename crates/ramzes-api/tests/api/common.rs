@@ -11,8 +11,8 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use ramzes_api::{AppState, SecretKey};
 use ramzes_connectors::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, Registry,
-    SendOutcome,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, Preview,
+    Registry, SendOutcome,
 };
 use ramzes_core::{Message, RetryPolicy};
 use ramzes_engine::{Clock, Engine, EngineConfig};
@@ -39,22 +39,22 @@ pub struct Scripted {
 impl Connector for Scripted {
     fn descriptor(&self) -> ConnectorDescriptor {
         ConnectorDescriptor {
-            kind: "scripted",
-            name: "Scripted",
-            description: "Test connector",
+            kind: "scripted".into(),
+            name: "Scripted".into(),
+            description: "Test connector".into(),
             fields: vec![
                 Field {
-                    key: "room",
-                    label: "Room",
-                    help: "",
+                    key: "room".into(),
+                    label: "Room".into(),
+                    help: "".into(),
                     secret: false,
                     required: true,
                     kind: FieldKind::Text,
                 },
                 Field {
-                    key: "token",
-                    label: "Token",
-                    help: "",
+                    key: "token".into(),
+                    label: "Token".into(),
+                    help: "".into(),
                     secret: true,
                     required: true,
                     kind: FieldKind::Text,
@@ -68,6 +68,7 @@ impl Connector for Scripted {
                 max_len: 100,
             },
             destination_label: None,
+            custom: false,
         }
     }
 
@@ -87,6 +88,21 @@ impl Connector for Scripted {
             return Err("Token is required".into());
         }
         Ok(())
+    }
+
+    fn preview(
+        &self,
+        _c: &ConnectionConfig,
+        m: &Message,
+        _destination: Option<&str>,
+        _now_ms: i64,
+    ) -> Result<Preview, String> {
+        Ok(Preview {
+            method: "POST".into(),
+            url: "scripted://".into(),
+            headers: Vec::new(),
+            body: m.title.clone(),
+        })
     }
 
     async fn send(

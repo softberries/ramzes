@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 use crate::http::Http;
 use crate::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, SendOutcome,
-    require_http_url, truncate,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, Preview,
+    SendOutcome, require_http_url, truncate,
 };
 
 // Block Kit limits.
@@ -90,13 +90,13 @@ fn payload(m: &Message) -> Value {
 impl Connector for Slack {
     fn descriptor(&self) -> ConnectorDescriptor {
         ConnectorDescriptor {
-            kind: "slack",
-            name: "Slack",
-            description: "Post to a Slack channel through an incoming webhook.",
+            kind: "slack".into(),
+            name: "Slack".into(),
+            description: "Post to a Slack channel through an incoming webhook.".into(),
             fields: vec![Field {
-                key: "webhook_url",
-                label: "Incoming webhook URL",
-                help: "Create one in Slack under Apps → Incoming Webhooks. It decides which channel receives the messages.",
+                key: "webhook_url".into(),
+                label: "Incoming webhook URL".into(),
+                help: "Create one in Slack under Apps → Incoming Webhooks. It decides which channel receives the messages.".into(),
                 secret: true,
                 required: true,
                 kind: FieldKind::Url,
@@ -109,11 +109,27 @@ impl Connector for Slack {
                 max_len: SECTION_MAX,
             },
             destination_label: None,
+            custom: false,
         }
     }
 
     fn validate(&self, c: &ConnectionConfig) -> Result<(), String> {
         require_http_url("Incoming webhook URL", c.credential("webhook_url"))
+    }
+
+    fn preview(
+        &self,
+        _c: &ConnectionConfig,
+        m: &Message,
+        _destination: Option<&str>,
+        _now_ms: i64,
+    ) -> Result<Preview, String> {
+        Ok(Preview {
+            method: "POST".into(),
+            url: "the incoming webhook URL".into(),
+            headers: vec![("Content-Type".to_owned(), "application/json".to_owned())],
+            body: serde_json::to_string_pretty(&payload(m)).map_err(|e| e.to_string())?,
+        })
     }
 
     async fn send(

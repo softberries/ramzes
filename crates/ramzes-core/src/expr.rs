@@ -22,8 +22,19 @@ static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
     // `payload.a.b` on a payload without `a` is empty rather than an error.
     env.set_undefined_behavior(UndefinedBehavior::Chainable);
     env.set_auto_escape_callback(|_| AutoEscape::None);
+    env.add_filter("cut", cut);
     env
 });
+
+/// `{{ text | cut(80) }}`: at most that many characters, ending in an ellipsis when shortened.
+fn cut(text: String, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text;
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
 
 fn describe(e: &minijinja::Error) -> String {
     match e.kind() {

@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-const TOPIC_MAX: usize = 200;
-const TITLE_MAX: usize = 500;
-const BODY_MAX: usize = 20_000;
-const LABELS_MAX: usize = 64;
-const LABEL_KEY_MAX: usize = 100;
-const LABEL_VALUE_MAX: usize = 1000;
-const DEDUP_KEY_MAX: usize = 200;
+pub(crate) const TOPIC_MAX: usize = 200;
+pub(crate) const TITLE_MAX: usize = 500;
+pub(crate) const BODY_MAX: usize = 20_000;
+pub(crate) const LABELS_MAX: usize = 64;
+pub(crate) const LABEL_KEY_MAX: usize = 100;
+pub(crate) const LABEL_VALUE_MAX: usize = 1000;
+pub(crate) const DEDUP_KEY_MAX: usize = 200;
 
 #[derive(
     Debug,
@@ -153,11 +153,11 @@ pub enum ValidationError {
     Timestamp,
 }
 
-fn is_topic_char(c: char) -> bool {
+pub(crate) fn is_topic_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '-')
 }
 
-fn is_label_key_char(c: char) -> bool {
+pub(crate) fn is_label_key_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
 }
 

@@ -8,8 +8,8 @@ use sha2::Sha256;
 
 use crate::http::Http;
 use crate::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, SendOutcome,
-    require_http_url,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, Preview,
+    SendOutcome, mask_secrets, require_http_url,
 };
 
 /// Posts the message as JSON to any URL, signed when a secret is configured.
@@ -60,22 +60,22 @@ fn signature(secret: &str, timestamp: &str, body: &[u8]) -> String {
 impl Connector for Webhook {
     fn descriptor(&self) -> ConnectorDescriptor {
         ConnectorDescriptor {
-            kind: "webhook",
-            name: "Webhook",
-            description: "POST each message as JSON to a URL of your choice.",
+            kind: "webhook".into(),
+            name: "Webhook".into(),
+            description: "POST each message as JSON to a URL of your choice.".into(),
             fields: vec![
                 Field {
-                    key: "url",
-                    label: "URL",
-                    help: "Where to send the request.",
+                    key: "url".into(),
+                    label: "URL".into(),
+                    help: "Where to send the request.".into(),
                     secret: false,
                     required: true,
                     kind: FieldKind::Url,
                 },
                 Field {
-                    key: "secret",
-                    label: "Signing secret",
-                    help: "When set, each request carries an HMAC-SHA256 signature in X-Ramzes-Signature.",
+                    key: "secret".into(),
+                    label: "Signing secret".into(),
+                    help: "When set, each request carries an HMAC-SHA256 signature in X-Ramzes-Signature.".into(),
                     secret: true,
                     required: false,
                     kind: FieldKind::Text,
@@ -89,11 +89,37 @@ impl Connector for Webhook {
                 max_len: 20_000,
             },
             destination_label: None,
+            custom: false,
         }
     }
 
     fn validate(&self, c: &ConnectionConfig) -> Result<(), String> {
         require_http_url("URL", c.setting("url"))
+    }
+
+    fn preview(
+        &self,
+        c: &ConnectionConfig,
+        m: &Message,
+        _destination: Option<&str>,
+        now_ms: i64,
+    ) -> Result<Preview, String> {
+        let url = c.setting("url").ok_or("the connection has no URL")?;
+        let body = body(m, now_ms);
+        let pretty = serde_json::from_slice::<serde_json::Value>(&body)
+            .and_then(|parsed| serde_json::to_string_pretty(&parsed))
+            .map_err(|e| e.to_string())?;
+        let mut headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
+        headers.extend(signing_headers(c, &body, now_ms));
+        Ok(mask_secrets(
+            Preview {
+                method: "POST".into(),
+                url: url.to_owned(),
+                headers,
+                body: pretty,
+            },
+            &c.credentials,
+        ))
     }
 
     async fn send(
@@ -110,12 +136,22 @@ impl Connector for Webhook {
             };
         };
         let body = body(m, now_ms);
-        let mut headers = Vec::new();
-        if let Some(secret) = c.credential("secret") {
-            let timestamp = now_ms.to_string();
-            headers.push(("x-ramzes-signature", signature(secret, &timestamp, &body)));
-            headers.push(("x-ramzes-timestamp", timestamp));
-        }
+        let headers = signing_headers(c, &body, now_ms);
         self.http.post_json(url, &headers, body).await
     }
+}
+
+/// The signature headers, when the connection has a signing secret.
+fn signing_headers(c: &ConnectionConfig, body: &[u8], now_ms: i64) -> Vec<(String, String)> {
+    let Some(secret) = c.credential("secret") else {
+        return Vec::new();
+    };
+    let timestamp = now_ms.to_string();
+    vec![
+        (
+            "X-Ramzes-Signature".to_owned(),
+            signature(secret, &timestamp, body),
+        ),
+        ("X-Ramzes-Timestamp".to_owned(), timestamp),
+    ]
 }
