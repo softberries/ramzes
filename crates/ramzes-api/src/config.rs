@@ -136,7 +136,13 @@ pub fn validate_config(config: &ConfigSnapshot, registry: &Registry) -> Result<(
         if r.targets.is_empty() {
             return Err(format!("route {:?}: it needs at least one target", r.name));
         }
-        for target in &r.targets {
+        ramzes_core::validate_escalation(&r.escalation)
+            .map_err(|e| format!("route {:?}: {e}", r.name))?;
+        for target in r
+            .targets
+            .iter()
+            .chain(r.escalation.iter().flat_map(|step| step.targets.iter()))
+        {
             if !connections.contains(target.connection_id.as_str()) {
                 return Err(format!(
                     "route {:?}: there is no connection with id {:?}",

@@ -453,7 +453,6 @@ impl Engine {
         if resolved && events.iter().any(|e| e.status == EventStatus::Firing) {
             events.retain(|e| e.status == EventStatus::Firing);
         }
-        let notification = notification;
         let template_id = delivery
             .template_id
             .clone()

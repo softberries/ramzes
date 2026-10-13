@@ -9,6 +9,7 @@ mod error;
 mod events;
 mod notifications;
 mod overview;
+mod public;
 mod routes;
 mod settings;
 mod silences;
@@ -116,11 +117,13 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 ///
 /// The document itself is served at `/api/openapi.json`.
 pub fn router(state: AppState) -> (Router, utoipa::openapi::OpenApi) {
-    let (router, openapi) = routes().with_state(state).split_for_parts();
+    let (router, openapi) = routes().with_state(state.clone()).split_for_parts();
     let document = openapi.clone();
-    let router = router.route(
-        "/api/openapi.json",
-        axum::routing::get(move || async move { axum::Json(document) }),
-    );
+    let router = router
+        .route(
+            "/api/openapi.json",
+            axum::routing::get(move || async move { axum::Json(document) }),
+        )
+        .merge(public::router(state));
     (router, openapi)
 }

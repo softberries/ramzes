@@ -525,6 +525,23 @@ impl Store {
         Ok(())
     }
 
+    /// The timers waiting for a notification: `(kind, due_at, data)`.
+    pub async fn notification_timers(
+        &self,
+        notification_id: &str,
+    ) -> Result<Vec<(String, i64, Option<String>)>> {
+        let sql = self.sql(
+            "SELECT kind, due_at, data FROM timers WHERE notification_id = $1 ORDER BY due_at",
+        );
+        let rows: Vec<(String, i64, Option<String>)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows)
+    }
+
     /// When the notification's next timer is due.
     pub async fn next_timer(&self, notification_id: &str) -> Result<Option<i64>> {
         let sql = self.sql("SELECT MIN(due_at) FROM timers WHERE notification_id = $1");

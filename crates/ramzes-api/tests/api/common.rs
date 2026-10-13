@@ -33,6 +33,8 @@ impl Clock for FakeClock {
 pub struct Scripted {
     pub outcomes: Mutex<VecDeque<SendOutcome>>,
     pub sent: Mutex<Vec<(Message, ConnectionConfig)>>,
+    /// `(reference, note)` of every message it was asked to rewrite.
+    pub updates: Mutex<Vec<(String, String)>>,
 }
 
 #[async_trait]
@@ -118,9 +120,23 @@ impl Connector for Scripted {
             .unwrap()
             .pop_front()
             .unwrap_or(SendOutcome::Delivered {
-                external_ref: None,
+                external_ref: Some("ref-1".into()),
                 status: Some(200),
             })
+    }
+
+    async fn update(
+        &self,
+        _c: &ConnectionConfig,
+        reference: &str,
+        _m: &Message,
+        note: &str,
+    ) -> Result<(), String> {
+        self.updates
+            .lock()
+            .unwrap()
+            .push((reference.to_owned(), note.to_owned()));
+        Ok(())
     }
 }
 

@@ -296,11 +296,21 @@ async fn connectors_are_described() {
     assert_eq!(
         kinds,
         vec![
-            "discord", "email", "ntfy", "pushover", "scripted", "slack", "teams", "telegram",
+            "discord",
+            "email",
+            "ntfy",
+            "opsgenie",
+            "pagerduty",
+            "pushover",
+            "scripted",
+            "slack",
+            "slack_app",
+            "teams",
+            "telegram",
             "webhook"
         ]
     );
-    let slack = &connectors[5];
+    let slack = &connectors[7];
     assert_eq!(slack["fields"][0]["key"], json!("webhook_url"));
     assert_eq!(slack["fields"][0]["secret"], json!(true));
 }

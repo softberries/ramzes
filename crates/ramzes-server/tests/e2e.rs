@@ -688,3 +688,68 @@ async fn a_grouped_route_sends_one_message_for_several_events() {
     assert_eq!(body["title"], "3 events");
     assert_eq!(body["event_ids"].as_array().unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn the_link_in_a_message_acknowledges_and_stops_the_escalation() {
+    let receiver = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&receiver)
+        .await;
+    let data = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let env = [("RAMZES_PUBLIC_URL", format!("http://127.0.0.1:{port}"))];
+    let mut ramzes = Ramzes::start(data.path(), port, &env, &[]).await;
+    ramzes.set_up().await;
+    let source = ramzes.post("/api/sources", json!({"name": "svc"})).await;
+    let connection = ramzes
+        .post(
+            "/api/connections",
+            json!({"kind": "webhook", "name": "receiver", "settings": {"url": receiver.uri()}}),
+        )
+        .await;
+    ramzes
+        .post(
+            "/api/routes",
+            json!({"name": "paged", "match": {}, "targets": [{"connection_id": connection["id"]}],
+                   "escalation": [{"after_s": 2, "targets": [{"connection_id": connection["id"]}]}]}),
+        )
+        .await;
+    let id = ramzes
+        .send_event(
+            source["key"].as_str().unwrap(),
+            json!({"topic": "a", "title": "Database down"}),
+        )
+        .await;
+    ramzes.wait_for_delivery(&id, "delivered").await;
+    let first: Value =
+        serde_json::from_slice(&receiver.received_requests().await.unwrap()[0].body).unwrap();
+    let link = first["ack_link"].as_str().unwrap().to_owned();
+
+    // Opening the link does nothing by itself; submitting its form acknowledges.
+    let page = ramzes.http.get(&link).send().await.unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    assert!(
+        page.text()
+            .await
+            .unwrap()
+            .contains("Acknowledge this notification?")
+    );
+    let (address, token) = link.split_once("?t=").unwrap();
+    let done = ramzes
+        .http
+        .post(address)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(format!("t={token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(done.status(), StatusCode::OK);
+    assert!(done.text().await.unwrap().contains("Acknowledged"));
+
+    // The escalation step that was two seconds away never goes out.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    assert_eq!(receiver.received_requests().await.unwrap().len(), 1);
+    let acknowledged = ramzes.get("/api/notifications?state=acknowledged").await;
+    assert_eq!(acknowledged["notifications"][0]["acked_by"], "link");
+}

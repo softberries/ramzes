@@ -93,11 +93,13 @@ async fn checked(
         .into_iter()
         .map(|c| c.id)
         .collect();
-    if let Some(unknown) = input
-        .targets
-        .iter()
-        .find(|t| !known.contains(&t.connection_id))
-    {
+    let every_target = || {
+        input
+            .targets
+            .iter()
+            .chain(input.escalation.iter().flat_map(|step| step.targets.iter()))
+    };
+    if let Some(unknown) = every_target().find(|t| !known.contains(&t.connection_id)) {
         return Err(ApiError::invalid(format!(
             "there is no connection with id {:?}",
             unknown.connection_id
@@ -110,9 +112,7 @@ async fn checked(
         .into_iter()
         .map(|t| t.id)
         .collect();
-    if let Some(unknown) = input
-        .targets
-        .iter()
+    if let Some(unknown) = every_target()
         .filter_map(|t| t.template_id.as_ref())
         .find(|id| !templates.contains(*id))
     {
