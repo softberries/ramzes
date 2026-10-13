@@ -1,0 +1,26 @@
+---
+source: crates/ramzes-connectors/tests/connectors.rs
+expression: body
+---
+{
+  "text": "✅ Deploy finished",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "✅ Deploy finished",
+        "emoji": true
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "`deploy.finished` · resolved · info"
+        }
+      ]
+    }
+  ]
+}

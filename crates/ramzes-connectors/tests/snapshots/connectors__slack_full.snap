@@ -1,0 +1,47 @@
+---
+source: crates/ramzes-connectors/tests/connectors.rs
+expression: body
+---
+{
+  "text": "🔴 Charge failed: card network timeout",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "🔴 Charge failed: card network timeout",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "plain_text",
+        "text": "14 charges failed in the last 30 s",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*env*\nprod"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*service*\npayments"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "`payments.charge.failed` · firing · critical · <https://ramzes.example.com/events/0199|Open in ramzes>"
+        }
+      ]
+    }
+  ]
+}

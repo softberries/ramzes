@@ -1,0 +1,20 @@
+---
+source: crates/ramzes-connectors/tests/connectors.rs
+expression: body
+---
+{
+  "title": "Charge failed: card network timeout",
+  "body": "14 charges failed in the last 30 s",
+  "severity": "critical",
+  "status": "firing",
+  "topic": "payments.charge.failed",
+  "labels": {
+    "env": "prod",
+    "service": "payments"
+  },
+  "link": "https://ramzes.example.com/events/0199",
+  "event_ids": [
+    "0199"
+  ],
+  "sent_at": 1791884467000
+}
