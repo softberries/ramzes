@@ -583,6 +583,67 @@ test('a route escalates along its chain until the notification is acknowledged',
 	await page.screenshot({ path: 'e2e-shots/notification-chain-stopped.png', fullPage: true });
 });
 
+test('a Slack app connection says where Slack must send button presses', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('link', { name: 'Connections', exact: true }).click();
+	const paging = page.getByRole('region', { name: 'Paging' });
+	await expect(paging.getByRole('button', { name: /^PagerDuty/ })).toBeVisible();
+	await expect(paging.getByRole('button', { name: /^Opsgenie/ })).toBeVisible();
+	const slackApp = page.getByRole('region', { name: 'Chat' }).getByRole('button', { name: /^Slack app/ });
+	await expect(slackApp.getByTestId('capabilities')).toHaveText('Can do: buttons, threads, updates its messages');
+
+	await slackApp.click();
+	await page.getByLabel('Name').fill('ops chat');
+	await page.getByLabel('Bot token').fill('xoxb-not-a-real-token');
+	await page.getByLabel('Signing secret').fill('not-a-real-secret');
+	await page.getByRole('button', { name: 'Add connection' }).click();
+	await expect(page.getByText('Connection added.')).toBeVisible();
+
+	// Right after saving, and later behind "Setup" on its row.
+	const address = new RegExp(`^${APP}/v1/slack/[0-9a-f-]+/interactions$`);
+	const saved = page.getByTestId('slack-setup');
+	await expect(saved.getByTestId('interactions-url')).toHaveText(address);
+	await expect(saved).toContainText('Interactivity & Shortcuts');
+	await expect(saved).toContainText('signing secret');
+	await page.screenshot({ path: 'e2e-shots/connection-slack-setup.png', fullPage: true });
+	await saved.getByRole('button', { name: 'Done' }).click();
+	await expect(saved).toHaveCount(0);
+
+	const row = page.getByRole('listitem').filter({ hasText: 'ops chat' });
+	await expect(row.getByTestId('interactions-url')).toBeHidden();
+	await row.getByText('Setup', { exact: true }).click();
+	await expect(row.getByTestId('interactions-url')).toHaveText(address);
+});
+
+test('the notifications page says when messages have no acknowledgement link', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('link', { name: 'Notifications', exact: true }).click();
+	const hint = page.getByTestId('no-ack-link');
+	await expect(hint).toContainText('Messages will have no acknowledgement link');
+
+	// Setting the address makes the hint unnecessary.
+	await hint.getByRole('link', { name: 'Settings' }).click();
+	await expect(page.getByText('to acknowledge it')).toBeVisible();
+	await page.getByLabel('Address of this ramzes instance').fill(APP);
+	await page.getByRole('button', { name: 'Save settings' }).click();
+	await expect(page.getByText('Settings saved.')).toBeVisible();
+	await page.getByRole('link', { name: 'Notifications', exact: true }).click();
+	await expect(page.getByRole('list', { name: 'Notifications' })).toHaveAttribute('aria-busy', 'false');
+	await expect(hint).toHaveCount(0);
+
+	// Without the address it is back, until it is dismissed in this browser.
+	await page.getByRole('link', { name: 'Settings', exact: true }).click();
+	await page.getByLabel('Address of this ramzes instance').fill('');
+	await page.getByRole('button', { name: 'Save settings' }).click();
+	await expect(page.getByText('Settings saved.')).toBeVisible();
+	await page.getByRole('link', { name: 'Notifications', exact: true }).click();
+	await hint.getByRole('button', { name: 'Dismiss' }).click();
+	await expect(hint).toHaveCount(0);
+	await page.reload();
+	await expect(page.getByRole('list', { name: 'Notifications' })).toHaveAttribute('aria-busy', 'false');
+	await expect(hint).toHaveCount(0);
+});
+
 test('the feed works on a phone-sized screen', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await signIn(page);

@@ -213,7 +213,7 @@
 	@media (min-width: 80rem) {
 		.note-row {
 			/* Fixed widths, so the states and the buttons line up from row to row. */
-			grid-template-columns: 0.6rem minmax(0, 1fr) 21rem 26rem;
+			grid-template-columns: 0.6rem minmax(0, 1fr) 23.5rem 25.5rem;
 		}
 
 		.note-row .state,

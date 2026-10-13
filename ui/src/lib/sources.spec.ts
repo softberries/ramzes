@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEY_PLACEHOLDER, headerList, setupText } from './sources';
+import { KEY_PLACEHOLDER, headerList, isBuiltIn, setupText } from './sources';
 
 describe('setupText', () => {
 	const at = { origin: 'https://ramzes.example.com', path: '/v1/in/abc' };
@@ -49,5 +49,13 @@ describe('headerList', () => {
 		expect(headerList('"text"')).toEqual([]);
 		expect(headerList('[1]')).toEqual([]);
 		expect(headerList('{}')).toEqual([]);
+	});
+});
+
+describe('isBuiltIn', () => {
+	it("is true only for the source of ramzes's own events", () => {
+		expect(isBuiltIn({ kind: 'system' })).toBe(true);
+		expect(isBuiltIn({ kind: 'native' })).toBe(false);
+		expect(isBuiltIn({ kind: 'alertmanager' })).toBe(false);
 	});
 });

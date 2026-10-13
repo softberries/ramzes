@@ -90,7 +90,10 @@
 
 {#if missing}
 	<h1>This event does not exist</h1>
-	<p class="hint mt-2">It may have been removed after its retention period.</p>
+	<p class="hint mt-2">
+		It may have been removed after its retention period. See the ones that are left in the
+		<a href={resolve('/')}>Feed</a>.
+	</p>
 {:else if journey}
 	{@const event = journey.event}
 	<header class="mb-6 flex flex-wrap items-start gap-x-6 gap-y-3">

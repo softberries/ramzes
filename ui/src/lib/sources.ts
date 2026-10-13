@@ -27,3 +27,11 @@ export function headerList(stored: string | null | undefined): [string, string][
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
 	return Object.entries(value).map(([name, text]) => [name, String(text)]);
 }
+
+/**
+ * Whether a source is the one ramzes's own events come from, such as a connection being paused.
+ * Nothing outside sends to it, so it has no address, no key to hand out and no requests.
+ */
+export function isBuiltIn(source: { kind: string }): boolean {
+	return source.kind === 'system';
+}

@@ -6,7 +6,7 @@
 	import CopyBlock from '#lib/components/CopyBlock.svelte';
 	import MappingEditor from '#lib/components/MappingEditor.svelte';
 	import { ago, clock } from '#lib/format.ts';
-	import { headerList, setupText } from '#lib/sources.ts';
+	import { headerList, isBuiltIn, setupText } from '#lib/sources.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
 	const NATIVE = 'native';
@@ -180,35 +180,43 @@
 				<div class="flex min-w-0 flex-wrap items-baseline gap-x-3">
 					<span class="font-medium">{source.name}</span>
 					<span class="tag">{byKind[source.kind]?.name ?? source.kind}</span>
-					<span class="text-muted">{source.key_prefix}…</span>
+					{#if !isBuiltIn(source)}<span class="text-muted">{source.key_prefix}…</span>{/if}
 					<span class="text-faint">created {ago(source.created_at)}</span>
 				</div>
-				<div class="flex flex-wrap gap-1 md:justify-end">
-					<button type="button" class="btn h-7 px-2" aria-expanded={isOpen(source, 'setup')} onclick={() => toggle(source, 'setup')}>
-						Setup
-					</button>
-					<button
-						type="button"
-						class="btn h-7 px-2"
-						aria-expanded={isOpen(source, 'requests')}
-						onclick={() => toggle(source, 'requests')}
-					>
-						{source.kind === NATIVE ? 'Rejected requests' : 'Recent requests'}
-					</button>
-					{#if source.kind === JSON_KIND}
+				{#if !isBuiltIn(source)}
+					<div class="flex flex-wrap gap-1 md:justify-end">
+						<button type="button" class="btn h-7 px-2" aria-expanded={isOpen(source, 'setup')} onclick={() => toggle(source, 'setup')}>
+							Setup
+						</button>
 						<button
 							type="button"
 							class="btn h-7 px-2"
-							aria-expanded={isOpen(source, 'mapping')}
-							onclick={() => toggle(source, 'mapping')}
+							aria-expanded={isOpen(source, 'requests')}
+							onclick={() => toggle(source, 'requests')}
 						>
-							Mapping
+							{source.kind === NATIVE ? 'Rejected requests' : 'Recent requests'}
 						</button>
-					{/if}
-					<button type="button" class="btn h-7 px-2" onclick={() => startRotate(source)}>Replace key</button>
-					<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = source)}>Delete</button>
-				</div>
+						{#if source.kind === JSON_KIND}
+							<button
+								type="button"
+								class="btn h-7 px-2"
+								aria-expanded={isOpen(source, 'mapping')}
+								onclick={() => toggle(source, 'mapping')}
+							>
+								Mapping
+							</button>
+						{/if}
+						<button type="button" class="btn h-7 px-2" onclick={() => startRotate(source)}>Replace key</button>
+						<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = source)}>Delete</button>
+					</div>
+				{/if}
 			</div>
+			{#if isBuiltIn(source)}
+				<p class="hint max-w-2xl">
+					Where ramzes's own events come from, such as a connection being paused or a message that could not be
+					delivered. Nothing outside sends to it. Route its events with the topic ramzes.*
+				</p>
+			{/if}
 
 			{#if isOpen(source, 'setup')}
 				<div class="mt-3 flex max-w-3xl flex-col gap-2">

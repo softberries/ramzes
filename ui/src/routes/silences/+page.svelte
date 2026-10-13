@@ -194,7 +194,7 @@
 				id="silence-comment"
 				class="input"
 				maxlength="500"
-				placeholder="Why, for whoever wonders where the messages went"
+				placeholder="Why these events are silenced"
 				bind:value={draft.comment}
 			/>
 		</div>
