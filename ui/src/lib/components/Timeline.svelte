@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { Journey, JourneyDelivery, MessagePreview } from '#lib/api/types.ts';
-	import { clock, duration, until } from '#lib/format.ts';
+	import { clock } from '#lib/format.ts';
+	import { journeyWords, roleWords } from '#lib/notifications.ts';
+	import DeliveryBlock, { waiting } from './DeliveryBlock.svelte';
 	import RequestBlock from './RequestBlock.svelte';
-	import StateTag from './StateTag.svelte';
 
 	interface Props {
 		journey: Journey;
@@ -23,8 +24,9 @@
 
 	const event = $derived(journey.event);
 
-	function waiting(delivery: JourneyDelivery): boolean {
-		return delivery.state === 'pending' || delivery.state === 'in_progress';
+	/** A phrase with its first letter in upper case. */
+	function sentence(words: string): string {
+		return words.charAt(0).toUpperCase() + words.slice(1);
 	}
 
 	/** The colour of a step's node on the path. */
@@ -61,7 +63,9 @@
 
 	{#each journey.notifications as notification (notification.id)}
 		{@const preview = previews[notification.id]}
-		<li style="--node: var(--accent)">
+		{@const words = journeyWords(notification, now)}
+		{@const role = sentence(roleWords(notification.role, notification.event_count))}
+		<li class={words.text ? 'open' : ''} style="--node: var({words.text ? '--gold' : '--accent'})">
 			<div class="flex flex-wrap items-baseline gap-x-4">
 				<span class="font-medium">Matched route {notification.route_name}</span>
 				<span class="text-muted">
@@ -70,6 +74,16 @@
 						: ''}
 				</span>
 				{#if notification.replay}<span class="tag">replayed</span>{/if}
+			</div>
+			<div class="flex flex-wrap items-baseline gap-x-4">
+				{#if words.text}
+					<span>
+						<span class="text-gold font-medium">{words.text}</span>
+						{#if words.reason}<span class="text-muted break-words">{words.reason}</span>{/if}
+					</span>
+				{/if}
+				{#if role}<span class="text-muted" data-testid="role">{role}.</span>{/if}
+				<a href={resolve('/notifications/[id]', { id: notification.id })}>Open the notification</a>
 			</div>
 			{#if preview}
 				<div class="panel mt-2 max-w-3xl p-3" data-testid="message">
@@ -90,43 +104,7 @@
 
 		{#each notification.deliveries as delivery (delivery.id)}
 			<li class={waiting(delivery) ? 'open' : ''} style="--node: {tone(delivery)}">
-				<div class="flex flex-wrap items-baseline gap-x-4">
-					<span class="font-medium"><StateTag state={delivery.state} /></span>
-					{#if delivery.attempts.length > 0}
-						<span class="text-muted">
-							{delivery.attempts.length}
-							{delivery.attempts.length === 1 ? 'attempt' : 'attempts'}
-						</span>
-					{/if}
-					{#if delivery.state === 'pending' && delivery.attempts.length > 0}
-						<span class="text-gold">Next attempt {until(delivery.next_attempt_at, now)}</span>
-					{/if}
-					{#if !waiting(delivery)}
-						<button type="button" class="btn h-7 px-2" onclick={() => onreplay(delivery.id)}>Send again</button>
-					{/if}
-				</div>
-
-				{#if delivery.warning}<p class="text-gold break-words">{delivery.warning}</p>{/if}
-				{#if delivery.attempts.length > 0}
-					<table class="mt-1 w-full max-w-3xl">
-						<tbody>
-							{#each delivery.attempts as attempt (attempt.id)}
-								<tr class="align-baseline">
-									<td class="text-muted w-24 py-0.5 pr-4 whitespace-nowrap">{clock(attempt.started_at, now)}</td>
-									<td class="w-20 py-0.5 pr-4 whitespace-nowrap">
-										{attempt.status === null || attempt.status === undefined ? 'no answer' : `HTTP ${attempt.status}`}
-									</td>
-									<td class="text-muted w-20 py-0.5 pr-4 whitespace-nowrap">{duration(attempt.duration_ms)}</td>
-									<td class="py-0.5 {attempt.outcome === 'delivered' ? 'text-muted' : 'problem'} break-words">
-										{attempt.detail ?? ''}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{:else if delivery.last_error}
-					<p class="problem">{delivery.last_error}</p>
-				{/if}
+				<DeliveryBlock {delivery} {now} {onreplay} />
 			</li>
 		{/each}
 	{/each}

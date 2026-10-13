@@ -18,6 +18,11 @@ export function clock(ms: number, now: number = Date.now()): string {
 	return sameDay ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`;
 }
 
+/** Local hours and minutes; prefixed with the date when it is not today. */
+export function timeOfDay(ms: number, now: number = Date.now()): string {
+	return clock(ms, now).slice(0, -3);
+}
+
 function span(ms: number): string {
 	const seconds = Math.floor(ms / 1000);
 	if (seconds < 60) return `${seconds} s`;

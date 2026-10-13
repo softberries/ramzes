@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, clock, duration, outcomeOf, until } from './format';
+import { ago, clock, duration, outcomeOf, timeOfDay, until } from './format';
 
 describe('clock', () => {
 	it('shows local time with seconds', () => {
@@ -12,6 +12,14 @@ describe('clock', () => {
 		const yesterday = new Date(2026, 9, 12, 23, 5, 9).getTime();
 		expect(clock(yesterday, now)).toBe('Oct 12 23:05:09');
 		expect(clock(new Date(2026, 9, 13, 0, 0, 1).getTime(), now)).toBe('00:00:01');
+	});
+});
+
+describe('timeOfDay', () => {
+	it('shows hours and minutes, with the date when it is not today', () => {
+		const now = new Date(2026, 9, 13, 12, 0, 0).getTime();
+		expect(timeOfDay(new Date(2026, 9, 13, 7, 5, 59).getTime(), now)).toBe('07:05');
+		expect(timeOfDay(new Date(2026, 9, 14, 7, 0, 0).getTime(), now)).toBe('Oct 14 07:00');
 	});
 });
 

@@ -69,11 +69,11 @@ export function isFiltered(filters: FeedFilters): boolean {
  * fresh page are kept as loaded. A fresh page shorter than `pageSize` is the whole result.
  * `added` counts the rows that were not on screen before.
  */
-export function mergeNewest(
-	current: EventRow[],
-	fresh: EventRow[],
+export function mergeNewest<Row extends { id: string }>(
+	current: Row[],
+	fresh: Row[],
 	pageSize: number
-): { rows: EventRow[]; added: number } {
+): { rows: Row[]; added: number } {
 	const known = new Set(current.map((row) => row.id));
 	const added = fresh.filter((row) => !known.has(row.id)).length;
 	if (fresh.length < pageSize) return { rows: fresh, added };
