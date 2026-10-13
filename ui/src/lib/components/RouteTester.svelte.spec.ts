@@ -22,8 +22,23 @@ const RESULTS: RouteResult[] = [
 		name: 'Big orders',
 		outcome: 'matched',
 		targets: [
-			{ connection_id: 'c1', connection_name: 'ops', destination: '#alerts', title: 'Order 17 failed', warning: null },
-			{ connection_id: 'c2', connection_name: null, title: 'Order 17 failed', warning: 'the template failed' }
+			{
+				connection_id: 'c1',
+				connection_name: 'ops',
+				destination: '#alerts',
+				title: 'Order 17 failed',
+				warning: null,
+				outcome: 'sent',
+				steps: []
+			},
+			{
+				connection_id: 'c2',
+				connection_name: null,
+				title: 'Order 17 failed',
+				warning: 'the template failed',
+				outcome: 'sent',
+				steps: []
+			}
 		]
 	},
 	{ name: 'Rest', outcome: 'skipped', targets: [] }

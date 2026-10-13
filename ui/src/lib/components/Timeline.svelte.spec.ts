@@ -58,6 +58,8 @@ function journey(deliveries: JourneyDelivery[] | null): Journey {
 						state: 'sent',
 						reason: null,
 						replay: false,
+						role: 'first',
+						event_count: 1,
 						created_at: NOW - 30_500,
 						deliveries
 					}
