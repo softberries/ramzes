@@ -3,6 +3,7 @@
 //! Postgres tests need `RAMZES_TEST_POSTGRES_URL` (see `make test-pg`); without it they print a
 //! notice and pass without running.
 
+mod auth;
 mod config;
 mod deliveries;
 mod events;

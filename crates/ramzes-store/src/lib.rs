@@ -3,6 +3,7 @@
 //! Every query is written once with `$N` placeholders and the column types both databases share
 //! (`TEXT` and `BIGINT`). [`with_db!`] expands the same body for each backend.
 
+mod auth;
 mod connections;
 mod deliveries;
 mod events;
@@ -12,6 +13,7 @@ mod settings;
 mod sources;
 mod sql;
 
+pub use auth::{ApiToken, User};
 pub use connections::Connection;
 pub use deliveries::{
     Attempt, Delivery, DeliveryState, FailureRow, Finish, NewDispatch, QueueDepth,

@@ -129,7 +129,7 @@ impl RawEvent {
     }
 }
 
-fn is_unique_violation(e: &sqlx::Error) -> bool {
+pub(crate) fn is_unique_violation(e: &sqlx::Error) -> bool {
     e.as_database_error()
         .is_some_and(|d| d.is_unique_violation())
 }
