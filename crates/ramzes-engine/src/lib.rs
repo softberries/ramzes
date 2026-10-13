@@ -144,6 +144,14 @@ impl Engine {
         self.changes.subscribe()
     }
 
+    /// Tells listeners that a notification changed outside the workers, for example when a
+    /// person acknowledged it.
+    pub fn notification_changed(&self, notification_id: &str) {
+        self.announce(Change::NotificationChanged {
+            notification_id: notification_id.to_owned(),
+        });
+    }
+
     fn announce(&self, change: Change) {
         // No subscribers is not an error.
         let _ = self.changes.send(change);

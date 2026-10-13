@@ -173,13 +173,12 @@ impl Shaping {
                 parse_day(day).map_err(|e| format!("quiet hours: {e}"))?;
             }
         }
-        if let Some(rate) = &self.rate_limit {
-            if rate.max < 1 || !(1..=DAY_S).contains(&rate.window_s) {
-                return Err(
-                    "rate limit: allow at least 1 notification per window of 1 second to 1 day"
-                        .into(),
-                );
-            }
+        if let Some(rate) = &self.rate_limit
+            && (rate.max < 1 || !(1..=DAY_S).contains(&rate.window_s))
+        {
+            return Err(
+                "rate limit: allow at least 1 notification per window of 1 second to 1 day".into(),
+            );
         }
         Ok(())
     }

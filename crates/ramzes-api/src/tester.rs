@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::State;
-use ramzes_core::{Event, NewEvent, Route, RouteOutcome, new_id, trace_routes};
+use ramzes_core::shaping::{Action, Step};
+use ramzes_core::{Event, Matched, NewEvent, Route, RouteOutcome, new_id, trace_routes};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -55,6 +56,11 @@ pub(crate) struct TargetResult {
     body: Option<String>,
     /// For example: the template failed and the default wording would be sent.
     warning: Option<String>,
+    /// What shaping would do right now: `sent`, `not sent`, `joins an open notification`,
+    /// `opens a group`, `held` or `resolves an open notification`.
+    outcome: &'static str,
+    /// The shaping steps that led there.
+    steps: Vec<Step>,
 }
 
 /// Evaluate an event against routes and show what each would send. Nothing is stored or sent.
@@ -127,6 +133,7 @@ pub(crate) async fn test(
         .map(|c| (c.id, c.name))
         .collect();
 
+    let silences = state.store.active_silences(ws, now).await?;
     let mut results = Vec::with_capacity(routes.len());
     for trace in trace_routes(&event, &routes) {
         let (outcome, error) = match trace.outcome {
@@ -152,7 +159,21 @@ pub(crate) async fn test(
                         ApiError::internal("route tester", "an event produced no message")
                     })?;
                 let connection_name = names.get(&target.connection_id).cloned();
+                let matched = Matched {
+                    route: trace.route,
+                    target,
+                };
+                let (decision, _) = state.engine.decide(&event, &matched, &silences).await?;
                 targets.push(TargetResult {
+                    outcome: match decision.action {
+                        Action::Send { .. } => "sent",
+                        Action::Suppress { .. } => "not sent",
+                        Action::Attach { .. } => "joins an open notification",
+                        Action::Resolve { .. } => "resolves an open notification",
+                        Action::OpenGroup { .. } => "opens a group",
+                        Action::Hold { .. } => "held",
+                    },
+                    steps: decision.steps,
                     warning: match (&connection_name, composed.warning) {
                         (None, _) => Some("this connection does not exist".to_owned()),
                         (Some(_), warning) => warning,

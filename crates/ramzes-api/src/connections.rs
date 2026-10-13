@@ -26,6 +26,10 @@ pub(crate) struct ConnectionView {
     has_credentials: bool,
     /// How its deliveries of the last 24 hours went. Absent when there were none.
     health: Option<ConnectionHealth>,
+    /// Set while the connection is paused after failing repeatedly; deliveries wait until then.
+    paused_until: Option<i64>,
+    /// Attempts that failed in a row.
+    failure_streak: i64,
     created_at: i64,
     updated_at: i64,
 }
@@ -77,6 +81,8 @@ fn view(state: &AppState, c: Connection) -> ConnectionView {
         settings: c.settings,
         has_credentials,
         health: None,
+        paused_until: None,
+        failure_streak: 0,
         created_at: c.created_at,
         updated_at: c.updated_at,
     }
@@ -126,6 +132,8 @@ pub(crate) async fn list(
         .store
         .connection_health(&auth.workspace_id, since)
         .await?;
+    let now = state.clock.now_ms();
+    let status = state.store.connection_status(&auth.workspace_id).await?;
     Ok(Json(
         connections
             .into_iter()
@@ -135,6 +143,10 @@ pub(crate) async fn list(
                     .iter()
                     .position(|h| h.connection_id == shown.id)
                     .map(|at| health.swap_remove(at));
+                if let Some(status) = status.get(&shown.id) {
+                    shown.paused_until = status.paused_until.filter(|until| *until > now);
+                    shown.failure_streak = status.failure_streak;
+                }
                 shown
             })
             .collect(),
@@ -294,4 +306,22 @@ pub(crate) async fn test(
         }
     };
     Ok(Json(result))
+}
+
+/// End a connection's pause now and send what was waiting for it.
+#[utoipa::path(
+    post, path = "/api/connections/{id}/resume", tag = "connections", params(("id" = String, Path)),
+    responses((status = 204), (status = 404, body = ErrorBody))
+)]
+pub(crate) async fn resume(
+    State(state): State<AppState>,
+    auth: Auth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .store
+        .resume_connection(&auth.workspace_id, &id)
+        .await?;
+    state.engine.wake();
+    Ok(StatusCode::NO_CONTENT)
 }

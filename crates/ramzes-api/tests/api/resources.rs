@@ -126,6 +126,16 @@ async fn every_endpoint_requires_authentication() {
         (Method::POST, "/api/config/revisions/x/rollback"),
         (Method::GET, "/api/config/export"),
         (Method::POST, "/api/config/import"),
+        (Method::POST, "/api/connections/x/resume"),
+        (Method::GET, "/api/silences"),
+        (Method::POST, "/api/silences"),
+        (Method::POST, "/api/silences/x/end"),
+        (Method::DELETE, "/api/silences/x"),
+        (Method::GET, "/api/notifications"),
+        (Method::GET, "/api/notifications/x"),
+        (Method::POST, "/api/notifications/x/acknowledge"),
+        (Method::POST, "/api/notifications/x/resolve"),
+        (Method::GET, "/api/overview"),
     ];
     for (method, path) in endpoints {
         let (status, body) = api.call(method.clone(), path, Some(json!({}))).await;
@@ -180,6 +190,15 @@ async fn the_openapi_document_lists_every_path() {
         ("/api/config/revisions/{id}/rollback", vec!["post"]),
         ("/api/config/export", vec!["get"]),
         ("/api/config/import", vec!["post"]),
+        ("/api/connections/{id}/resume", vec!["post"]),
+        ("/api/silences", vec!["get", "post"]),
+        ("/api/silences/{id}/end", vec!["post"]),
+        ("/api/silences/{id}", vec!["delete"]),
+        ("/api/notifications", vec!["get"]),
+        ("/api/notifications/{id}", vec!["get"]),
+        ("/api/notifications/{id}/acknowledge", vec!["post"]),
+        ("/api/notifications/{id}/resolve", vec!["post"]),
+        ("/api/overview", vec!["get"]),
     ];
     for (path, methods) in expected {
         let item = paths
@@ -191,7 +210,7 @@ async fn the_openapi_document_lists_every_path() {
     }
     assert_eq!(
         paths.len(),
-        42,
+        51,
         "undocumented or unexpected paths: {:?}",
         paths.keys().collect::<Vec<_>>()
     );

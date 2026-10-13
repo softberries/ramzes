@@ -130,6 +130,9 @@ pub fn validate_config(config: &ConfigSnapshot, registry: &Registry) -> Result<(
         r.r#match
             .validate()
             .map_err(|e| format!("route {:?}: {e}", r.name))?;
+        r.shaping
+            .validate()
+            .map_err(|e| format!("route {:?}: {e}", r.name))?;
         if r.targets.is_empty() {
             return Err(format!("route {:?}: it needs at least one target", r.name));
         }

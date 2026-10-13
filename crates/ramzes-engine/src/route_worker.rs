@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ramzes_core::shaping::{
-    Action, NotificationState, Role, ShapeInput, Silence, dedup_key, shape,
+    Action, Decision, NotificationState, Role, ShapeInput, Silence, dedup_key, shape,
 };
 use ramzes_core::{Event, Matched, Route, new_id, route_event};
 use ramzes_store::{Join, NewDispatch, NewTimer};
@@ -82,48 +82,60 @@ pub(crate) fn unshaped(event: &Event, routes: &[Route]) -> Plan {
 }
 
 impl Engine {
+    /// What shaping decides for one event at one route target, given what is stored now, and
+    /// the event's dedup key there. Reads only; the route tester uses it to explain a route.
+    pub async fn decide(
+        &self,
+        event: &Event,
+        m: &Matched<'_>,
+        silences: &[Silence],
+    ) -> Result<(Decision, Option<String>)> {
+        let store = &self.config.store;
+        let now = self.now();
+        let shaping = &m.route.shaping;
+        let key = target_key(m);
+        let event_key = dedup_key(shaping, event, &mut Vec::new());
+        let looks_back = shaping.group.is_some()
+            || shaping.quiet_hours.is_some()
+            || shaping.rate_limit.is_some()
+            || event_key.is_some();
+        let open = if looks_back {
+            store
+                .open_notifications(&event.workspace_id, &key, event_key.as_deref())
+                .await?
+        } else {
+            Vec::new()
+        };
+        let (sends, oldest) = match &shaping.rate_limit {
+            Some(rate) => {
+                store
+                    .sends_since(&event.workspace_id, &key, now - rate.window_s * 1000)
+                    .await?
+            }
+            None => (0, None),
+        };
+        let decision = shape(&ShapeInput {
+            event,
+            shaping,
+            silences,
+            open: &open,
+            sends_in_window: sends,
+            oldest_send_in_window: oldest,
+            now_ms: now,
+        });
+        Ok((decision, event_key))
+    }
+
     /// Decides, for each target of each matching route, what the event does there. Call with
     /// the shaping lock held: the decision depends on what earlier events wrote.
     async fn plan(&self, event: &Event, routes: &[Route], silences: &[Silence]) -> Result<Plan> {
-        let store = &self.config.store;
-        let now = self.now();
         let routed = route_event(event, routes);
         let mut plan = Plan {
             errors: routed.errors,
             ..Plan::default()
         };
         for m in &routed.matched {
-            let shaping = &m.route.shaping;
-            let key = target_key(m);
-            let event_key = dedup_key(shaping, event, &mut Vec::new());
-            let looks_back = shaping.group.is_some()
-                || shaping.quiet_hours.is_some()
-                || shaping.rate_limit.is_some()
-                || event_key.is_some();
-            let open = if looks_back {
-                store
-                    .open_notifications(&event.workspace_id, &key, event_key.as_deref())
-                    .await?
-            } else {
-                Vec::new()
-            };
-            let (sends, oldest) = match &shaping.rate_limit {
-                Some(rate) => {
-                    store
-                        .sends_since(&event.workspace_id, &key, now - rate.window_s * 1000)
-                        .await?
-                }
-                None => (0, None),
-            };
-            let decision = shape(&ShapeInput {
-                event,
-                shaping,
-                silences,
-                open: &open,
-                sends_in_window: sends,
-                oldest_send_in_window: oldest,
-                now_ms: now,
-            });
+            let (decision, event_key) = self.decide(event, m, silences).await?;
             let fresh = dispatch(m, false);
             match decision.action {
                 Action::Send {

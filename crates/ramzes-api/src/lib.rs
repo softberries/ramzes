@@ -7,8 +7,11 @@ mod crypto;
 mod definitions;
 mod error;
 mod events;
+mod notifications;
+mod overview;
 mod routes;
 mod settings;
+mod silences;
 mod sources;
 mod stream;
 mod templates;
@@ -66,6 +69,7 @@ fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(connections::list, connections::create))
         .routes(routes!(connections::update, connections::remove))
         .routes(routes!(connections::test))
+        .routes(routes!(connections::resume))
         .routes(routes!(definitions::list, definitions::create))
         .routes(routes!(definitions::update, definitions::remove))
         .routes(routes!(templates::list, templates::create))
@@ -87,6 +91,14 @@ fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(settings::delete_user))
         .routes(routes!(settings::tokens, settings::create_token))
         .routes(routes!(settings::delete_token))
+        .routes(routes!(silences::list, silences::create))
+        .routes(routes!(silences::end))
+        .routes(routes!(silences::remove))
+        .routes(routes!(notifications::list))
+        .routes(routes!(notifications::detail))
+        .routes(routes!(notifications::acknowledge))
+        .routes(routes!(notifications::resolve))
+        .routes(routes!(overview::overview))
         .routes(routes!(config::revisions))
         .routes(routes!(config::revision))
         .routes(routes!(config::rollback))
