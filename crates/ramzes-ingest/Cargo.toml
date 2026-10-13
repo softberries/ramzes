@@ -11,3 +11,18 @@ publish = false
 workspace = true
 
 [dependencies]
+ramzes-core.workspace = true
+ramzes-store.workspace = true
+ramzes-engine.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+serde_path_to_error.workspace = true
+[dev-dependencies]
+ramzes-connectors.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true

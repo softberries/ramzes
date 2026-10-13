@@ -136,6 +136,11 @@ impl Store {
         }
     }
 
+    /// Closes every connection. Later calls fail; used at shutdown.
+    pub async fn close(&self) {
+        with_db!(self, |pool| pool.close().await);
+    }
+
     pub async fn ping(&self) -> Result<()> {
         with_db!(self, |pool| sqlx::query("SELECT 1")
             .execute(pool)
