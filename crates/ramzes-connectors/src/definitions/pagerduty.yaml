@@ -1,6 +1,6 @@
 kind: pagerduty
 name: PagerDuty
-description: Trigger PagerDuty alerts through an Events API v2 integration, and resolve them when the event is resolved.
+description: Trigger PagerDuty alerts through an Events API v2 integration, acknowledge them when the notification is acknowledged in ramzes, and resolve them when the event is resolved.
 fields:
   - key: routing_key
     label: Integration key
@@ -30,6 +30,14 @@ request:
       "client": "ramzes"
       {% if message.link %},"client_url": {{ message.link | tojson }}{% endif %}
       {% if message.ack_link %},"links": [{"href": {{ message.ack_link | tojson }}, "text": "Acknowledge in ramzes"}]{% endif %}
+    }
+acknowledge:
+  url: "https://events.{{ 'eu.' if (settings.region | default('') | lower) == 'eu' else '' }}pagerduty.com/v2/enqueue"
+  body: |
+    {
+      "routing_key": {{ credentials.routing_key | tojson }},
+      "event_action": "acknowledge",
+      "dedup_key": {{ message.dedup_key | default('ramzes-test') | cut(255) | tojson }}
     }
 success: [202]
 max_len: 1000

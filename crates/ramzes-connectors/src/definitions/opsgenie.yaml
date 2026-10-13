@@ -1,6 +1,6 @@
 kind: opsgenie
 name: Opsgenie
-description: Create Opsgenie alerts and close them when the event is resolved. Atlassian shuts Opsgenie down on 5 April 2027.
+description: Create Opsgenie alerts, acknowledge them when the notification is acknowledged in ramzes, and close them when the event is resolved. Atlassian shuts Opsgenie down on 5 April 2027.
 fields:
   - key: api_key
     label: API key
@@ -39,5 +39,12 @@ request:
       }
     }
     {% endif %}
+acknowledge:
+  url: >-
+    https://api.{{ 'eu.' if (settings.region | default('') | lower) == 'eu' else '' }}opsgenie.com/v2/alerts/{{ message.dedup_key | default('ramzes-test') | cut(512) | urlpath }}/acknowledge?identifierType=alias
+  headers:
+    Authorization: "GenieKey {{ credentials.api_key }}"
+  body: |
+    {"source": "ramzes", "note": "Acknowledged in ramzes"}
 success: [202]
 max_len: 15000

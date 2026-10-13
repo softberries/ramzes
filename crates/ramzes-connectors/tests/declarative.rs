@@ -312,3 +312,44 @@ async fn private_addresses_are_allowed_by_default() {
         .await;
     assert!(matches!(outcome, SendOutcome::Delivered { .. }));
 }
+
+#[tokio::test]
+async fn a_definition_can_say_how_an_acknowledgement_is_passed_on() {
+    let definition = format!(
+        "{CHAT}acknowledge:\n  url: \"{{{{ settings.base_url }}}}/alerts/{{{{ message.dedup_key | urlpath }}}}/ack\"\n  body: '{{\"by\": \"ramzes\"}}'\n"
+    );
+    let registry = Registry::builtin(Duration::from_millis(500));
+    registry.set_custom(vec![Definition::parse(&definition).unwrap()]);
+    let chat = registry.get("chat").unwrap();
+    let server = server(ResponseTemplate::new(200)).await;
+    let mut m = message("Database down");
+    m.dedup_key = Some("db/primary".into());
+    chat.acknowledge(&config(&server.uri()), &m, None, 1)
+        .await
+        .unwrap();
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url.path(), "/alerts/db%2Fprimary/ack");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&requests[0].body).unwrap(),
+        json!({"by": "ramzes"})
+    );
+
+    // A service that refuses says why; a definition without the section does nothing.
+    let refusing = MockServer::start().await;
+    let refused = chat.acknowledge(&config(&refusing.uri()), &m, None, 1).await;
+    assert!(refused.is_err(), "{refused:?}");
+    let plain = self::registry().get("chat").unwrap();
+    plain
+        .acknowledge(&config(&server.uri()), &m, None, 1)
+        .await
+        .unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[test]
+fn a_broken_acknowledgement_request_is_rejected_with_its_field_named() {
+    let definition = format!("{CHAT}acknowledge:\n  url: \"{{{{ nope(\"\n");
+    let problem = Definition::parse(&definition).unwrap_err();
+    assert!(problem.starts_with("acknowledge.url:"), "{problem}");
+}

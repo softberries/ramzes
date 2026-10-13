@@ -173,6 +173,18 @@ pub trait Connector: Send + Sync {
     ) -> Result<(), String> {
         Ok(())
     }
+
+    /// Tells the service that the notification `m` was sent for has been acknowledged in
+    /// ramzes. Connectors whose service has no notion of that do nothing.
+    async fn acknowledge(
+        &self,
+        _c: &ConnectionConfig,
+        _m: &Message,
+        _destination: Option<&str>,
+        _now_ms: i64,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The connectors of this instance, by kind: those shipped with ramzes and those users defined.

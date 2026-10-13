@@ -43,6 +43,8 @@ struct Scripted {
     sent: Mutex<Vec<(Message, Option<String>, serde_json::Value)>>,
     /// `(reference, note)` of every message it was asked to rewrite.
     updates: Mutex<Vec<(String, String)>>,
+    /// `(credentials token, destination, dedup key)` of every acknowledgement it was told of.
+    acknowledged: Mutex<Vec<(String, Option<String>, Option<String>)>>,
 }
 
 #[async_trait]
@@ -117,6 +119,21 @@ impl Connector for Scripted {
             .lock()
             .unwrap()
             .push((reference.to_owned(), note.to_owned()));
+        Ok(())
+    }
+
+    async fn acknowledge(
+        &self,
+        c: &ConnectionConfig,
+        m: &Message,
+        destination: Option<&str>,
+        _now_ms: i64,
+    ) -> Result<(), String> {
+        self.acknowledged.lock().unwrap().push((
+            c.credentials["token"].as_str().unwrap_or_default().to_owned(),
+            destination.map(str::to_owned),
+            m.dedup_key.clone(),
+        ));
         Ok(())
     }
 }
@@ -2063,4 +2080,47 @@ async fn when_a_pause_ends_one_delivery_tests_the_connection() {
     assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before + 6);
     let status = w.store.connection_status(&w.ws).await.unwrap();
     assert_eq!((status[&c].paused_until, status[&c].failure_streak), (None, 0));
+}
+
+#[tokio::test]
+async fn an_acknowledgement_is_passed_on_to_every_service_that_got_the_message() {
+    let w = world().await;
+    let team = w.connection("team").await;
+    let pager = w.connection("pager").await;
+    let unreachable = w.connection("unreachable").await;
+    w.route("orders.*", &[(&team, Some("#ops")), (&pager, None)])
+        .await;
+    w.route("billing.*", &[(&unreachable, None)]).await;
+    w.send("Database down", key("db")).await;
+    w.settle().await;
+    // This one never arrives, so there is nothing to acknowledge at its service.
+    w.connector
+        .outcomes
+        .lock()
+        .unwrap()
+        .push_back(SendOutcome::Permanent {
+            status: Some(400),
+            detail: "no".into(),
+        });
+    w.send("Invoice failed", |e| e.topic = "billing.failed".into())
+        .await;
+    w.settle().await;
+    assert!(w.connector.acknowledged.lock().unwrap().is_empty());
+    for row in &w.notifications().await {
+        w.engine.acknowledge(&w.ws, &row.id, "kris").await.unwrap();
+    }
+    w.settle().await;
+    let mut told = w.connector.acknowledged.lock().unwrap().clone();
+    told.sort();
+    assert_eq!(
+        told,
+        vec![
+            ("pager".to_string(), None, Some("db".to_string())),
+            (
+                "team".to_string(),
+                Some("#ops".to_string()),
+                Some("db".to_string())
+            ),
+        ]
+    );
 }

@@ -68,6 +68,29 @@ pub struct RequestDef {
     pub format: BodyFormat,
 }
 
+impl RequestDef {
+    /// Checks the request's templates; `section` names it in the problem.
+    fn check(&self, section: &str) -> Result<(), String> {
+        if !METHODS.contains(&self.method.as_str()) {
+            return Err(format!(
+                "{section}.method: must be one of {}",
+                METHODS.join(", ")
+            ));
+        }
+        if self.url.trim().is_empty() {
+            return Err(format!("{section}.url: must not be empty"));
+        }
+        expr::check_template(&self.url).map_err(|e| format!("{section}.url: {e}"))?;
+        for (name, value) in &self.headers {
+            if reqwest::header::HeaderName::from_bytes(name.as_bytes()).is_err() {
+                return Err(format!("{section}.headers.{name}: not a valid header name"));
+            }
+            expr::check_template(value).map_err(|e| format!("{section}.headers.{name}: {e}"))?;
+        }
+        expr::check_template(&self.body).map_err(|e| format!("{section}.body: {e}"))
+    }
+}
+
 /// A connector as data: its settings and the HTTP request that delivers a message.
 ///
 /// Templates see `message` (`title`, `body`, `severity`, `status`, `topic`, `labels`, `fields`,
@@ -85,6 +108,10 @@ pub struct Definition {
     #[serde(default)]
     pub fields: Vec<Field>,
     pub request: RequestDef,
+    /// The request that tells the service a notification was acknowledged in ramzes, for
+    /// services that track that themselves. It sees what `request` sees.
+    #[serde(default)]
+    pub acknowledge: Option<RequestDef>,
     /// Statuses that mean delivered. Empty means any 2xx.
     #[serde(default)]
     pub success: Vec<u16>,
@@ -145,23 +172,10 @@ impl Definition {
             }
             seen.push(&field.key);
         }
-        if !METHODS.contains(&self.request.method.as_str()) {
-            return Err(format!(
-                "request.method: must be one of {}",
-                METHODS.join(", ")
-            ));
+        self.request.check("request")?;
+        if let Some(acknowledge) = &self.acknowledge {
+            acknowledge.check("acknowledge")?;
         }
-        if self.request.url.trim().is_empty() {
-            return Err("request.url: must not be empty".into());
-        }
-        expr::check_template(&self.request.url).map_err(|e| format!("request.url: {e}"))?;
-        for (name, value) in &self.request.headers {
-            if reqwest::header::HeaderName::from_bytes(name.as_bytes()).is_err() {
-                return Err(format!("request.headers.{name}: not a valid header name"));
-            }
-            expr::check_template(value).map_err(|e| format!("request.headers.{name}: {e}"))?;
-        }
-        expr::check_template(&self.request.body).map_err(|e| format!("request.body: {e}"))?;
         if reqwest::header::HeaderName::from_bytes(self.retry_after_header.as_bytes()).is_err() {
             return Err("retry_after_header: not a valid header name".into());
         }
@@ -221,12 +235,12 @@ impl Declarative {
 
     fn render(
         &self,
+        request: &RequestDef,
         c: &ConnectionConfig,
         m: &Message,
         destination: Option<&str>,
         now_ms: i64,
     ) -> Result<Rendered, String> {
-        let request = &self.definition.request;
         let mut ctx = json!({
             "message": message_context(m),
             "settings": c.settings,
@@ -326,7 +340,7 @@ impl Connector for Declarative {
         destination: Option<&str>,
         now_ms: i64,
     ) -> Result<Preview, String> {
-        let rendered = self.render(c, m, destination, now_ms)?;
+        let rendered = self.render(&self.definition.request, c, m, destination, now_ms)?;
         let body = match serde_json::from_str::<Value>(&rendered.body) {
             Ok(parsed) if self.definition.request.format == BodyFormat::Json => {
                 serde_json::to_string_pretty(&parsed).unwrap_or(rendered.body)
@@ -351,7 +365,7 @@ impl Connector for Declarative {
         destination: Option<&str>,
         now_ms: i64,
     ) -> SendOutcome {
-        let rendered = match self.render(c, m, destination, now_ms) {
+        let rendered = match self.render(&self.definition.request, c, m, destination, now_ms) {
             Ok(rendered) => rendered,
             Err(detail) => {
                 return SendOutcome::Permanent {
@@ -370,5 +384,100 @@ impl Connector for Declarative {
                 retry_after_header: &self.definition.retry_after_header,
             })
             .await
+    }
+
+    async fn acknowledge(
+        &self,
+        c: &ConnectionConfig,
+        m: &Message,
+        destination: Option<&str>,
+        now_ms: i64,
+    ) -> Result<(), String> {
+        let Some(request) = &self.definition.acknowledge else {
+            return Ok(());
+        };
+        let rendered = self.render(request, c, m, destination, now_ms)?;
+        let outcome = self
+            .http
+            .send(Outgoing {
+                method: &request.method,
+                url: &rendered.url,
+                headers: &rendered.headers,
+                body: rendered.body.into_bytes(),
+                success: &self.definition.success,
+                retry_after_header: &self.definition.retry_after_header,
+            })
+            .await;
+        match outcome {
+            SendOutcome::Delivered { .. } => Ok(()),
+            SendOutcome::Retry { detail, .. } | SendOutcome::Permanent { detail, .. } => {
+                Err(detail)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::http::HttpOptions;
+
+    /// The request a bundled connector makes to pass an acknowledgement on.
+    fn acknowledgement(file: &str, settings: Value, credentials: Value) -> Rendered {
+        let definition = Definition::parse_any(file).unwrap();
+        let request = definition.acknowledge.clone().unwrap();
+        let http = Http::new(HttpOptions {
+            timeout: Duration::from_secs(1),
+            block_private: false,
+        });
+        let m = Message {
+            title: "Database down".into(),
+            dedup_key: Some("acme/shop CI".into()),
+            ..Message::default()
+        };
+        let c = ConnectionConfig {
+            settings,
+            credentials,
+        };
+        Declarative::new(definition, http, false)
+            .render(&request, &c, &m, None, 1)
+            .unwrap()
+    }
+
+    #[test]
+    fn pagerduty_is_told_of_an_acknowledgement() {
+        let sent = acknowledgement(
+            include_str!("definitions/pagerduty.yaml"),
+            json!({"region": "eu"}),
+            json!({"routing_key": "R0UT1NG"}),
+        );
+        assert_eq!(sent.url, "https://events.eu.pagerduty.com/v2/enqueue");
+        assert_eq!(
+            serde_json::from_str::<Value>(&sent.body).unwrap(),
+            json!({"routing_key": "R0UT1NG", "event_action": "acknowledge", "dedup_key": "acme/shop CI"})
+        );
+    }
+
+    #[test]
+    fn opsgenie_is_told_of_an_acknowledgement() {
+        let sent = acknowledgement(
+            include_str!("definitions/opsgenie.yaml"),
+            json!({}),
+            json!({"api_key": "k3y"}),
+        );
+        assert_eq!(
+            sent.url,
+            "https://api.opsgenie.com/v2/alerts/acme%2Fshop%20CI/acknowledge?identifierType=alias"
+        );
+        assert!(
+            sent.headers
+                .contains(&("Authorization".to_owned(), "GenieKey k3y".to_owned()))
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&sent.body).unwrap(),
+            json!({"source": "ramzes", "note": "Acknowledged in ramzes"})
+        );
     }
 }

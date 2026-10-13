@@ -434,7 +434,13 @@ impl Engine {
             _ => return Ok(()),
         };
         let refs = store.message_refs(notification_id).await?;
-        if refs.is_empty() {
+        // Services that track acknowledgement themselves are told, wherever the message arrived.
+        let acknowledged = if n.state == NotificationState::Acknowledged {
+            store.delivered_targets(notification_id).await?
+        } else {
+            Vec::new()
+        };
+        if refs.is_empty() && acknowledged.is_empty() {
             return Ok(());
         }
         let events = store.sendable_events(notification_id).await?;
@@ -453,6 +459,12 @@ impl Engine {
             composed.message.status = EventStatus::Resolved;
         }
         composed.message.notification_id = Some(notification_id.to_owned());
+        // The key the first message carried, so the service pairs this with it.
+        composed.message.dedup_key = Some(
+            n.dedup_key
+                .clone()
+                .unwrap_or_else(|| notification_id.to_owned()),
+        );
         for (connection_id, _destination, reference) in refs {
             let Some(connection) = store
                 .get_connection(&n.workspace_id, &connection_id)
@@ -468,6 +480,28 @@ impl Engine {
                 .await
             {
                 tracing::warn!(connection = %connection.name, %reason, "a delivered message could not be updated");
+            }
+        }
+        for (connection_id, destination) in acknowledged {
+            let Some(connection) = store
+                .get_connection(&n.workspace_id, &connection_id)
+                .await?
+            else {
+                continue;
+            };
+            let Ok((connector, config)) = self.connector_for(&connection) else {
+                continue;
+            };
+            if let Err(reason) = connector
+                .acknowledge(
+                    &config,
+                    &composed.message,
+                    destination.as_deref(),
+                    self.now(),
+                )
+                .await
+            {
+                tracing::warn!(connection = %connection.name, %reason, "an acknowledgement could not be passed on");
             }
         }
         Ok(())

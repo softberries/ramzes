@@ -387,6 +387,24 @@ impl Store {
         Ok(rows)
     }
 
+    /// Where a notification's messages arrived: connection and destination, each pair once.
+    pub async fn delivered_targets(
+        &self,
+        notification_id: &str,
+    ) -> Result<Vec<(String, Option<String>)>> {
+        let sql = self.sql(
+            "SELECT DISTINCT connection_id, destination FROM deliveries \
+             WHERE notification_id = $1 AND state = 'delivered' ORDER BY connection_id, destination",
+        );
+        let rows: Vec<(String, Option<String>)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows)
+    }
+
     /// Puts a notification on hold until `until_ms`, replacing its timers with one that releases it.
     pub async fn hold_notification(
         &self,
