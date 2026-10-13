@@ -1,0 +1,60 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.98"
+repository = "https://github.com/softberries/ramzes"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal", "time", "net", "sync"] }
+tokio-util = "0.7.20"
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+futures = "0.3.34"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+axum = "0.8.9"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["limit"] }
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+rand = "0.10.3"
+argon2 = "0.6.0"
+hmac = "0.13.0"
+sha2 = "0.11.0"
+hex = "0.4.3"
+base64 = "0.23.1"
+subtle = "2.6.1"
+regex = "1.13.1"
+chacha20poly1305 = "0.11.0"
+uuid = { version = "1.28.0", features = ["v7"] }
+time = { version = "0.3.55", features = ["parsing", "formatting"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "sqlite", "postgres", "migrate"] }
+async-trait = "0.1.92"
+utoipa = { version = "6.0.0", features = ["axum_extras"] }
+utoipa-axum = "0.3.0"
+toml = "1.1.8"
+prometheus-client = "0.25.1"
+rust-embed = { version = "8.12.0", features = ["mime-guess"] }
+wiremock = "0.6.5"
+insta = { version = "1.49.0", features = ["json"] }
+tempfile = "3.27.0"
+ramzes-core = { path = "crates/ramzes-core" }
+ramzes-store = { path = "crates/ramzes-store" }
+ramzes-connectors = { path = "crates/ramzes-connectors" }
+ramzes-engine = { path = "crates/ramzes-engine" }
+ramzes-ingest = { path = "crates/ramzes-ingest" }
+ramzes-api = { path = "crates/ramzes-api" }
