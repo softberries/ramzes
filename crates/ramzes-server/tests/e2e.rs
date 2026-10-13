@@ -639,3 +639,52 @@ async fn a_custom_connector_survives_a_restart() {
         json!({"text": "after restart"})
     );
 }
+
+#[tokio::test]
+async fn a_grouped_route_sends_one_message_for_several_events() {
+    let receiver = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&receiver)
+        .await;
+    let data = tempfile::tempdir().unwrap();
+    let mut ramzes = Ramzes::start(data.path(), free_port(), &[], &[]).await;
+    ramzes.set_up().await;
+    let source = ramzes.post("/api/sources", json!({"name": "svc"})).await;
+    let connection = ramzes
+        .post(
+            "/api/connections",
+            json!({"kind": "webhook", "name": "receiver", "settings": {"url": receiver.uri()}}),
+        )
+        .await;
+    ramzes
+        .post(
+            "/api/routes",
+            json!({"name": "grouped", "match": {}, "targets": [{"connection_id": connection["id"]}],
+                   "shaping": {"group": {"by": [], "wait_s": 2}}}),
+        )
+        .await;
+    let key = source["key"].as_str().unwrap();
+    let first = ramzes
+        .send_event(key, json!({"topic": "a", "title": "one"}))
+        .await;
+    ramzes
+        .send_event(key, json!({"topic": "a", "title": "two"}))
+        .await;
+    ramzes
+        .send_event(key, json!({"topic": "a", "title": "three"}))
+        .await;
+
+    // Nothing is sent while the group collects.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(receiver.received_requests().await.unwrap().is_empty());
+    let waiting = ramzes.get("/api/notifications?state=grouping").await;
+    assert_eq!(waiting["notifications"][0]["event_count"], 3);
+
+    ramzes.wait_for_delivery(&first, "delivered").await;
+    let requests = receiver.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(body["title"], "3 events");
+    assert_eq!(body["event_ids"].as_array().unwrap().len(), 3);
+}
