@@ -20,6 +20,7 @@ const WEBHOOK: ConnectorDescriptor = {
 	description: 'POST each message as JSON to a URL of your choice.',
 	capabilities: { rich: false, update: false, threads: false, buttons: false, max_len: 20000 },
 	destination_label: null,
+	custom: false,
 	fields: [
 		{ key: 'url', label: 'URL', help: 'Where to send the request.', secret: false, required: true, kind: 'url' },
 		{ key: 'secret', label: 'Signing secret', help: 'Signs each request.', secret: true, required: false, kind: 'text' }

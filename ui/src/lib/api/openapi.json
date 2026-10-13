@@ -90,6 +90,150 @@
         }
       }
     },
+    "/api/config/export": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "The whole configuration as YAML, for keeping in version control or moving to another instance.",
+        "operationId": "export",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/import": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Replace the configuration with an exported one. Stored credentials and source keys are kept.",
+        "operationId": "import",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Import"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/revisions": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Configuration changes, newest first.",
+        "operationId": "revisions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RevisionMeta"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/revisions/{id}": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "The configuration as it was after one change.",
+        "operationId": "revision",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/revisions/{id}/rollback": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Make the configuration what it was after a past change. Source keys are not affected.",
+        "operationId": "rollback",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/connections": {
       "get": {
         "tags": [
@@ -265,6 +409,180 @@
             }
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connector-definitions": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "The connector definitions users added.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DefinitionRow"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Add a connector described by a YAML definition.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionRow"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connector-definitions/{id}": {
+      "put": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Replace a connector definition. Its kind can only change while no connection uses it.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Delete a connector definition that no connection uses.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "content": {
               "application/json": {
                 "schema": {
@@ -512,6 +830,48 @@
         }
       }
     },
+    "/api/events/{id}/preview": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "The message each target of an event receives: its wording and the request that carries it.",
+        "operationId": "preview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MessagePreview"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/events/{id}/replay": {
       "post": {
         "tags": [
@@ -618,7 +978,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Route"
+                    "$ref": "#/components/schemas/RouteView"
                   }
                 }
               }
@@ -647,7 +1007,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Route"
+                  "$ref": "#/components/schemas/RouteView"
                 }
               }
             }
@@ -695,6 +1055,54 @@
         }
       }
     },
+    "/api/routes/test": {
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Evaluate an event against routes and show what each would send. Nothing is stored or sent.",
+        "operationId": "test",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/routes/{id}": {
       "put": {
         "tags": [
@@ -727,7 +1135,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Route"
+                  "$ref": "#/components/schemas/RouteView"
                 }
               }
             }
@@ -905,6 +1313,29 @@
         }
       }
     },
+    "/api/source-kinds": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "The kinds of source ramzes understands, with how to set each up.",
+        "operationId": "kinds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceKind"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sources": {
       "get": {
         "tags": [
@@ -919,7 +1350,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Source"
+                    "$ref": "#/components/schemas/SourceView"
                   }
                 }
               }
@@ -953,11 +1384,50 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/preview-mapping": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Try a mapping on a request body without saving anything.",
+        "operationId": "preview_mapping",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MappingPreview"
                 }
               }
             }
@@ -996,12 +1466,70 @@
         }
       }
     },
+    "/api/sources/{id}/mapping": {
+      "put": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Replace the mapping of an any-JSON source.",
+        "operationId": "set_mapping",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sources/{id}/requests": {
       "get": {
         "tags": [
           "sources"
         ],
-        "summary": "The source's most recent rejected requests, newest first.",
+        "summary": "The source's recent requests, newest first: rejected ones for native sources, all of them\nfor the other kinds.",
         "operationId": "requests",
         "parameters": [
           {
@@ -1046,6 +1574,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Rotate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -1057,6 +1601,15 @@
             }
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1083,6 +1636,201 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "All templates.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Template"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Create a template: the wording of a message, usable by any route target.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Template"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/preview": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Word an event with a template that need not be saved, and optionally show the request a\nconnection would send for it.",
+        "operationId": "preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePreview"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/{id}": {
+      "put": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Replace a template.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Template"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Delete a template that no route uses.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -1435,6 +2183,42 @@
           }
         }
       },
+      "ConnectionHealth": {
+        "type": "object",
+        "description": "How a connection's deliveries went over a period.",
+        "required": [
+          "connection_id",
+          "delivered",
+          "failed",
+          "pending"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "delivered": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Rejected or given up."
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The most recent failure in the period."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Waiting or being retried."
+          }
+        }
+      },
       "ConnectionUpdate": {
         "type": "object",
         "required": [
@@ -1478,6 +2262,17 @@
             "type": "boolean",
             "description": "Whether secret fields have been stored. Their values are never returned."
           },
+          "health": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionHealth",
+                "description": "How its deliveries of the last 24 hours went. Absent when there were none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -1505,11 +2300,16 @@
           "name",
           "description",
           "fields",
-          "capabilities"
+          "capabilities",
+          "custom"
         ],
         "properties": {
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
+          },
+          "custom": {
+            "type": "boolean",
+            "description": "Added by a user as a definition, rather than shipped with ramzes."
           },
           "description": {
             "type": "string"
@@ -1546,6 +2346,47 @@
             "type": "string"
           },
           "password": {
+            "type": "string"
+          }
+        }
+      },
+      "DefinitionInput": {
+        "type": "object",
+        "required": [
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "type": "string",
+            "description": "The connector definition as YAML."
+          }
+        }
+      },
+      "DefinitionRow": {
+        "type": "object",
+        "description": "A connector definition added by a user. `definition` is the YAML text.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "definition",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "definition": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
             "type": "string"
           }
         }
@@ -1612,6 +2453,13 @@
           "updated_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Something went wrong that did not stop the send, for example a template that failed."
           },
           "workspace_id": {
             "type": "string"
@@ -1764,7 +2612,8 @@
               "route_count",
               "deliveries_total",
               "deliveries_delivered",
-              "deliveries_failed"
+              "deliveries_failed",
+              "targets"
             ],
             "properties": {
               "deliveries_delivered": {
@@ -1785,6 +2634,13 @@
               },
               "routed": {
                 "type": "boolean"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Names of the connections the event was sent to, in order of first use."
               }
             }
           }
@@ -1797,6 +2653,18 @@
           "firing",
           "resolved"
         ]
+      },
+      "Exported": {
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "description": "The configuration as YAML, without credentials or source keys."
+          }
+        }
       },
       "FailureRow": {
         "allOf": [
@@ -1836,11 +2704,7 @@
         "type": "object",
         "required": [
           "key",
-          "label",
-          "help",
-          "secret",
-          "required",
-          "kind"
+          "label"
         ],
         "properties": {
           "help": {
@@ -1862,7 +2726,8 @@
             "type": "boolean",
             "description": "Secret fields are stored encrypted and never returned by the API."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "FieldKind": {
         "type": "string",
@@ -1870,6 +2735,17 @@
           "text",
           "url"
         ]
+      },
+      "Import": {
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "properties": {
+          "yaml": {
+            "type": "string"
+          }
+        }
       },
       "Journey": {
         "type": "object",
@@ -2042,6 +2918,67 @@
           }
         ]
       },
+      "MappingInput": {
+        "type": "object",
+        "required": [
+          "mapping"
+        ],
+        "properties": {
+          "mapping": {
+            "type": "string",
+            "description": "The mapping as YAML."
+          }
+        }
+      },
+      "MappingPreview": {
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the mapping or the body could not be used."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewEvent"
+            },
+            "description": "The events the request would produce."
+          }
+        }
+      },
+      "MappingPreviewRequest": {
+        "type": "object",
+        "required": [
+          "mapping",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "A request body to try it on."
+          },
+          "headers": {
+            "type": "object",
+            "description": "The request's headers, lower-case names.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "mapping": {
+            "type": "string",
+            "description": "The mapping as YAML."
+          }
+        }
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -2057,6 +2994,76 @@
               "null"
             ],
             "description": "Absent when the request used an API token."
+          }
+        }
+      },
+      "MessagePreview": {
+        "type": "object",
+        "description": "The message one target of an event received, as it would be worded and sent now.",
+        "required": [
+          "notification_id",
+          "connection_id",
+          "title"
+        ],
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_id": {
+            "type": "string"
+          },
+          "connection_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the connection was deleted."
+          },
+          "connector_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notification_id": {
+            "type": "string"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Preview",
+                "description": "The request the connector makes, with secrets masked."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the request cannot be shown."
+          },
+          "title": {
+            "type": "string"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For example: the route's template failed and the default wording was used."
           }
         }
       },
@@ -2085,12 +3092,85 @@
           }
         }
       },
+      "NewEvent": {
+        "type": "object",
+        "description": "An event as a sender submits it.",
+        "required": [
+          "topic",
+          "title"
+        ],
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dedup_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "payload": {},
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EventStatus"
+          },
+          "title": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 time the event occurred. Defaults to the time of receipt."
+          }
+        },
+        "additionalProperties": false
+      },
       "NewSource": {
         "type": "object",
         "required": [
           "name"
         ],
         "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Use this secret instead of a generated key, for senders that generate their own."
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A kind from `GET /api/source-kinds`. Defaults to `native`."
+          },
+          "mapping": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The mapping of an any-JSON source, as YAML. A starter mapping is used when absent."
+          },
           "name": {
             "type": "string"
           }
@@ -2122,6 +3202,77 @@
           }
         }
       },
+      "Preview": {
+        "type": "object",
+        "description": "The request a connector would send for a message, with secrets masked.",
+        "required": [
+          "method",
+          "url",
+          "headers",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Also show the request this connection would send."
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The event to word. Without it the newest event is used, or a sample when there is none."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "Reorder": {
         "type": "object",
         "required": [
@@ -2134,6 +3285,62 @@
               "type": "string"
             },
             "description": "Every route id exactly once, in the new evaluation order."
+          }
+        }
+      },
+      "RevisionMeta": {
+        "type": "object",
+        "required": [
+          "id",
+          "author",
+          "summary",
+          "created_at"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string",
+            "description": "What changed, for example \"changed route billing\"."
+          }
+        }
+      },
+      "RevisionView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RevisionMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "config"
+            ],
+            "properties": {
+              "config": {
+                "type": "string",
+                "description": "The configuration after this change as YAML, without credentials."
+              }
+            }
+          }
+        ]
+      },
+      "Rotate": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Use this secret instead of generating a key."
           }
         }
       },
@@ -2226,6 +3433,13 @@
         "type": "object",
         "description": "The conditions of a route. Every condition that is set must hold.",
         "properties": {
+          "expr": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An expression over the event (`payload`, `labels`, `topic`, …) that must be true."
+          },
           "labels": {
             "type": "array",
             "items": {
@@ -2257,6 +3471,71 @@
           }
         },
         "additionalProperties": false
+      },
+      "RouteResult": {
+        "type": "object",
+        "required": [
+          "name",
+          "outcome",
+          "targets"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the route's expression failed."
+          },
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`matched`, `not_matched`, `disabled`, `skipped` (an earlier route stopped evaluation) or `error`."
+          },
+          "route_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent for a route that is not saved."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetResult"
+            },
+            "description": "What each target would receive, when the route matched."
+          }
+        }
+      },
+      "RouteView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Route"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "last_error": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Why the route's expression last failed. Cleared when the route is saved."
+              },
+              "last_error_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "description": "A route with the last failure of its expression, if any."
       },
       "Settings": {
         "type": "object",
@@ -2337,6 +3616,13 @@
           "kind": {
             "type": "string"
           },
+          "mapping": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The mapping of an any-JSON source, as YAML. Bundled kinds carry their own."
+          },
           "name": {
             "type": "string"
           },
@@ -2348,7 +3634,7 @@
       "SourceCreated": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/Source"
+            "$ref": "#/components/schemas/SourceView"
           },
           {
             "type": "object",
@@ -2363,6 +3649,47 @@
             }
           }
         ]
+      },
+      "SourceKind": {
+        "type": "object",
+        "description": "A kind of source, for the UI to offer.",
+        "required": [
+          "kind",
+          "name",
+          "description",
+          "setup",
+          "own_secret"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "own_secret": {
+            "type": "boolean",
+            "description": "The sender generates the secret, so the user has to give it to ramzes."
+          },
+          "setup": {
+            "type": "string",
+            "description": "How to configure the sender. `{url}` and `{key}` stand for the source's address and key."
+          },
+          "verify": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Verify",
+                "description": "How requests prove where they come from. `None` for kinds whose mapping decides."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "SourceRequest": {
         "type": "object",
@@ -2382,6 +3709,13 @@
               "null"
             ]
           },
+          "headers": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The request's headers as a JSON object, without credentials. Kept for adapter sources."
+          },
           "id": {
             "type": "string"
           },
@@ -2390,6 +3724,26 @@
             "format": "int64"
           }
         }
+      },
+      "SourceView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Source"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "`/v1/events` for native sources, `/v1/in/{id}` for the others."
+              }
+            }
+          }
+        ],
+        "description": "A source with the path its sender posts to."
       },
       "Target": {
         "type": "object",
@@ -2406,33 +3760,202 @@
               "string",
               "null"
             ]
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The template that words the message for this target. Without one the event's own text is used."
           }
         },
         "additionalProperties": false
       },
-      "TestResult": {
+      "TargetResult": {
         "type": "object",
         "required": [
-          "ok"
+          "connection_id",
+          "title"
         ],
         "properties": {
-          "detail": {
+          "body": {
             "type": [
               "string",
               "null"
             ]
           },
-          "ok": {
-            "type": "boolean"
+          "connection_id": {
+            "type": "string"
           },
-          "status": {
+          "connection_name": {
             "type": [
-              "integer",
+              "string",
               "null"
             ],
-            "format": "int32",
-            "description": "HTTP status the service answered with, if it answered.",
-            "minimum": 0
+            "description": "Absent when the connection does not exist."
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For example: the template failed and the default wording would be sent."
+          }
+        }
+      },
+      "Template": {
+        "type": "object",
+        "description": "User-written wording for a message. An empty part keeps the default.",
+        "required": [
+          "id",
+          "name",
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Template for the body."
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "Template for the title."
+          }
+        }
+      },
+      "TemplateInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Template for the body. Empty keeps the event's body."
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "Template for the title. Empty keeps the event's title."
+          }
+        }
+      },
+      "TemplatePreview": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the template could not be used; the default wording is shown in that case."
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The event the preview was made from."
+          },
+          "request": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Preview",
+                "description": "The request the chosen connection would send."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TestRequest": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewEvent",
+                "description": "Or an event written for the test."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A stored event to test with."
+          },
+          "routes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RouteInput"
+            },
+            "description": "The routes to test, in order, saved or not. Without them the stored routes are used."
+          }
+        }
+      },
+      "TestResult": {
+        "type": "object",
+        "required": [
+          "event",
+          "results"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteResult"
+            },
+            "description": "One entry per route, in evaluation order."
           }
         }
       },
@@ -2474,6 +3997,87 @@
             "type": "string"
           }
         }
+      },
+      "Verify": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "`Authorization: Bearer <source key>`.",
+            "required": [
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "bearer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The named header carries the source key.",
+            "required": [
+              "header",
+              "method"
+            ],
+            "properties": {
+              "header": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "header"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The named header carries the hex HMAC-SHA256 of the body, keyed with the source key.",
+            "required": [
+              "header",
+              "method"
+            ],
+            "properties": {
+              "header": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "hmac_sha256"
+                ]
+              },
+              "prefix": {
+                "type": "string",
+                "description": "Text before the hex digest, for example `sha256=`."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The source key is a query parameter of the URL.",
+            "required": [
+              "param",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "query"
+                ]
+              },
+              "param": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "How a request to a source's URL proves it comes from the sender."
       }
     }
   }

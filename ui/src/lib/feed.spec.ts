@@ -21,7 +21,8 @@ function row(id: string, delivered = 0): EventRow {
 		route_count: 1,
 		deliveries_total: 1,
 		deliveries_delivered: delivered,
-		deliveries_failed: 0
+		deliveries_failed: 0,
+		targets: []
 	};
 }
 

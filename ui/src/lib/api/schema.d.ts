@@ -55,6 +55,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/config/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The whole configuration as YAML, for keeping in version control or moving to another instance. */
+        get: operations["export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/config/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the configuration with an exported one. Stored credentials and source keys are kept. */
+        post: operations["import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/config/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuration changes, newest first. */
+        get: operations["revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/config/revisions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The configuration as it was after one change. */
+        get: operations["revision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/config/revisions/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make the configuration what it was after a past change. Source keys are not affected. */
+        post: operations["rollback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connections": {
         parameters: {
             query?: never;
@@ -103,6 +188,42 @@ export interface paths {
         /** Send a test message through a connection and report what the service said. */
         post: operations["test"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connector-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The connector definitions users added. */
+        get: operations["list"];
+        put?: never;
+        /** Add a connector described by a YAML definition. */
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connector-definitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a connector definition. Its kind can only change while no connection uses it. */
+        put: operations["update"];
+        post?: never;
+        /** Delete a connector definition that no connection uses. */
+        delete: operations["remove"];
         options?: never;
         head?: never;
         patch?: never;
@@ -168,6 +289,23 @@ export interface paths {
         };
         /** Everything that happened to one event: routes matched, deliveries and their attempts. */
         get: operations["journey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The message each target of an event receives: its wording and the request that carries it. */
+        get: operations["preview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -262,6 +400,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/routes/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluate an event against routes and show what each would send. Nothing is stored or sent. */
+        post: operations["test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routes/{id}": {
         parameters: {
             query?: never;
@@ -316,6 +471,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/source-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The kinds of source ramzes understands, with how to set each up. */
+        get: operations["kinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -328,6 +500,23 @@ export interface paths {
         put?: never;
         /** Create a source. The response is the only time its key is shown. */
         post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/preview-mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Try a mapping on a request body without saving anything. */
+        post: operations["preview_mapping"];
         delete?: never;
         options?: never;
         head?: never;
@@ -351,6 +540,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/{id}/mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the mapping of an any-JSON source. */
+        put: operations["set_mapping"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/{id}/requests": {
         parameters: {
             query?: never;
@@ -358,7 +564,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The source's most recent rejected requests, newest first. */
+        /**
+         * The source's recent requests, newest first: rejected ones for native sources, all of them
+         *     for the other kinds.
+         */
         get: operations["requests"];
         put?: never;
         post?: never;
@@ -402,6 +611,62 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** All templates. */
+        get: operations["list"];
+        put?: never;
+        /** Create a template: the wording of a message, usable by any route target. */
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Word an event with a template that need not be saved, and optionally show the request a
+         *     connection would send for it.
+         */
+        post: operations["preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a template. */
+        put: operations["update"];
+        post?: never;
+        /** Delete a template that no route uses. */
+        delete: operations["remove"];
         options?: never;
         head?: never;
         patch?: never;
@@ -523,6 +788,24 @@ export interface components {
             threads: boolean;
             update: boolean;
         };
+        /** @description How a connection's deliveries went over a period. */
+        ConnectionHealth: {
+            connection_id: string;
+            /** Format: int64 */
+            delivered: number;
+            /**
+             * Format: int64
+             * @description Rejected or given up.
+             */
+            failed: number;
+            /** @description The most recent failure in the period. */
+            last_error?: string | null;
+            /**
+             * Format: int64
+             * @description Waiting or being retried.
+             */
+            pending: number;
+        };
         ConnectionUpdate: {
             /** @description Leave out to keep the stored credentials. */
             credentials?: Record<string, never> | null;
@@ -535,6 +818,7 @@ export interface components {
             created_at: number;
             /** @description Whether secret fields have been stored. Their values are never returned. */
             has_credentials: boolean;
+            health?: components["schemas"]["ConnectionHealth"] | null;
             id: string;
             kind: string;
             name: string;
@@ -546,6 +830,8 @@ export interface components {
         /** @description What a connector is and which settings it needs. Drives the setup form in the UI. */
         ConnectorDescriptor: {
             capabilities: components["schemas"]["Capabilities"];
+            /** @description Added by a user as a definition, rather than shipped with ramzes. */
+            custom: boolean;
             description: string;
             /** @description What a route's destination means for this connector, when it uses one. */
             destination_label?: string | null;
@@ -556,6 +842,19 @@ export interface components {
         Credentials: {
             email: string;
             password: string;
+        };
+        DefinitionInput: {
+            /** @description The connector definition as YAML. */
+            definition: string;
+        };
+        /** @description A connector definition added by a user. `definition` is the YAML text. */
+        DefinitionRow: {
+            /** Format: int64 */
+            created_at: number;
+            definition: string;
+            id: string;
+            kind: string;
+            name: string;
         };
         /** @description One send of a notification to one target. */
         Delivery: {
@@ -578,6 +877,8 @@ export interface components {
             state: components["schemas"]["DeliveryState"];
             /** Format: int64 */
             updated_at: number;
+            /** @description Something went wrong that did not stop the send, for example a template that failed. */
+            warning?: string | null;
             workspace_id: string;
         };
         /** @enum {string} */
@@ -635,9 +936,15 @@ export interface components {
             /** Format: int64 */
             route_count: number;
             routed: boolean;
+            /** @description Names of the connections the event was sent to, in order of first use. */
+            targets: string[];
         };
         /** @enum {string} */
         EventStatus: "firing" | "resolved";
+        Exported: {
+            /** @description The configuration as YAML, without credentials or source keys. */
+            yaml: string;
+        };
         /** @description A failed or dead delivery with enough context to show in a list. */
         FailureRow: components["schemas"]["Delivery"] & {
             /** @description `None` when the connection has been deleted. */
@@ -647,16 +954,19 @@ export interface components {
             route_name: string;
         };
         Field: {
-            help: string;
+            help?: string;
             key: string;
-            kind: components["schemas"]["FieldKind"];
+            kind?: components["schemas"]["FieldKind"];
             label: string;
-            required: boolean;
+            required?: boolean;
             /** @description Secret fields are stored encrypted and never returned by the API. */
-            secret: boolean;
+            secret?: boolean;
         };
         /** @enum {string} */
         FieldKind: "text" | "url";
+        Import: {
+            yaml: string;
+        };
         /** @description Everything that happened to one event. */
         Journey: {
             event: components["schemas"]["Event"];
@@ -696,10 +1006,46 @@ export interface components {
             /** @enum {string} */
             op: "exists";
         };
+        MappingInput: {
+            /** @description The mapping as YAML. */
+            mapping: string;
+        };
+        MappingPreview: {
+            /** @description Why the mapping or the body could not be used. */
+            error?: string | null;
+            /** @description The events the request would produce. */
+            events: components["schemas"]["NewEvent"][];
+        };
+        MappingPreviewRequest: {
+            /** @description A request body to try it on. */
+            body: string;
+            /** @description The request's headers, lower-case names. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description The mapping as YAML. */
+            mapping: string;
+        };
         Me: {
             email?: string | null;
             /** @description Absent when the request used an API token. */
             id?: string | null;
+        };
+        /** @description The message one target of an event received, as it would be worded and sent now. */
+        MessagePreview: {
+            body?: string | null;
+            connection_id: string;
+            /** @description Absent when the connection was deleted. */
+            connection_name?: string | null;
+            connector_kind?: string | null;
+            destination?: string | null;
+            notification_id: string;
+            request?: components["schemas"]["Preview"] | null;
+            /** @description Why the request cannot be shown. */
+            request_error?: string | null;
+            title: string;
+            /** @description For example: the route's template failed and the default wording was used. */
+            warning?: string | null;
         };
         NewConnection: {
             /** @description Values for the connector's secret fields. */
@@ -710,7 +1056,28 @@ export interface components {
             /** @description Values for the connector's non-secret fields. */
             settings: Record<string, never>;
         };
+        /** @description An event as a sender submits it. */
+        NewEvent: {
+            body?: string | null;
+            dedup_key?: string | null;
+            labels?: {
+                [key: string]: string;
+            };
+            payload?: unknown;
+            severity?: components["schemas"]["Severity"];
+            status?: components["schemas"]["EventStatus"];
+            title: string;
+            topic: string;
+            /** @description RFC 3339 time the event occurred. Defaults to the time of receipt. */
+            ts?: string | null;
+        };
         NewSource: {
+            /** @description Use this secret instead of a generated key, for senders that generate their own. */
+            key?: string | null;
+            /** @description A kind from `GET /api/source-kinds`. Defaults to `native`. */
+            kind?: string | null;
+            /** @description The mapping of an any-JSON source, as YAML. A starter mapping is used when absent. */
+            mapping?: string | null;
             name: string;
         };
         NewToken: {
@@ -720,9 +1087,44 @@ export interface components {
             email: string;
             password: string;
         };
+        /** @description The request a connector would send for a message, with secrets masked. */
+        Preview: {
+            body: string;
+            headers: [
+                string,
+                string
+            ][];
+            method: string;
+            url: string;
+        };
+        PreviewRequest: {
+            body: string;
+            /** @description Also show the request this connection would send. */
+            connection_id?: string | null;
+            destination?: string | null;
+            /** @description The event to word. Without it the newest event is used, or a sample when there is none. */
+            event_id?: string | null;
+            title: string;
+        };
         Reorder: {
             /** @description Every route id exactly once, in the new evaluation order. */
             ids: string[];
+        };
+        RevisionMeta: {
+            author: string;
+            /** Format: int64 */
+            created_at: number;
+            id: string;
+            /** @description What changed, for example "changed route billing". */
+            summary: string;
+        };
+        RevisionView: components["schemas"]["RevisionMeta"] & {
+            /** @description The configuration after this change as YAML, without credentials. */
+            config: string;
+        };
+        Rotate: {
+            /** @description Use this secret instead of generating a key. */
+            key?: string | null;
         };
         RotatedKey: {
             /** @description The new ingest key. Shown only in this response. */
@@ -750,11 +1152,31 @@ export interface components {
         };
         /** @description The conditions of a route. Every condition that is set must hold. */
         RouteMatch: {
+            /** @description An expression over the event (`payload`, `labels`, `topic`, …) that must be true. */
+            expr?: string | null;
             labels?: components["schemas"]["LabelCond"][];
             min_severity?: components["schemas"]["Severity"] | null;
             source_id?: string | null;
             /** @description Glob over the whole topic: `*` matches any run of characters. */
             topic?: string | null;
+        };
+        RouteResult: {
+            /** @description Why the route's expression failed. */
+            error?: string | null;
+            name: string;
+            /** @description `matched`, `not_matched`, `disabled`, `skipped` (an earlier route stopped evaluation) or `error`. */
+            outcome: string;
+            /** @description Absent for a route that is not saved. */
+            route_id?: string | null;
+            /** @description What each target would receive, when the route matched. */
+            targets: components["schemas"]["TargetResult"][];
+        };
+        /** @description A route with the last failure of its expression, if any. */
+        RouteView: components["schemas"]["Route"] & {
+            /** @description Why the route's expression last failed. Cleared when the route is saved. */
+            last_error?: string | null;
+            /** Format: int64 */
+            last_error_at?: number | null;
         };
         Settings: {
             /** @description Address of this ramzes instance, used for links in messages. */
@@ -782,34 +1204,95 @@ export interface components {
             id: string;
             key_prefix: string;
             kind: string;
+            /** @description The mapping of an any-JSON source, as YAML. Bundled kinds carry their own. */
+            mapping?: string | null;
             name: string;
             workspace_id: string;
         };
-        SourceCreated: components["schemas"]["Source"] & {
+        SourceCreated: components["schemas"]["SourceView"] & {
             /** @description The ingest key. Shown only in this response. */
             key: string;
+        };
+        /** @description A kind of source, for the UI to offer. */
+        SourceKind: {
+            description: string;
+            kind: string;
+            name: string;
+            /** @description The sender generates the secret, so the user has to give it to ramzes. */
+            own_secret: boolean;
+            /** @description How to configure the sender. `{url}` and `{key}` stand for the source's address and key. */
+            setup: string;
+            verify?: components["schemas"]["Verify"] | null;
         };
         /** @description A request a source sent that ramzes rejected, kept for debugging. */
         SourceRequest: {
             body: string;
             error?: string | null;
+            /** @description The request's headers as a JSON object, without credentials. Kept for adapter sources. */
+            headers?: string | null;
             id: string;
             /** Format: int64 */
             received_at: number;
+        };
+        /** @description A source with the path its sender posts to. */
+        SourceView: components["schemas"]["Source"] & {
+            /** @description `/v1/events` for native sources, `/v1/in/{id}` for the others. */
+            path: string;
         };
         /** @description Where a route sends: a connection and an optional destination within it (for example a channel). */
         Target: {
             connection_id: string;
             destination?: string | null;
+            /** @description The template that words the message for this target. Without one the event's own text is used. */
+            template_id?: string | null;
+        };
+        TargetResult: {
+            body?: string | null;
+            connection_id: string;
+            /** @description Absent when the connection does not exist. */
+            connection_name?: string | null;
+            destination?: string | null;
+            title: string;
+            /** @description For example: the template failed and the default wording would be sent. */
+            warning?: string | null;
+        };
+        /** @description User-written wording for a message. An empty part keeps the default. */
+        Template: {
+            /** @description Template for the body. */
+            body: string;
+            id: string;
+            name: string;
+            /** @description Template for the title. */
+            title: string;
+        };
+        TemplateInput: {
+            /** @description Template for the body. Empty keeps the event's body. */
+            body: string;
+            name: string;
+            /** @description Template for the title. Empty keeps the event's title. */
+            title: string;
+        };
+        TemplatePreview: {
+            body?: string | null;
+            /** @description Why the template could not be used; the default wording is shown in that case. */
+            error?: string | null;
+            /** @description The event the preview was made from. */
+            event_id?: string | null;
+            request?: components["schemas"]["Preview"] | null;
+            request_error?: string | null;
+            title: string;
+        };
+        TestRequest: {
+            event?: components["schemas"]["NewEvent"] | null;
+            /** @description A stored event to test with. */
+            event_id?: string | null;
+            /** @description The routes to test, in order, saved or not. Without them the stored routes are used. */
+            routes?: components["schemas"]["RouteInput"][] | null;
         };
         TestResult: {
-            detail?: string | null;
-            ok: boolean;
-            /**
-             * Format: int32
-             * @description HTTP status the service answered with, if it answered.
-             */
-            status?: number | null;
+            event: components["schemas"]["Event"];
+            /** @description One entry per route, in evaluation order. */
+            results: components["schemas"]["RouteResult"][];
         };
         TokenCreated: components["schemas"]["ApiToken"] & {
             /** @description The token. Shown only in this response. */
@@ -820,6 +1303,25 @@ export interface components {
             created_at: number;
             email: string;
             id: string;
+        };
+        /** @description How a request to a source's URL proves it comes from the sender. */
+        Verify: {
+            /** @enum {string} */
+            method: "bearer";
+        } | {
+            header: string;
+            /** @enum {string} */
+            method: "header";
+        } | {
+            header: string;
+            /** @enum {string} */
+            method: "hmac_sha256";
+            /** @description Text before the hex digest, for example `sha256=`. */
+            prefix?: string;
+        } | {
+            /** @enum {string} */
+            method: "query";
+            param: string;
         };
     };
     responses: never;
@@ -896,6 +1398,129 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Exported"];
+                };
+            };
+        };
+    };
+    import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Import"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionMeta"][];
+                };
+            };
+        };
+    };
+    revision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rollback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1052,6 +1677,148 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionRow"][];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefinitionInput"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionRow"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefinitionInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionRow"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     connectors: {
         parameters: {
             query?: never;
@@ -1175,6 +1942,35 @@ export interface operations {
             };
         };
     };
+    preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePreview"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     replay_event: {
         parameters: {
             query?: never;
@@ -1260,7 +2056,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Route"][];
+                    "application/json": components["schemas"]["RouteView"][];
                 };
             };
         };
@@ -1283,7 +2079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Route"];
+                    "application/json": components["schemas"]["RouteView"];
                 };
             };
             422: {
@@ -1325,6 +2121,45 @@ export interface operations {
             };
         };
     };
+    test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResult"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     update: {
         parameters: {
             query?: never;
@@ -1345,7 +2180,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Route"];
+                    "application/json": components["schemas"]["RouteView"];
                 };
             };
             404: {
@@ -1501,6 +2336,25 @@ export interface operations {
             };
         };
     };
+    kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceKind"][];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -1515,7 +2369,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Source"][];
+                    "application/json": components["schemas"]["SourceView"][];
                 };
             };
         };
@@ -1541,12 +2395,43 @@ export interface operations {
                     "application/json": components["schemas"]["SourceCreated"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preview_mapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MappingPreviewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MappingPreview"];
                 };
             };
         };
@@ -1569,6 +2454,47 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_mapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MappingInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1608,7 +2534,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Rotate"] | null;
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -1619,6 +2549,14 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1644,6 +2582,163 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": string;
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"][];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateInput"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplatePreview"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
