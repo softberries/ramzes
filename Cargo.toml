@@ -42,7 +42,7 @@ regex = "1.13.1"
 chacha20poly1305 = "0.11.0"
 uuid = { version = "1.28.0", features = ["v7"] }
 time = { version = "0.3.55", features = ["parsing", "formatting"] }
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "sqlite", "postgres", "migrate"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "sqlite", "postgres", "migrate", "macros"] }
 async-trait = "0.1.92"
 utoipa = { version = "6.0.0", features = ["axum_extras"] }
 utoipa-axum = "0.3.0"
@@ -58,3 +58,7 @@ ramzes-connectors = { path = "crates/ramzes-connectors" }
 ramzes-engine = { path = "crates/ramzes-engine" }
 ramzes-ingest = { path = "crates/ramzes-ingest" }
 ramzes-api = { path = "crates/ramzes-api" }
+
+# Dependencies are built without debug info: far smaller target directory, faster links.
+[profile.dev.package."*"]
+debug = false
