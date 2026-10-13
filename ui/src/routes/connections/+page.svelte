@@ -3,6 +3,8 @@
 	import type { ConnectionView, ConnectorDescriptor, Route, TestResult } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
 	import ConnectionForm, { type ConnectionValues } from '#lib/components/ConnectionForm.svelte';
+	import ConnectorDefinitions from '#lib/components/ConnectorDefinitions.svelte';
+	import { groupConnectors, healthWords } from '#lib/connectors.ts';
 	import { ago } from '#lib/format.ts';
 	import { routesUsing } from '#lib/routes.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
@@ -21,7 +23,12 @@
 	let tests = $state<Record<string, TestResult>>({});
 
 	const byKind = $derived(Object.fromEntries(connectors.map((c) => [c.kind, c])));
+	const groups = $derived(groupConnectors(connectors));
 	const dependents = $derived(deleting ? routesUsing(routes, deleting.id) : []);
+
+	async function loadConnectors() {
+		connectors = await api<ConnectorDescriptor[]>('GET', '/api/connectors');
+	}
 
 	async function load() {
 		[connections, connectors, routes] = await Promise.all([
@@ -83,8 +90,8 @@
 	<h1 class="mr-auto">Connections</h1>
 </div>
 <p class="hint mb-5 max-w-2xl">
-	A connection is one place messages can go: a Slack channel, a webhook URL. Routes decide which events
-	go to which connection.
+	A connection is one place messages can go: a Slack channel, a mailbox, a webhook URL. Routes decide
+	which events go to which connection.
 </p>
 
 {#if loaded && connections.length === 0}
@@ -93,20 +100,30 @@
 
 <ul class="border-line border-t">
 	{#each connections as connection (connection.id)}
-		<li class="border-line grid grid-cols-[1fr_auto] items-baseline gap-x-3 border-b px-2 py-2.5">
+		<li class="border-line grid items-baseline gap-x-3 gap-y-2 border-b px-2 py-2.5 md:grid-cols-[1fr_auto]">
 			<div class="min-w-0">
 				<div class="flex flex-wrap items-baseline gap-x-3">
 					<span class="font-medium">{connection.name}</span>
 					<span class="tag">{byKind[connection.kind]?.name ?? connection.kind}</span>
 					<span class="text-faint">changed {ago(connection.updated_at)}</span>
 				</div>
-				{#if tests[connection.id]?.ok}
+				{#if connection.health}
+						<div class="text-muted">
+							Last 24 hours: <span class={connection.health.failed > 0 ? 'problem' : ''}
+								>{healthWords(connection.health)}</span
+							>
+						</div>
+						{#if connection.health.last_error}
+							<div class="problem break-words">Last error: {connection.health.last_error}</div>
+						{/if}
+					{/if}
+					{#if tests[connection.id]?.ok}
 					<div class="text-ok">Test message delivered.</div>
 				{:else if tests[connection.id]}
 					<div class="problem">Test failed: {tests[connection.id].detail}</div>
 				{/if}
 			</div>
-			<div class="flex flex-wrap justify-end gap-1">
+			<div class="flex flex-wrap gap-1 md:justify-end">
 				<button type="button" class="btn h-7 px-2" onclick={() => test(connection)}>Send test message</button>
 				<button
 					type="button"
@@ -148,24 +165,36 @@
 	</div>
 {:else}
 	<h2 class="mt-8 mb-3">Add a connection</h2>
-	<ul class="grid max-w-3xl gap-2 md:grid-cols-2">
-		{#each connectors as connector (connector.kind)}
-			<li>
-				<button
-					type="button"
-					class="panel hover:border-muted w-full p-3 text-left"
-					onclick={() => {
-						close();
-						adding = connector.kind;
-					}}
-				>
-					<span class="font-medium">{connector.name}</span>
-					<span class="text-muted block">{connector.description}</span>
-				</button>
-			</li>
+	<div class="flex max-w-3xl flex-col gap-4">
+		{#each groups as group (group.title)}
+			<section aria-label={group.title}>
+				<h3 class="text-muted mb-2">{group.title}</h3>
+				<ul class="grid gap-2 md:grid-cols-2">
+					{#each group.connectors as connector (connector.kind)}
+						<li>
+							<button
+								type="button"
+								class="panel hover:border-muted h-full w-full p-3 text-left"
+								onclick={() => {
+									close();
+									adding = connector.kind;
+								}}
+							>
+								<span class="font-medium">{connector.name}</span>
+								{#if connector.custom}<span class="tag ml-2">your own</span>{/if}
+								<span class="text-muted block">{connector.description}</span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</section>
 		{/each}
-	</ul>
+	</div>
 {/if}
+
+<div class="mt-10">
+	<ConnectorDefinitions onchange={() => loadConnectors().catch((error) => toasts.problem(error))} />
+</div>
 
 <Confirm
 	open={deleting !== null}
