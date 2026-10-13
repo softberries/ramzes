@@ -3,21 +3,21 @@ export const NAV_GROUPS = [
 	{
 		title: 'Happening now',
 		pages: [
-			{ href: '/overview', label: 'Overview' },
-			{ href: '/', label: 'Feed' },
-			{ href: '/notifications', label: 'Notifications' },
-			{ href: '/failures', label: 'Failures' },
-			{ href: '/silences', label: 'Silences' }
+			{ href: '/overview', label: 'Overview', icon: 'overview' },
+			{ href: '/', label: 'Feed', icon: 'feed' },
+			{ href: '/notifications', label: 'Notifications', icon: 'bell' },
+			{ href: '/failures', label: 'Failures', icon: 'alert' },
+			{ href: '/silences', label: 'Silences', icon: 'mute' }
 		]
 	},
 	{
 		title: 'Configuration',
 		pages: [
-			{ href: '/routes', label: 'Routes' },
-			{ href: '/templates', label: 'Templates' },
-			{ href: '/connections', label: 'Connections' },
-			{ href: '/sources', label: 'Sources' },
-			{ href: '/settings', label: 'Settings' }
+			{ href: '/routes', label: 'Routes', icon: 'route' },
+			{ href: '/templates', label: 'Templates', icon: 'template' },
+			{ href: '/connections', label: 'Connections', icon: 'plug' },
+			{ href: '/sources', label: 'Sources', icon: 'inbox' },
+			{ href: '/settings', label: 'Settings', icon: 'settings' }
 		]
 	}
 ] as const;

@@ -933,12 +933,35 @@ export interface components {
         };
         Bucket: {
             /** Format: int64 */
+            critical: number;
+            /** Format: int64 */
+            debug: number;
+            /**
+             * Format: int64
+             * @description Deliveries created in the bucket that arrived.
+             */
+            delivered: number;
+            /** Format: int64 */
+            error: number;
+            /**
+             * Format: int64
+             * @description Events received in the bucket; the five severities below add up to it.
+             */
             events: number;
+            /**
+             * Format: int64
+             * @description Deliveries created in the bucket that failed for good.
+             */
+            failed: number;
+            /** Format: int64 */
+            info: number;
             /**
              * Format: int64
              * @description Start of the bucket, unix milliseconds.
              */
             start: number;
+            /** Format: int64 */
+            warning: number;
         };
         BulkReplay: {
             delivery_ids: string[];
@@ -1131,6 +1154,11 @@ export interface components {
             events: components["schemas"]["EventRow"][];
             /** @description Pass as `before` to get the next page; absent on the last page. */
             next_before?: string | null;
+            /**
+             * Format: int64
+             * @description How many events match the filters in all.
+             */
+            total: number;
         };
         EventReplayed: {
             /** @description Deliveries queued by the current routes. */
@@ -1432,7 +1460,7 @@ export interface components {
         OverviewView: {
             /** Format: int64 */
             bucket_ms: number;
-            /** @description Events per bucket, for buckets that have any, oldest first. */
+            /** @description Events and delivery results per bucket, for buckets that have any, oldest first. */
             buckets: components["schemas"]["Bucket"][];
             /** Format: int64 */
             deliveries_delivered: number;
@@ -1447,6 +1475,7 @@ export interface components {
             events: number;
             /** @description Connections with failed deliveries in the period or paused now, worst first. */
             failing: components["schemas"]["Failing"][];
+            previous: components["schemas"]["Previous"];
             /**
              * Format: int64
              * @description Start of the period, unix milliseconds.
@@ -1485,6 +1514,15 @@ export interface components {
             /** @description The event to word. Without it the newest event is used, or a sample when there is none. */
             event_id?: string | null;
             title: string;
+        };
+        /** @description The stretch of the same length just before the period. */
+        Previous: {
+            /** Format: int64 */
+            deliveries_delivered: number;
+            /** Format: int64 */
+            deliveries_failed: number;
+            /** Format: int64 */
+            events: number;
         };
         /** @description A daily period in which notifications are held and sent as one digest when it ends. */
         QuietHours: {
@@ -2411,6 +2449,12 @@ export interface operations {
                 outcome?: "pending" | "delivered" | "failed" | "unrouted" | "waiting" | "not_sent";
                 /** @description Page size, 1 to 200. Default 50. */
                 limit?: number;
+                /** @description What to order by. Default `received`; ties go by arrival. */
+                sort?: "received" | "severity" | "topic" | "title";
+                /** @description `desc` (default: newest or largest first) or `asc`. */
+                order?: "asc" | "desc";
+                /** @description Events to skip, for paging through a sorted list. `before` pages faster through the default order. */
+                offset?: number;
             };
             header?: never;
             path?: never;

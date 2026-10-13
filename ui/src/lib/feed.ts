@@ -89,3 +89,58 @@ export function moveSelection(rows: EventRow[], selected: string | null, step: 1
 	if (at < 0) return rows[0].id;
 	return rows[Math.min(Math.max(at + step, 0), rows.length - 1)].id;
 }
+
+/** What the feed can be ordered by; the API's names. */
+export const FEED_SORTS = ['received', 'severity', 'topic', 'title'] as const;
+export type FeedSort = (typeof FEED_SORTS)[number];
+export const FEED_PAGE_SIZES = [25, 50, 100];
+
+/** Which part of the feed is shown, and in what order. */
+export interface FeedView {
+	/** Counted from 1. */
+	page: number;
+	size: number;
+	sort: FeedSort;
+	descending: boolean;
+}
+
+export const DEFAULT_VIEW: FeedView = { page: 1, size: 50, sort: 'received', descending: true };
+
+/** Reads the view from a query string; anything missing or not understood is the default. */
+export function viewFromQuery(query: string | { get(name: string): string | null }): FeedView {
+	const params = typeof query === 'string' ? new URLSearchParams(query) : query;
+	const page = Number(params.get('page'));
+	const size = Number(params.get('size'));
+	const sort = params.get('sort') as FeedSort | null;
+	const order = params.get('order');
+	return {
+		page: Number.isInteger(page) && page >= 1 ? page : DEFAULT_VIEW.page,
+		size: FEED_PAGE_SIZES.includes(size) ? size : DEFAULT_VIEW.size,
+		sort: sort && FEED_SORTS.includes(sort) ? sort : DEFAULT_VIEW.sort,
+		descending: order === 'asc' ? false : order === 'desc' ? true : DEFAULT_VIEW.descending
+	};
+}
+
+/** The view as it appears in the page URL: only what differs from the default. */
+export function viewToQuery(view: FeedView): string {
+	const params = new URLSearchParams();
+	if (view.sort !== DEFAULT_VIEW.sort) params.set('sort', view.sort);
+	if (view.descending !== DEFAULT_VIEW.descending) params.set('order', view.descending ? 'desc' : 'asc');
+	if (view.page !== DEFAULT_VIEW.page) params.set('page', String(view.page));
+	if (view.size !== DEFAULT_VIEW.size) params.set('size', String(view.size));
+	return params.toString();
+}
+
+/** The view as the API is asked for it. */
+export function viewToApi(view: FeedView): string {
+	const params = new URLSearchParams({ limit: String(view.size) });
+	if (view.sort !== 'received') params.set('sort', view.sort);
+	if (!view.descending) params.set('order', 'asc');
+	if (view.page > 1) params.set('offset', String((view.page - 1) * view.size));
+	return params.toString();
+}
+
+/** Whether rows arrive at the top of what is shown: the first page of the newest-first order. */
+export function isLiveView(view: FeedView): boolean {
+	return view.page === 1 && view.sort === 'received' && view.descending;
+}

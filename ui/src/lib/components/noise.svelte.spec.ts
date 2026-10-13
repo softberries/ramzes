@@ -10,6 +10,7 @@ vi.mock('#lib/api/client.ts', async (original) => ({
 }));
 vi.mock('$app/navigation', () => ({ goto: gotoMock }));
 
+import { emptyBucket } from '#lib/overview.ts';
 import EventChart from './EventChart.svelte';
 import NotificationActions from './NotificationActions.svelte';
 import NotificationState from './NotificationState.svelte';
@@ -100,7 +101,7 @@ describe('ShapingEditor', () => {
 
 describe('EventChart', () => {
 	const start = new Date(2026, 9, 13, 9, 0, 0).getTime();
-	const buckets = [3, 0, 9, 1].map((events, index) => ({ start: start + index * HOUR, events }));
+	const buckets = [3, 0, 9, 1].map((events, index) => ({ ...emptyBucket(start + index * HOUR), events, error: events }));
 
 	it('draws one column for each bucket, the empty ones included, and names the peak', async () => {
 		render(EventChart, { buckets, bucketMs: HOUR, now: NOW });
@@ -116,12 +117,13 @@ describe('EventChart', () => {
 	it('gives the same numbers as a table', async () => {
 		render(EventChart, { buckets, bucketMs: HOUR, now: NOW });
 		const rows = page.getByRole('row');
-		await expect.element(rows.nth(3)).toHaveTextContent('11:009');
+		// Start, total, then one number for each severity, most severe first.
+		await expect.element(rows.nth(3)).toHaveTextContent('11:00909000');
 		expect(rows.elements().length).toBe(5);
 	});
 
 	it('says so when no bucket has events', async () => {
-		render(EventChart, { buckets: buckets.map((b) => ({ ...b, events: 0 })), bucketMs: HOUR, now: NOW });
+		render(EventChart, { buckets: buckets.map((b) => emptyBucket(b.start)), bucketMs: HOUR, now: NOW });
 		await expect.element(page.getByTestId('chart-summary')).toHaveTextContent('No events in any hour');
 	});
 });

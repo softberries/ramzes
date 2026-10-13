@@ -2,16 +2,23 @@ import { describe, expect, it } from 'vitest';
 import {
 	PERIODS,
 	bucketLabel,
+	compact,
+	emptyBucket,
 	fillBuckets,
 	labelSide,
+	niceMax,
 	peakIndex,
 	periodOf,
 	proportion,
-	shareWords
+	shareWords,
+	trend
 } from './overview.ts';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+
+/** A bucket with that many events and nothing else. */
+const bucket = (start: number, events: number) => ({ ...emptyBucket(start), events });
 
 describe('periods', () => {
 	it('offers a day, a week and a month', () => {
@@ -35,40 +42,40 @@ describe('fillBuckets', () => {
 	it('adds the buckets without events as empty ones, oldest first, up to now', () => {
 		const since = 100 * HOUR;
 		const found = [
-			{ start: 101 * HOUR, events: 4 },
-			{ start: 103 * HOUR, events: 9 }
+			bucket(101 * HOUR, 4),
+			bucket(103 * HOUR, 9)
 		];
 		expect(fillBuckets(found, since, HOUR, 103 * HOUR + 1234)).toEqual([
-			{ start: 100 * HOUR, events: 0 },
-			{ start: 101 * HOUR, events: 4 },
-			{ start: 102 * HOUR, events: 0 },
-			{ start: 103 * HOUR, events: 9 }
+			bucket(100 * HOUR, 0),
+			bucket(101 * HOUR, 4),
+			bucket(102 * HOUR, 0),
+			bucket(103 * HOUR, 9)
 		]);
 	});
 
 	it('gives only empty buckets when nothing arrived', () => {
 		const filled = fillBuckets([], 10 * DAY, DAY, 12 * DAY + 5);
 		expect(filled).toEqual([
-			{ start: 10 * DAY, events: 0 },
-			{ start: 11 * DAY, events: 0 },
-			{ start: 12 * DAY, events: 0 }
+			bucket(10 * DAY, 0),
+			bucket(11 * DAY, 0),
+			bucket(12 * DAY, 0)
 		]);
 	});
 
 	it('keeps a bucket the server counted after the moment the page read the clock', () => {
-		const filled = fillBuckets([{ start: 3 * HOUR, events: 1 }], 2 * HOUR, HOUR, 2 * HOUR + 10);
+		const filled = fillBuckets([bucket(3 * HOUR, 1)], 2 * HOUR, HOUR, 2 * HOUR + 10);
 		expect(filled.map((b) => b.events)).toEqual([0, 1]);
 	});
 });
 
 describe('peakIndex', () => {
 	it('finds the first of the fullest buckets', () => {
-		const buckets = [3, 9, 2, 9].map((events, i) => ({ start: i, events }));
+		const buckets = [3, 9, 2, 9].map((events, i) => bucket(i, events));
 		expect(peakIndex(buckets)).toBe(1);
 	});
 
 	it('finds none when every bucket is empty', () => {
-		expect(peakIndex([{ start: 0, events: 0 }])).toBeNull();
+		expect(peakIndex([bucket(0, 0)])).toBeNull();
 		expect(peakIndex([])).toBeNull();
 	});
 });
@@ -127,5 +134,24 @@ describe('labelSide', () => {
 
 	it('centres the label of the only bar', () => {
 		expect(labelSide(0, 1)).toBe('center');
+	});
+});
+
+describe('chart helpers', () => {
+	it('tops a scale at the next round number', () => {
+		expect([0, 1, 3, 9, 10, 23, 180, 501].map(niceMax)).toEqual([2, 2, 4, 10, 10, 30, 200, 600]);
+	});
+
+	it('shortens large counts', () => {
+		expect([0, 950, 1234, 34_100, 2_540_000].map(compact)).toEqual(['0', '950', '1.2k', '34k', '2.5M']);
+	});
+
+	it('compares a number with the one before it', () => {
+		expect(trend(120, 100)).toEqual({ direction: 'up', change: '20%' });
+		expect(trend(93, 100)).toEqual({ direction: 'down', change: '7%' });
+		expect(trend(100, 100)).toEqual({ direction: 'same', change: '0%' });
+		// Nothing before: there is no percentage to give.
+		expect(trend(5, 0)).toEqual({ direction: 'up', change: null });
+		expect(trend(0, 0)).toEqual({ direction: 'same', change: null });
 	});
 });

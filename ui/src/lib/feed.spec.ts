@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { EventRow } from './api/types';
-import { filtersFromQuery, filtersToQuery, isFiltered, mergeNewest, moveSelection, type FeedFilters } from './feed';
+import {
+	DEFAULT_VIEW,
+	filtersFromQuery,
+	filtersToQuery,
+	isFiltered,
+	isLiveView,
+	mergeNewest,
+	moveSelection,
+	viewFromQuery,
+	viewToApi,
+	viewToQuery,
+	type FeedFilters
+} from './feed';
 
 function row(id: string, delivered = 0): EventRow {
 	return {
@@ -113,5 +125,45 @@ describe('moveSelection', () => {
 	it('recovers when the selected row is gone or nothing is listed', () => {
 		expect(moveSelection(rows, 'gone', 1)).toBe('03');
 		expect(moveSelection([], null, 1)).toBeNull();
+	});
+});
+
+describe('the view of the feed', () => {
+	it('is the first page of the newest events unless the URL says otherwise', () => {
+		expect(viewFromQuery('')).toEqual(DEFAULT_VIEW);
+		expect(viewFromQuery('page=0&size=7&sort=colour&order=sideways')).toEqual(DEFAULT_VIEW);
+		expect(viewFromQuery('page=3&size=100&sort=severity&order=asc')).toEqual({
+			page: 3,
+			size: 100,
+			sort: 'severity',
+			descending: false
+		});
+	});
+
+	it('goes into the URL only where it differs from the default', () => {
+		expect(viewToQuery(DEFAULT_VIEW)).toBe('');
+		expect(viewToQuery({ page: 2, size: 25, sort: 'topic', descending: false })).toBe(
+			'sort=topic&order=asc&page=2&size=25'
+		);
+		expect(viewFromQuery(viewToQuery({ page: 4, size: 25, sort: 'title', descending: true }))).toEqual({
+			page: 4,
+			size: 25,
+			sort: 'title',
+			descending: true
+		});
+	});
+
+	it('asks the API for a page by its offset', () => {
+		expect(viewToApi(DEFAULT_VIEW)).toBe('limit=50');
+		expect(viewToApi({ page: 3, size: 25, sort: 'severity', descending: false })).toBe(
+			'limit=25&sort=severity&order=asc&offset=50'
+		);
+	});
+
+	it('shows arrivals only where they would appear at the top', () => {
+		expect(isLiveView(DEFAULT_VIEW)).toBe(true);
+		expect(isLiveView({ ...DEFAULT_VIEW, page: 2 })).toBe(false);
+		expect(isLiveView({ ...DEFAULT_VIEW, sort: 'topic' })).toBe(false);
+		expect(isLiveView({ ...DEFAULT_VIEW, descending: false })).toBe(false);
 	});
 });

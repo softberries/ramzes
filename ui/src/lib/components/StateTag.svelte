@@ -15,4 +15,4 @@
 	};
 </script>
 
-<span class="whitespace-nowrap" style="color: var(--st-{state})" data-state={state}>{WORDS[state]}</span>
+<span class="badge" style="color: var(--st-{state}); --tone: var(--st-{state})" data-state={state}>{WORDS[state]}</span>

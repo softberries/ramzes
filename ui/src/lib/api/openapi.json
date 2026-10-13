@@ -809,6 +809,44 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "What to order by. Default `received`; ties go by arrival.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "received",
+                "severity",
+                "topic",
+                "title"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "`desc` (default: newest or largest first) or `asc`.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Events to skip, for paging through a sorted list. `before` pages faster through the default order.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -2508,10 +2546,44 @@
         "type": "object",
         "required": [
           "start",
-          "events"
+          "events",
+          "critical",
+          "error",
+          "warning",
+          "info",
+          "debug",
+          "delivered",
+          "failed"
         ],
         "properties": {
+          "critical": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "debug": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "delivered": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Deliveries created in the bucket that arrived."
+          },
+          "error": {
+            "type": "integer",
+            "format": "int64"
+          },
           "events": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events received in the bucket; the five severities below add up to it."
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Deliveries created in the bucket that failed for good."
+          },
+          "info": {
             "type": "integer",
             "format": "int64"
           },
@@ -2519,6 +2591,10 @@
             "type": "integer",
             "format": "int64",
             "description": "Start of the bucket, unix milliseconds."
+          },
+          "warning": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -3059,7 +3135,8 @@
       "EventPage": {
         "type": "object",
         "required": [
-          "events"
+          "events",
+          "total"
         ],
         "properties": {
           "events": {
@@ -3074,6 +3151,11 @@
               "null"
             ],
             "description": "Pass as `before` to get the next page; absent on the last page."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many events match the filters in all."
           }
         }
       },
@@ -4064,6 +4146,7 @@
           "bucket_ms",
           "events",
           "buckets",
+          "previous",
           "deliveries_pending",
           "deliveries_delivered",
           "deliveries_failed",
@@ -4083,7 +4166,7 @@
             "items": {
               "$ref": "#/components/schemas/Bucket"
             },
-            "description": "Events per bucket, for buckets that have any, oldest first."
+            "description": "Events and delivery results per bucket, for buckets that have any, oldest first."
           },
           "deliveries_delivered": {
             "type": "integer",
@@ -4108,6 +4191,9 @@
               "$ref": "#/components/schemas/Failing"
             },
             "description": "Connections with failed deliveries in the period or paused now, worst first."
+          },
+          "previous": {
+            "$ref": "#/components/schemas/Previous"
           },
           "since": {
             "type": "integer",
@@ -4208,6 +4294,29 @@
           },
           "title": {
             "type": "string"
+          }
+        }
+      },
+      "Previous": {
+        "type": "object",
+        "description": "The stretch of the same length just before the period.",
+        "required": [
+          "events",
+          "deliveries_delivered",
+          "deliveries_failed"
+        ],
+        "properties": {
+          "deliveries_delivered": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deliveries_failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "events": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

@@ -6,10 +6,13 @@
  */
 :root {
 	color-scheme: dark;
-	--bg: #0b1020;
-	--surface: #111831;
-	--raised: #18213f;
-	--line: #232e4d;
+	--bg: #090d1a;
+	--surface: #0f152a;
+	--raised: #182140;
+	--line: #212b48;
+	/* Depth: what lifts a card off the page, and the page's own faint light from above. */
+	--shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 28px -18px rgb(0 0 0 / 0.75);
+	--glow: radial-gradient(1200px 420px at 30% -160px, rgb(122 167 255 / 0.09), transparent 70%);
 	--fg: #dbe3f4;
 	--muted: #8f9dbd;
 	--faint: #5d6a8d;
@@ -34,14 +37,29 @@
 	--st-unrouted: #e3b341;
 	--st-waiting: var(--gold);
 	--st-not_sent: var(--muted);
+
+	/*
+	 * The same meanings as areas of a chart. Text needs contrast with the page; a filled shape reads
+	 * better a little lighter, so the light theme sets these apart from the text colours.
+	 */
+	--fill-critical: var(--sev-critical);
+	--fill-error: var(--sev-error);
+	--fill-warning: var(--sev-warning);
+	--fill-info: var(--sev-info);
+	--fill-debug: var(--sev-debug);
+	--fill-delivered: var(--st-delivered);
+	--fill-failed: var(--st-failed);
+	--fill-pending: var(--st-pending);
 }
 
 :root[data-theme='light'] {
 	color-scheme: light;
-	--bg: #f3f5fa;
+	--bg: #f4f5f9;
 	--surface: #ffffff;
-	--raised: #e9edf6;
-	--line: #cfd6e6;
+	--raised: #eceff7;
+	--line: #d6dbe8;
+	--shadow: 0 1px 2px rgb(19 26 44 / 0.05), 0 12px 28px -20px rgb(19 26 44 / 0.22);
+	--glow: none;
 	--fg: #131a2c;
 	--muted: #4f5b78;
 	--faint: #7d88a3;
@@ -63,6 +81,15 @@
 	--st-failed: #c01a45;
 	--st-dead: #a01560;
 	--st-unrouted: #7d5a00;
+
+	--fill-critical: #e0456b;
+	--fill-error: #ee8540;
+	--fill-warning: #e2ad33;
+	--fill-info: #4d7ff0;
+	--fill-debug: #a3adc4;
+	--fill-delivered: #2ea36f;
+	--fill-failed: #e0456b;
+	--fill-pending: #a3adc4;
 }
 
 @theme inline {
@@ -78,41 +105,64 @@
 	--color-gold: var(--gold);
 	--color-ok: var(--st-delivered);
 	--color-bad: var(--st-failed);
+	--font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
 	--font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	--radius-card: 10px;
+	--radius-control: 6px;
 }
 
 @layer base {
 	html {
-		font-family: var(--font-mono);
-		font-size: 13px;
+		font-family: var(--font-sans);
+		font-size: 14px;
 		line-height: 1.5;
 		background: var(--bg);
 		color: var(--fg);
-		font-variant-ligatures: none;
+		-webkit-font-smoothing: antialiased;
 	}
 
 	body {
 		min-height: 100dvh;
+		background: var(--glow) no-repeat;
 	}
 
 	h1 {
-		font-size: 1.25rem;
+		font-size: 1.5rem;
+		font-weight: 600;
+		line-height: 1.25;
+		letter-spacing: -0.02em;
+	}
+
+	h2 {
+		font-size: 1.05rem;
 		font-weight: 600;
 		letter-spacing: -0.01em;
 	}
 
-	h2 {
-		font-size: 1rem;
-		font-weight: 600;
-	}
-
 	a {
 		color: var(--accent);
+		text-underline-offset: 2px;
+	}
+
+	/* Data reads in the monospaced face: times, identifiers, code, keys. */
+	code,
+	kbd,
+	pre,
+	time,
+	textarea {
+		font-family: var(--font-mono);
+		font-size: 0.93em;
+		font-variant-ligatures: none;
+	}
+
+	time {
+		font-variant-numeric: tabular-nums;
 	}
 
 	:focus-visible {
 		outline: 2px solid var(--accent);
-		outline-offset: 1px;
+		outline-offset: 2px;
+		border-radius: 3px;
 	}
 
 	::selection {
@@ -125,20 +175,25 @@
 	.btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		justify-content: center;
+		gap: 0.45rem;
 		height: 2.25rem;
-		padding: 0 0.85rem;
+		padding: 0 0.9rem;
 		border: 1px solid var(--line);
-		border-radius: 2px;
+		border-radius: var(--radius-control);
 		background: var(--surface);
 		color: var(--fg);
 		font-weight: 500;
 		white-space: nowrap;
 		cursor: pointer;
+		transition:
+			border-color 120ms,
+			background-color 120ms;
 	}
 
 	.btn:hover:not(:disabled) {
-		border-color: var(--muted);
+		border-color: var(--faint);
+		background: var(--raised);
 	}
 
 	.btn:disabled {
@@ -150,6 +205,12 @@
 		background: var(--accent);
 		border-color: var(--accent);
 		color: var(--accent-fg);
+		font-weight: 600;
+	}
+
+	.btn-primary:hover:not(:disabled) {
+		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 	}
 
 	.btn-primary:disabled {
@@ -161,20 +222,56 @@
 		color: var(--st-failed);
 	}
 
+	.btn-danger:hover:not(:disabled) {
+		border-color: var(--st-failed);
+		background: color-mix(in srgb, var(--st-failed) 10%, var(--surface));
+	}
+
 	.btn-quiet {
 		border-color: transparent;
 		background: transparent;
 		color: var(--muted);
 	}
 
+	.btn-quiet:hover:not(:disabled) {
+		border-color: transparent;
+		color: var(--fg);
+	}
+
+	/* A button that is only an icon: square, and named by its `aria-label`. */
+	.btn-icon {
+		width: 2.25rem;
+		padding: 0;
+	}
+
+	.btn-sm {
+		height: 1.9rem;
+		padding: 0 0.65rem;
+	}
+
+	.btn-sm.btn-icon {
+		width: 1.9rem;
+		padding: 0;
+	}
+
 	.input {
 		width: 100%;
 		height: 2.25rem;
-		padding: 0 0.6rem;
+		padding: 0 0.7rem;
 		border: 1px solid var(--field-line);
-		border-radius: 2px;
+		border-radius: var(--radius-control);
 		background: var(--field);
 		color: var(--fg);
+		transition: border-color 120ms;
+	}
+
+	.input:hover:not(:disabled) {
+		border-color: var(--faint);
+	}
+
+	textarea.input {
+		height: auto;
+		padding: 0.5rem 0.7rem;
 	}
 
 	.input:disabled {
@@ -200,9 +297,9 @@
 	.file-input::file-selector-button {
 		height: 2.25rem;
 		margin-right: 0.75rem;
-		padding: 0 0.85rem;
+		padding: 0 0.9rem;
 		border: 1px solid var(--line);
-		border-radius: 2px;
+		border-radius: var(--radius-control);
 		background: var(--surface);
 		color: var(--fg);
 		font: inherit;
@@ -211,13 +308,15 @@
 	}
 
 	.file-input::file-selector-button:hover {
-		border-color: var(--muted);
+		border-color: var(--faint);
 	}
 
 	.field-label {
 		display: block;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.3rem;
 		color: var(--muted);
+		font-size: 0.93rem;
+		font-weight: 500;
 	}
 
 	.hint {
@@ -228,18 +327,50 @@
 		color: var(--st-failed);
 	}
 
-	/* A bordered region: forms, code, lists. Not a card: no shadow, no rounding. */
+	/* A bordered region: forms, code, lists. */
 	.panel {
 		border: 1px solid var(--line);
+		border-radius: var(--radius-card);
 		background: var(--surface);
+	}
+
+	/* A panel that stands on the page as a thing of its own: a chart, a table, a group of numbers. */
+	.card {
+		border: 1px solid var(--line);
+		border-radius: var(--radius-card);
+		background: var(--surface);
+		box-shadow: var(--shadow);
+	}
+
+	.card-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 1rem;
+		padding: 0.85rem 1.1rem;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.card-body {
+		padding: 1.1rem;
 	}
 
 	.code {
 		padding: 0.75rem 0.9rem;
 		border: 1px solid var(--line);
+		border-radius: var(--radius-control);
 		background: var(--bg);
+		font-family: var(--font-mono);
+		font-size: 0.93em;
+		font-variant-ligatures: none;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+
+	.mono {
+		font-family: var(--font-mono);
+		font-size: 0.93em;
+		font-variant-ligatures: none;
 	}
 
 	/*
@@ -272,10 +403,11 @@
 	.path > li::before {
 		content: '';
 		position: absolute;
-		top: 0.35rem;
+		top: 0.4rem;
 		left: calc(-1 * var(--gutter) + 0.05rem);
 		width: 0.6rem;
 		height: 0.6rem;
+		border-radius: 50%;
 		background: var(--node);
 	}
 
@@ -293,10 +425,75 @@
 
 	.tag {
 		display: inline-block;
-		padding: 0 0.4rem;
+		padding: 0 0.45rem;
 		border: 1px solid var(--line);
+		border-radius: 4px;
 		color: var(--muted);
+		font-size: 0.9em;
 		white-space: nowrap;
+	}
+
+	/*
+	 * A state in a word, on a tint of its own colour. Set the colour with `--tone`; without one it
+	 * is neutral.
+	 */
+	.badge {
+		--tone: var(--muted);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.1rem 0.55rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--tone) 14%, transparent);
+		color: var(--tone);
+		font-size: 0.88rem;
+		font-weight: 500;
+		line-height: 1.5;
+		white-space: nowrap;
+	}
+
+	.badge::before {
+		content: '';
+		width: 0.42rem;
+		height: 0.42rem;
+		border-radius: 50%;
+		background: currentColor;
+	}
+
+	/* Rows and columns of records. Lives inside a `.card`, which gives it its edge. */
+	.table {
+		width: 100%;
+		border-collapse: collapse;
+		text-align: left;
+	}
+
+	.table th {
+		padding: 0.6rem 1.1rem;
+		border-bottom: 1px solid var(--line);
+		background: color-mix(in srgb, var(--raised) 45%, transparent);
+		color: var(--muted);
+		font-size: 0.86rem;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.table td {
+		padding: 0.65rem 1.1rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+		vertical-align: middle;
+	}
+
+	.table tbody tr:last-child td {
+		border-bottom: 0;
+	}
+
+	.table tbody tr:hover {
+		background: color-mix(in srgb, var(--raised) 55%, transparent);
+	}
+
+	.table .num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
 	}
 }
 
