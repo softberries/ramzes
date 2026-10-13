@@ -74,7 +74,8 @@ after the events are written to the database.
   (equals, regular expression, present). Routes are ordered; a route can stop
   evaluation of the ones below it.
 - **Delivery** to Slack (incoming webhook) and to any URL as a signed JSON
-  webhook, with retries (5 s doubling to 1 h, up to 8 attempts within 24 h).
+  webhook, with retries (5 s doubling to 1 h, up to 8 attempts within 24 h;
+  a delivery older than 24 h is given up).
   Delivery is at-least-once.
 - **Web UI:** first-run setup, a live feed with filters, a per-event journey
   (routes matched, each delivery attempt with the service's answer), failed
@@ -99,7 +100,7 @@ passed with `--config`. A flag or environment variable overrides the file.
 | `--database-url` | `RAMZES_DATABASE_URL` | SQLite in the data directory | `sqlite://path` or `postgres://user:pass@host/db` |
 | `--secret-key` | `RAMZES_SECRET_KEY` | generated into `<data-dir>/secret.key` | Base64 of 32 bytes; encrypts stored credentials |
 | `--public-url` | `RAMZES_PUBLIC_URL` | none | Address people reach ramzes at, for the link in each message |
-| `--secure-cookies` | `RAMZES_SECURE_COOKIES` | `false` | Mark the session cookie `Secure`; set when serving over HTTPS |
+| `--secure-cookies true` | `RAMZES_SECURE_COOKIES=true` | `false` | Mark the session cookie `Secure`; set when serving over HTTPS |
 
 The TOML file uses the same names with underscores, for example
 `listen = "0.0.0.0:7269"`.

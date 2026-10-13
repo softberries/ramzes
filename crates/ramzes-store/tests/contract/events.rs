@@ -10,6 +10,9 @@ crate::contract!(
     a_repeated_idempotency_key_returns_the_original_ids,
     the_same_key_from_another_source_is_not_a_duplicate,
     idempotency_keys_with_like_wildcards_do_not_cross_match,
+    an_idempotency_key_that_is_a_prefix_of_another_is_not_a_duplicate,
+    idempotency_keys_are_case_sensitive,
+    a_duplicate_batch_returns_its_ids_in_the_original_order,
     list_is_newest_first_and_pages_with_before_id,
     filters_narrow_the_list,
     outcome_filters_pending_and_unrouted,
@@ -264,7 +267,7 @@ async fn outcome_filters_pending_and_unrouted(store: Store) {
         .insert_events(&[waiting.clone(), unrouted.clone()], None)
         .await
         .unwrap();
-    store.mark_routed(&unrouted.id, 0, 5).await.unwrap();
+    store.write_routing(&unrouted, &[], true, 5).await.unwrap();
 
     let pending = store
         .list_events(
@@ -321,8 +324,8 @@ async fn claim_unrouted_hands_out_each_event_once_per_lease(store: Store) {
     let again = store.claim_unrouted(61_001, 60_000, 10).await.unwrap();
     assert_eq!(again.len(), 2);
 
-    store.mark_routed(&a.id, 1, 70_000).await.unwrap();
-    store.mark_routed(&b.id, 0, 70_000).await.unwrap();
+    store.write_routing(&a, &[], true, 70_000).await.unwrap();
+    store.write_routing(&b, &[], true, 70_000).await.unwrap();
     assert!(
         store
             .claim_unrouted(500_000, 60_000, 10)
@@ -401,4 +404,55 @@ async fn retention_respects_topic_arguments_and_limit(store: Store) {
     let left = store.list_events(&ws, &all()).await.unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].event.topic, "audit");
+}
+
+async fn an_idempotency_key_that_is_a_prefix_of_another_is_not_a_duplicate(store: Store) {
+    let (ws, source) = seed(&store).await;
+    store
+        .insert_events(&[event(&ws, &source, "a", 1)], Some("job#42"))
+        .await
+        .unwrap();
+    store
+        .insert_events(&[event(&ws, &source, "a", 1)], Some("a#0"))
+        .await
+        .unwrap();
+    for key in ["job", "job#4", "a"] {
+        let out = store
+            .insert_events(&[event(&ws, &source, "a", 1)], Some(key))
+            .await
+            .unwrap();
+        assert!(
+            !out.duplicate,
+            "{key} must not be taken for an earlier request"
+        );
+    }
+    assert_eq!(store.list_events(&ws, &all()).await.unwrap().len(), 5);
+}
+
+async fn idempotency_keys_are_case_sensitive(store: Store) {
+    let (ws, source) = seed(&store).await;
+    store
+        .insert_events(&[event(&ws, &source, "a", 1)], Some("Deploy-A"))
+        .await
+        .unwrap();
+    let out = store
+        .insert_events(&[event(&ws, &source, "a", 1)], Some("deploy-a"))
+        .await
+        .unwrap();
+    assert!(!out.duplicate);
+}
+
+async fn a_duplicate_batch_returns_its_ids_in_the_original_order(store: Store) {
+    let (ws, source) = seed(&store).await;
+    let batch: Vec<_> = (0..12)
+        .map(|i| event(&ws, &source, &format!("t{i}"), 1))
+        .collect();
+    let first = store.insert_events(&batch, Some("big")).await.unwrap();
+    let again = store
+        .insert_events(&[event(&ws, &source, "x", 2)], Some("big"))
+        .await
+        .unwrap();
+    assert!(again.duplicate);
+    assert_eq!(again.ids, first.ids);
+    assert_eq!(again.ids.len(), 12);
 }

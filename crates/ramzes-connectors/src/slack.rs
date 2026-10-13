@@ -82,7 +82,8 @@ fn payload(m: &Message) -> Value {
         context.push_str(&format!(" · <{}|Open in ramzes>", escape(link)));
     }
     blocks.push(json!({"type": "context", "elements": [{"type": "mrkdwn", "text": truncate(&context, SECTION_MAX)}]}));
-    json!({"text": truncate(&heading, SECTION_MAX), "blocks": blocks})
+    // The fallback text is parsed as mrkdwn, so it is escaped; the header block is plain text.
+    json!({"text": truncate(&escape(&heading), SECTION_MAX), "blocks": blocks})
 }
 
 #[async_trait]

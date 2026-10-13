@@ -17,6 +17,33 @@ struct Sent {
     event_ids: Vec<String>,
 }
 
+/// Removes NUL characters from what a service said, since Postgres cannot store them as text.
+fn without_nul(outcome: SendOutcome) -> SendOutcome {
+    let clean = |detail: String| detail.replace('\0', "");
+    match outcome {
+        SendOutcome::Retry {
+            after_ms,
+            status,
+            detail,
+        } => SendOutcome::Retry {
+            after_ms,
+            status,
+            detail: clean(detail),
+        },
+        SendOutcome::Permanent { status, detail } => SendOutcome::Permanent {
+            status,
+            detail: clean(detail),
+        },
+        SendOutcome::Delivered {
+            external_ref,
+            status,
+        } => SendOutcome::Delivered {
+            external_ref: external_ref.map(clean),
+            status,
+        },
+    }
+}
+
 fn rejected(detail: impl Into<String>) -> SendOutcome {
     SendOutcome::Permanent {
         status: None,
@@ -46,7 +73,11 @@ impl Engine {
 
     async fn attempt(&self, delivery: &Delivery) -> Result<()> {
         let started_at = self.now();
-        let sent = self.send(delivery).await?;
+        if started_at > delivery.created_at + self.config.policy.max_age_ms {
+            return self.expire(delivery, started_at).await;
+        }
+        let mut sent = self.send(delivery).await?;
+        sent.outcome = without_nul(sent.outcome);
         let finished_at = self.now();
         let attempts_done = delivery.attempts + 1;
 
@@ -121,6 +152,41 @@ impl Engine {
             state,
             connector_kind: sent.connector_kind,
             duration_ms: attempt.duration_ms,
+        });
+        Ok(())
+    }
+
+    /// Ends a delivery that outlived the time it may be retried, without sending it.
+    ///
+    /// The retry schedule normally gives up before this point. A delivery gets here only when
+    /// its attempts could not be recorded, or ramzes was not running; this bounds both cases.
+    async fn expire(&self, delivery: &Delivery, now: i64) -> Result<()> {
+        let hours = self.config.policy.max_age_ms / 3_600_000;
+        let error = format!("not sent: it could not be delivered within {hours} h of being queued");
+        let attempt = Attempt {
+            id: new_id(),
+            delivery_id: delivery.id.clone(),
+            started_at: now,
+            duration_ms: 0,
+            outcome: "expired".to_owned(),
+            status: None,
+            detail: Some(error.clone()),
+        };
+        self.config
+            .store
+            .finish_attempt(delivery, &attempt, &Finish::Dead { error }, now)
+            .await?;
+        let events = self
+            .config
+            .store
+            .notification_events(&delivery.notification_id)
+            .await?;
+        self.announce(Change::DeliveryUpdated {
+            event_ids: events.into_iter().map(|e| e.id).collect(),
+            delivery_id: delivery.id.clone(),
+            state: DeliveryState::Dead,
+            connector_kind: "none".to_owned(),
+            duration_ms: 0,
         });
         Ok(())
     }

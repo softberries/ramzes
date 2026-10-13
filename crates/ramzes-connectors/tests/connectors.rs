@@ -421,3 +421,32 @@ async fn slack_keeps_the_case_of_the_topic() {
     let context = body["blocks"][1]["elements"][0]["text"].as_str().unwrap();
     assert_eq!(context, "`Orders.Failed` · resolved · info");
 }
+
+#[tokio::test]
+async fn nul_characters_are_removed_from_the_response_excerpt() {
+    let server = server(ResponseTemplate::new(400).set_body_bytes(b"bad\0body".to_vec())).await;
+    let connector = registry().get("webhook").unwrap();
+    match connector
+        .send(&webhook(&server.uri(), None), &message(), None, 0)
+        .await
+    {
+        SendOutcome::Permanent { detail, .. } => assert_eq!(detail, "HTTP 400: badbody"),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn slack_fallback_text_cannot_carry_a_mention() {
+    let server = server(ResponseTemplate::new(200).set_body_string("ok")).await;
+    let connector = registry().get("slack").unwrap();
+    let mut m = bare_message();
+    m.title = "<!channel> disk & cpu".into();
+    connector.send(&slack(&server.uri()), &m, None, 0).await;
+    let body: Value = serde_json::from_slice(&only_request(&server).await.body).unwrap();
+    assert_eq!(body["text"], "✅ &lt;!channel&gt; disk &amp; cpu");
+    // The header block is plain text, where the characters are shown as typed.
+    assert_eq!(
+        body["blocks"][0]["text"]["text"],
+        "✅ <!channel> disk & cpu"
+    );
+}

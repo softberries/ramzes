@@ -619,3 +619,46 @@ async fn retention_of_zero_days_keeps_everything() {
     w.clock.0.store(10_000 * 86_400_000, Ordering::SeqCst);
     assert_eq!(w.engine.retention_once(&w.ws).await.unwrap(), 0);
 }
+
+#[tokio::test]
+async fn nul_characters_in_a_service_answer_are_not_stored() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.route("*", &[(&c, None)]).await;
+    let binary = SendOutcome::Permanent {
+        status: Some(400),
+        detail: "HTTP 400: bad\u{0}body".into(),
+    };
+    w.connector.outcomes.lock().unwrap().push_back(binary);
+    let e = w.event("a").await;
+    w.engine.route_once().await.unwrap();
+    w.engine.deliver_once().await.unwrap();
+    let j = w.store.journey(&w.ws, &e.id).await.unwrap().unwrap();
+    let d = &j.notifications[0].deliveries[0];
+    assert_eq!(d.delivery.state, DeliveryState::Failed);
+    assert_eq!(d.delivery.last_error.as_deref(), Some("HTTP 400: badbody"));
+    assert_eq!(d.attempts[0].detail.as_deref(), Some("HTTP 400: badbody"));
+}
+
+#[tokio::test]
+async fn a_delivery_past_its_maximum_age_is_given_up_without_sending() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.route("*", &[(&c, None)]).await;
+    let e = w.event("a").await;
+    w.engine.route_once().await.unwrap();
+    // Nothing could be recorded for more than the 24 hours a delivery may be retried.
+    w.advance(24 * 3_600_000 + 1);
+    assert_eq!(w.engine.deliver_once().await.unwrap(), 1);
+
+    assert!(w.connector.sent.lock().unwrap().is_empty());
+    let j = w.store.journey(&w.ws, &e.id).await.unwrap().unwrap();
+    let d = &j.notifications[0].deliveries[0];
+    assert_eq!(d.delivery.state, DeliveryState::Dead);
+    assert!(
+        d.delivery.last_error.as_deref().unwrap().contains("24 h"),
+        "{:?}",
+        d.delivery.last_error
+    );
+    assert_eq!(w.engine.deliver_once().await.unwrap(), 0);
+}

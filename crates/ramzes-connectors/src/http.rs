@@ -85,7 +85,8 @@ impl Http {
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        let body = response.text().await.unwrap_or_default();
+        // A NUL cannot be stored as text in Postgres; binary answers are kept without them.
+        let body = response.text().await.unwrap_or_default().replace('\0', "");
         classify(
             status,
             retry_after.as_deref(),

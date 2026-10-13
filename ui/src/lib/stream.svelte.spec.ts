@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LiveStream, type EventSourceLike } from './stream.svelte';
 
 /** A stand-in for EventSource that the test drives by hand. */
@@ -6,6 +6,7 @@ class FakeSource implements EventSourceLike {
 	onopen: (() => void) | null = null;
 	onerror: (() => void) | null = null;
 	closed = false;
+	readyState = 0;
 	private handlers = new Map<string, (e: { data: string }) => void>();
 
 	addEventListener(type: string, handler: (e: { data: string }) => void) {
@@ -87,4 +88,64 @@ describe('LiveStream', () => {
 		expect(source.closed).toBe(true);
 		expect(stream.status).toBe('connecting');
 	});
+
+	it('opens a new connection when the browser has given up on the old one', () => {
+		vi.useFakeTimers();
+		const sources: FakeSource[] = [];
+		const stream = new LiveStream();
+		stream.connect(() => {
+			const source = new FakeSource();
+			sources.push(source);
+			return source;
+		});
+		const onResync = vi.fn();
+		stream.on('resync', onResync);
+		sources[0].onopen?.();
+
+		// A proxy answered 502: the browser closes the stream and will not retry by itself.
+		sources[0].readyState = 2;
+		sources[0].onerror?.();
+		expect(stream.status).toBe('reconnecting');
+		expect(sources).toHaveLength(1);
+
+		vi.advanceTimersByTime(2000);
+		expect(sources).toHaveLength(2);
+		expect(sources[0].closed).toBe(true);
+
+		// Still failing: the next try waits longer.
+		sources[1].readyState = 2;
+		sources[1].onerror?.();
+		vi.advanceTimersByTime(2000);
+		expect(sources).toHaveLength(2);
+		vi.advanceTimersByTime(2000);
+		expect(sources).toHaveLength(3);
+
+		sources[2].onopen?.();
+		expect(stream.status).toBe('live');
+		expect(onResync).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not reconnect by itself while the browser is still retrying, or after close', () => {
+		vi.useFakeTimers();
+		let opened = 0;
+		const source = new FakeSource();
+		const stream = new LiveStream();
+		stream.connect(() => {
+			opened += 1;
+			return source;
+		});
+		source.onerror?.(); // readyState 0: the browser is reconnecting on its own
+		vi.advanceTimersByTime(60_000);
+		expect(opened).toBe(1);
+
+		source.readyState = 2;
+		source.onerror?.();
+		stream.close();
+		vi.advanceTimersByTime(60_000);
+		expect(opened).toBe(1);
+	});
+});
+
+afterEach(() => {
+	vi.useRealTimers();
 });

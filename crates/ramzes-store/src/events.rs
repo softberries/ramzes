@@ -222,23 +222,45 @@ impl Store {
         }
     }
 
+    /// The ids stored by an earlier request with this idempotency key, in request order.
+    ///
+    /// Event `i` of a request is stored under `"{key}#{i}"`. Lookups are exact matches, so a
+    /// key that merely starts like another one, or differs only in case, is a different key.
     async fn ids_for_idempotency_key(
         &self,
         source_id: &str,
         key: &str,
     ) -> Result<Option<Vec<String>>> {
-        let sql = self.sql(
-            "SELECT id FROM events WHERE source_id = $1 AND idempotency_key LIKE $2 ESCAPE '\\' ORDER BY id",
-        );
-        let pattern = format!("{}#%", like_escape(key));
-        let rows: Vec<(String,)> = with_db!(self, |pool| {
-            sqlx::query_as(AssertSqlSafe(&*sql))
-                .bind(source_id)
-                .bind(&pattern)
-                .fetch_all(pool)
-                .await
-        })?;
-        Ok((!rows.is_empty()).then(|| rows.into_iter().map(|(id,)| id).collect()))
+        /// Stored keys looked up per query.
+        const CHUNK: usize = 200;
+        let mut ids = Vec::new();
+        loop {
+            let wanted: Vec<String> = (ids.len()..ids.len() + CHUNK)
+                .map(|i| format!("{key}#{i}"))
+                .collect();
+            let mut sql = Sql::new("SELECT idempotency_key, id FROM events WHERE source_id = ");
+            sql.text(source_id)
+                .push(" AND idempotency_key IN ")
+                .list(&wanted);
+            let text = self.sql(&sql.text).into_owned();
+            let rows: Vec<(String, String)> = with_db!(self, |pool| {
+                bind_args!(sqlx::query_as(AssertSqlSafe(text.as_str())), sql.args)
+                    .fetch_all(pool)
+                    .await
+            })?;
+            let mut found: HashMap<String, String> = rows.into_iter().collect();
+            let before = ids.len();
+            // Indexes are contiguous from zero; stop at the first one that is absent.
+            for stored_key in &wanted {
+                match found.remove(stored_key) {
+                    Some(id) => ids.push(id),
+                    None => break,
+                }
+            }
+            if ids.len() - before < CHUNK {
+                return Ok((!ids.is_empty()).then_some(ids));
+            }
+        }
     }
 
     pub(crate) async fn labels_for(
@@ -414,7 +436,7 @@ impl Store {
 
     /// Takes a lease on up to `limit` events that have not been routed, oldest first.
     ///
-    /// An event whose lease expires without [`Store::mark_routed`] is handed out again.
+    /// An event whose lease expires without [`Store::write_routing`] marking it routed is handed out again.
     pub async fn claim_unrouted(
         &self,
         now_ms: i64,
@@ -441,21 +463,6 @@ impl Store {
         })?;
         raw.sort_by(|a, b| a.id.cmp(&b.id));
         self.with_labels(raw).await
-    }
-
-    /// Records that routing finished for an event that matched `route_count` routes.
-    pub async fn mark_routed(&self, event_id: &str, route_count: i64, now_ms: i64) -> Result<()> {
-        let sql = self.sql("UPDATE events SET routed_at = $1, route_count = $2, claimed_until = NULL WHERE id = $3");
-        with_db!(self, |pool| {
-            sqlx::query(AssertSqlSafe(&*sql))
-                .bind(now_ms)
-                .bind(route_count)
-                .bind(event_id)
-                .execute(pool)
-                .await
-                .map(|_| ())
-        })?;
-        Ok(())
     }
 
     /// Deletes up to `limit` events received before `cutoff_ms`, with everything that hangs off them.

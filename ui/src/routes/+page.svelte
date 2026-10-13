@@ -45,11 +45,13 @@
 
 	// Load from scratch whenever the filters change.
 	$effect(() => {
-		void query;
+		const asked = query;
 		loaded = false;
 		held = 0;
 		firstPage()
 			.then((first) => {
+				// The filters changed while this was loading; a newer request is on its way.
+				if (asked !== query) return;
 				rows = first.events;
 				nextBefore = first.next_before ?? null;
 				loaded = true;
@@ -59,9 +61,10 @@
 
 	/** Brings in whatever changed since the list was loaded. */
 	async function refresh() {
+		const asked = query;
 		const first = await firstPage().catch(() => null);
-		if (!first) return;
-		const merged = mergeNewest(rows, first.events);
+		if (!first || asked !== query) return;
+		const merged = mergeNewest(rows, first.events, PAGE_SIZE);
 		if (paused) {
 			held = merged.added;
 			return;

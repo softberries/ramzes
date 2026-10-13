@@ -165,3 +165,30 @@ fn occurred_at_rejects_garbage() {
     e.ts = Some("yesterday".into());
     assert_eq!(e.occurred_at(5), Err(ValidationError::Timestamp));
 }
+
+#[test]
+fn nul_characters_are_rejected_everywhere_text_is_stored() {
+    let mut e = valid();
+    e.title = "x\u{0}y".into();
+    assert_eq!(e.validate(), Err(ValidationError::NulCharacter("title")));
+
+    let mut e = valid();
+    e.body = Some("a\u{0}".into());
+    assert_eq!(e.validate(), Err(ValidationError::NulCharacter("body")));
+
+    let mut e = valid();
+    e.labels.insert("k".into(), "\u{0}".into());
+    assert_eq!(e.validate(), Err(ValidationError::NulCharacter("labels")));
+
+    let mut e = valid();
+    e.dedup_key = Some("k\u{0}".into());
+    assert_eq!(
+        e.validate(),
+        Err(ValidationError::NulCharacter("dedup_key"))
+    );
+
+    // Other control characters, such as newlines and tabs, are fine.
+    let mut e = valid();
+    e.body = Some("line one\n\tline two".into());
+    assert_eq!(e.validate(), Ok(()));
+}

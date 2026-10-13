@@ -40,6 +40,7 @@
 	let kind = $state('slack');
 	let connection = $state<ConnectionView | null>(null);
 	let testResult = $state<TestResult | null>(null);
+	let routeCreated = false;
 	let routed = $state(false);
 	let journey = $state<Journey | null>(null);
 	let busy = $state(false);
@@ -138,11 +139,15 @@
 	function createRoute() {
 		attempt(5, async () => {
 			if (!connection || !eventId) return;
-			await api('POST', '/api/routes', {
-				name: 'Everything',
-				match: {},
-				targets: [{ connection_id: connection.id }]
-			});
+			// If delivering the test event fails and the button is pressed again, the route already exists.
+			if (!routeCreated) {
+				await api('POST', '/api/routes', {
+					name: 'Everything',
+					match: {},
+					targets: [{ connection_id: connection.id }]
+				});
+				routeCreated = true;
+			}
 			await api('POST', `/api/events/${eventId}/replay`);
 			routed = true;
 		});

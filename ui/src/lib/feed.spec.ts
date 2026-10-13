@@ -65,25 +65,35 @@ describe('filters and the query string', () => {
 
 describe('mergeNewest', () => {
 	it('puts unseen newer rows on top, newest first', () => {
-		const merged = mergeNewest([row('03'), row('02'), row('01')], [row('05'), row('04'), row('03')]);
+		const merged = mergeNewest([row('03'), row('02'), row('01')], [row('05'), row('04'), row('03')], 3);
 		expect(merged.rows.map((r) => r.id)).toEqual(['05', '04', '03', '02', '01']);
 		expect(merged.added).toBe(2);
 	});
 
 	it('refreshes rows already shown with their newer state', () => {
-		const merged = mergeNewest([row('02', 0), row('01', 0)], [row('02', 1), row('01', 0)]);
+		const merged = mergeNewest([row('02', 0), row('01', 0)], [row('02', 1), row('01', 0)], 2);
 		expect(merged.added).toBe(0);
 		expect(merged.rows[0].deliveries_delivered).toBe(1);
 	});
 
-	it('keeps older loaded rows the fresh page does not reach', () => {
-		const merged = mergeNewest([row('03'), row('02'), row('01')], [row('04'), row('03')]);
+	it('keeps older loaded rows that a full fresh page does not reach', () => {
+		const merged = mergeNewest([row('03'), row('02'), row('01')], [row('04'), row('03')], 2);
 		expect(merged.rows.map((r) => r.id)).toEqual(['04', '03', '02', '01']);
 	});
 
-	it('handles an empty list on either side', () => {
-		expect(mergeNewest([], [row('01')]).rows.map((r) => r.id)).toEqual(['01']);
-		expect(mergeNewest([row('01')], []).rows.map((r) => r.id)).toEqual(['01']);
+	it('drops a shown row the server no longer returns within the fresh page', () => {
+		// 03 stopped matching the filter (for example it was delivered while filtering on pending).
+		const merged = mergeNewest([row('04'), row('03'), row('02'), row('01')], [row('05'), row('04'), row('02')], 3);
+		expect(merged.rows.map((r) => r.id)).toEqual(['05', '04', '02', '01']);
+		expect(merged.added).toBe(1);
+	});
+
+	it('shows exactly the fresh rows when they are the whole result', () => {
+		// Fewer rows than a page means there is nothing older on the server.
+		const merged = mergeNewest([row('03'), row('02'), row('01')], [row('03'), row('01')], 50);
+		expect(merged.rows.map((r) => r.id)).toEqual(['03', '01']);
+		expect(mergeNewest([row('01')], [], 50).rows).toEqual([]);
+		expect(mergeNewest([], [row('01')], 50).rows.map((r) => r.id)).toEqual(['01']);
 	});
 });
 

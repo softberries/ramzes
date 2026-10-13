@@ -147,6 +147,8 @@ pub enum ValidationError {
     LabelValue(String),
     #[error("dedup_key must be 1 to {DEDUP_KEY_MAX} characters")]
     DedupKeyLength,
+    #[error("{0} must not contain a NUL character")]
+    NulCharacter(&'static str),
     #[error("ts must be an RFC 3339 timestamp, for example 2026-10-13T09:41:07Z")]
     Timestamp,
 }
@@ -161,6 +163,20 @@ fn is_label_key_char(c: char) -> bool {
 
 impl NewEvent {
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // A NUL cannot be stored as text in Postgres, so it is refused on every database.
+        let has_nul = |text: &str| text.contains('\0');
+        if has_nul(&self.title) {
+            return Err(ValidationError::NulCharacter("title"));
+        }
+        if self.body.as_deref().is_some_and(has_nul) {
+            return Err(ValidationError::NulCharacter("body"));
+        }
+        if self.labels.values().any(|value| has_nul(value)) {
+            return Err(ValidationError::NulCharacter("labels"));
+        }
+        if self.dedup_key.as_deref().is_some_and(has_nul) {
+            return Err(ValidationError::NulCharacter("dedup_key"));
+        }
         let topic_len = self.topic.chars().count();
         if topic_len == 0 || topic_len > TOPIC_MAX {
             return Err(ValidationError::TopicLength);

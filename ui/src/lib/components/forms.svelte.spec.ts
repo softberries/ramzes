@@ -147,3 +147,38 @@ describe('SetupFlow', () => {
 		await expect.element(page.getByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
 	});
 });
+
+describe('SetupFlow route step', () => {
+	it('creates the route only once when delivering the test event has to be retried', async () => {
+		const posts: string[] = [];
+		let replays = 0;
+		apiMock.mockImplementation(async (method: string, path: string) => {
+			if (method === 'POST') posts.push(path);
+			if (path === '/api/connectors') return [WEBHOOK];
+			if (method === 'POST' && path === '/api/sources') return { id: 's1', name: 'my-service', key: 'rz_src_k' };
+			if (path.startsWith('/api/events?')) return { events: [{ id: 'e1' }], next_before: null };
+			if (method === 'POST' && path === '/api/connections') return { id: 'c1', name: 'hook' };
+			if (method === 'POST' && path === '/api/routes') return { id: 'r1' };
+			if (path === '/api/events/e1/replay') {
+				replays += 1;
+				if (replays === 1) throw new ApiError(503, 'unavailable', 'try again shortly');
+				return { deliveries: 1 };
+			}
+			if (path === '/api/events/e1') return { event: { id: 'e1' }, routed: true, route_count: 1, notifications: [] };
+			throw new Error(`unexpected ${method} ${path}`);
+		});
+		render(SetupFlow, { origin: 'http://localhost:7269', onadmin: vi.fn(), started: true });
+		await page.getByRole('button', { name: 'Create source' }).click();
+		await expect.element(page.getByText('Event received.')).toBeInTheDocument();
+		await page.getByLabelText('URL').fill('https://example.com/hook');
+		await page.getByRole('button', { name: 'Save connection' }).click();
+
+		const deliver = page.getByRole('button', { name: 'Create route and deliver the test event' });
+		await deliver.click();
+		await expect.element(page.getByRole('alert')).toHaveTextContent('try again shortly');
+		await deliver.click();
+		await expect.element(page.getByText('Delivering your test event')).toBeInTheDocument();
+		expect(posts.filter((path) => path === '/api/routes')).toHaveLength(1);
+		expect(replays).toBe(2);
+	});
+});
