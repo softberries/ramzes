@@ -2034,3 +2034,33 @@ async fn a_resolution_less_severe_than_the_route_asks_for_still_closes_what_the_
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].state, NotificationState::Resolved);
 }
+
+#[tokio::test]
+async fn when_a_pause_ends_one_delivery_tests_the_connection() {
+    let w = world().await;
+    let c = w.connection("flaky").await;
+    w.route("orders.*", &[(&c, None)]).await;
+    for _ in 0..6 {
+        w.connector.outcomes.lock().unwrap().push_back(retry("503"));
+    }
+    for i in 0..5 {
+        w.send(&format!("event {i}"), |_| {}).await;
+    }
+    w.settle().await;
+    let attempts_before = w.connector.sent.lock().unwrap().len();
+
+    // Still failing when the pause ends: one attempt finds out, the rest keep waiting.
+    w.advance(61_000);
+    w.settle().await;
+    assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before + 1);
+    let status = w.store.connection_status(&w.ws).await.unwrap();
+    assert_eq!(status[&c].failure_streak, 6);
+    assert_eq!(status[&c].paused_until, Some(w.clock.now_ms() + 120_000));
+
+    // It answers after the next pause: the test delivery goes first, then the others.
+    w.advance(121_000);
+    w.settle().await;
+    assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before + 6);
+    let status = w.store.connection_status(&w.ws).await.unwrap();
+    assert_eq!((status[&c].paused_until, status[&c].failure_streak), (None, 0));
+}

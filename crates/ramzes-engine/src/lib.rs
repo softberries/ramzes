@@ -11,7 +11,7 @@ mod route_worker;
 mod system;
 mod timer_worker;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -121,6 +121,8 @@ pub struct Engine {
     route_errors: Mutex<HashMap<String, (String, i64)>>,
     /// Notifications whose delivered messages should be rewritten to show their new state.
     refreshes: Mutex<Vec<String>>,
+    /// Connections whose pause has ended and that one delivery is testing right now.
+    probing: Mutex<HashSet<String>>,
 }
 
 /// Pause after a failed pass, so a broken database is not hammered.
@@ -137,6 +139,7 @@ impl Engine {
             changes,
             connection_slots: Mutex::default(),
             route_errors: Mutex::default(),
+            probing: Mutex::default(),
             refreshes: Mutex::default(),
         })
     }

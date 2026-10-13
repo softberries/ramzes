@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use ramzes_connectors::SendOutcome;
@@ -97,6 +98,35 @@ fn pause_ms(streak: i64) -> i64 {
         .min(LONGEST_PAUSE_MS)
 }
 
+/// Marks a connection as being tested by one delivery, until dropped.
+struct Probe<'a> {
+    probing: &'a Mutex<HashSet<String>>,
+    connection_id: &'a str,
+}
+
+impl<'a> Probe<'a> {
+    /// None when another delivery is already testing the connection.
+    fn begin(probing: &'a Mutex<HashSet<String>>, connection_id: &'a str) -> Option<Probe<'a>> {
+        let free = probing
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(connection_id.to_owned());
+        free.then(|| Probe {
+            probing,
+            connection_id,
+        })
+    }
+}
+
+impl Drop for Probe<'_> {
+    fn drop(&mut self) {
+        self.probing
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(self.connection_id);
+    }
+}
+
 impl Engine {
     /// Sends the deliveries that are due and updates messages whose notification changed.
     /// Returns how many things were done.
@@ -127,13 +157,23 @@ impl Engine {
         }
         // A paused connection is left alone until its pause ends.
         let status = store.connection_status(&delivery.workspace_id).await?;
+        let status = status.get(&delivery.connection_id);
         let paused_until = status
-            .get(&delivery.connection_id)
             .and_then(|s| s.paused_until)
             .filter(|until| *until > started_at);
         if let Some(until) = paused_until {
             return Ok(store.defer_delivery(&delivery.id, until).await?);
         }
+        // After a pause one delivery finds out whether the connection works again. The others
+        // wait for its result: failing together they would each lengthen the next pause.
+        let _probe = if status.is_some_and(|s| s.failure_streak >= PAUSE_AFTER) {
+            match Probe::begin(&self.probing, &delivery.connection_id) {
+                Some(probe) => Some(probe),
+                None => return Ok(store.defer_delivery(&delivery.id, started_at).await?),
+            }
+        } else {
+            None
+        };
 
         let mut sent = self.send(delivery).await?;
         sent.outcome = without_nul(sent.outcome);
