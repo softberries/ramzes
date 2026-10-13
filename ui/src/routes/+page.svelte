@@ -161,6 +161,9 @@
 				<span class="text-faint ml-2">{row.topic}</span>
 			</span>
 			<span class="text-muted hidden truncate lg:block">{lookups.sourceNames[row.source_id] ?? ''}</span>
+			<span class="text-muted hidden truncate md:block" title={row.targets.join(', ')}>
+				{row.targets.length > 0 ? `to ${row.targets.join(', ')}` : ''}
+			</span>
 			<span class="text-right"><StateTag state={outcomeOf(row)} /></span>
 		</a>
 		</li>
@@ -194,9 +197,16 @@
 		grid-template-columns: 5.5rem 0.6rem minmax(0, 1fr) 6.5rem;
 	}
 
+	/* Where the event went appears from tablet width, its source from desktop width. */
+	@media (min-width: 48rem) {
+		.feed-row {
+			grid-template-columns: 5.5rem 0.6rem minmax(0, 1fr) minmax(0, 12rem) 6.5rem;
+		}
+	}
+
 	@media (min-width: 64rem) {
 		.feed-row {
-			grid-template-columns: 5.5rem 0.6rem minmax(0, 1fr) 10rem 6.5rem;
+			grid-template-columns: 5.5rem 0.6rem minmax(0, 1fr) 10rem minmax(0, 12rem) 6.5rem;
 		}
 	}
 

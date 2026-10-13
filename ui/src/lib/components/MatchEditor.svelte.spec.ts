@@ -56,6 +56,17 @@ describe('MatchEditor', () => {
 		});
 	});
 
+	it('adds an expression and drops it when cleared', async () => {
+		const match = editing();
+		await page.getByLabelText('Expression').fill("payload.amount > 100 and labels.env == 'prod'");
+		expect(await match()).toEqual({ expr: "payload.amount > 100 and labels.env == 'prod'" });
+		await expect
+			.element(page.getByTestId('summary'))
+			.toHaveTextContent("where payload.amount > 100 and labels.env == 'prod'");
+		await page.getByLabelText('Expression').fill('');
+		expect(await match()).toEqual({});
+	});
+
 	it('removes a label condition', async () => {
 		const match = editing({ labels: [{ op: 'equals', key: 'env', value: 'prod' }] });
 		await expect.element(page.getByLabelText('Label key')).toHaveValue('env');

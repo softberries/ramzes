@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { api, messageOf } from '#lib/api/client.ts';
 	import type { ApiToken, Settings, TokenCreated, UserView } from '#lib/api/types.ts';
+	import ConfigHistory from '#lib/components/ConfigHistory.svelte';
+	import ConfigTransfer from '#lib/components/ConfigTransfer.svelte';
 	import Confirm from '#lib/components/Confirm.svelte';
 	import CopyBlock from '#lib/components/CopyBlock.svelte';
 	import { ago } from '#lib/format.ts';
@@ -23,6 +25,8 @@
 	/** A token that was just created. It cannot be shown again. */
 	let revealed = $state<TokenCreated | null>(null);
 	let revoking = $state<ApiToken | null>(null);
+	/** Goes up after an import, so the history is read again. */
+	let imports = $state(0);
 
 	function show(settings: Settings) {
 		retentionDays = settings.retention_days;
@@ -214,6 +218,10 @@
 			<div><button type="submit" class="btn">Create token</button></div>
 		</form>
 	</section>
+
+	{#key imports}<ConfigHistory />{/key}
+
+	<ConfigTransfer onimport={() => imports++} />
 </div>
 
 <Confirm

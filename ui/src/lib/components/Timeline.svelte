@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Journey, JourneyDelivery } from '#lib/api/types.ts';
+	import type { Journey, JourneyDelivery, MessagePreview } from '#lib/api/types.ts';
 	import { clock, duration, until } from '#lib/format.ts';
+	import RequestBlock from './RequestBlock.svelte';
 	import StateTag from './StateTag.svelte';
 
 	interface Props {
@@ -10,13 +11,15 @@
 		connections: Record<string, string>;
 		/** Source names by id. */
 		sources: Record<string, string>;
+		/** The message each notification carries, by notification id. */
+		previews?: Record<string, MessagePreview>;
 		/** Current time in unix milliseconds. */
 		now: number;
 		/** Send one delivery again. */
 		onreplay: (deliveryId: string) => void;
 	}
 
-	let { journey, connections, sources, now, onreplay }: Props = $props();
+	let { journey, connections, sources, previews = {}, now, onreplay }: Props = $props();
 
 	const event = $derived(journey.event);
 
@@ -57,6 +60,7 @@
 	{/if}
 
 	{#each journey.notifications as notification (notification.id)}
+		{@const preview = previews[notification.id]}
 		<li style="--node: var(--accent)">
 			<div class="flex flex-wrap items-baseline gap-x-4">
 				<span class="font-medium">Matched route {notification.route_name}</span>
@@ -67,6 +71,21 @@
 				</span>
 				{#if notification.replay}<span class="tag">replayed</span>{/if}
 			</div>
+			{#if preview}
+				<div class="panel mt-2 max-w-3xl p-3" data-testid="message">
+					<div class="font-medium break-words">{preview.title}</div>
+					{#if preview.body}<p class="text-muted mt-1 break-words whitespace-pre-wrap">{preview.body}</p>{/if}
+					{#if preview.warning}<p class="text-gold mt-1 break-words">{preview.warning}</p>{/if}
+					{#if preview.request}
+						<details class="mt-2">
+							<summary class="text-muted cursor-pointer">Request</summary>
+							<div class="mt-1"><RequestBlock request={preview.request} /></div>
+						</details>
+					{:else if preview.request_error}
+						<p class="hint mt-1">The request cannot be shown: {preview.request_error}</p>
+					{/if}
+				</div>
+			{/if}
 		</li>
 
 		{#each notification.deliveries as delivery (delivery.id)}
@@ -87,6 +106,7 @@
 					{/if}
 				</div>
 
+				{#if delivery.warning}<p class="text-gold break-words">{delivery.warning}</p>{/if}
 				{#if delivery.attempts.length > 0}
 					<table class="mt-1 w-full max-w-3xl">
 						<tbody>

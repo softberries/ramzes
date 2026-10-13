@@ -124,4 +124,21 @@
 			<button type="button" class="btn" onclick={add}>Add label condition</button>
 		</div>
 	</div>
+
+	<div>
+		<label class="field-label" for="match-expr">Expression</label>
+		<input
+			id="match-expr"
+			class="input"
+			placeholder="No expression"
+			autocomplete="off"
+			spellcheck="false"
+			value={match.expr ?? ''}
+			oninput={(e) => (match = { ...match, expr: value(e) || null })}
+		/>
+		<p class="hint mt-1">
+			Optional. The event must also pass this test, which can read topic, severity, status, title, labels and
+			payload. For example: payload.amount &gt; 100 and labels.env == 'prod'
+		</p>
+	</div>
 </div>

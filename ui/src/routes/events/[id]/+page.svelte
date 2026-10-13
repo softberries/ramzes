@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ApiError, api } from '#lib/api/client.ts';
-	import type { Journey } from '#lib/api/types.ts';
+	import type { Journey, MessagePreview } from '#lib/api/types.ts';
 	import SeverityMark from '#lib/components/SeverityMark.svelte';
 	import Timeline from '#lib/components/Timeline.svelte';
 	import { clock } from '#lib/format.ts';
@@ -13,13 +13,24 @@
 	const id = $derived(page.params.id ?? '');
 
 	let journey = $state<Journey | null>(null);
+	/** The message each notification carries, by notification id. */
+	let previews = $state<Record<string, MessagePreview>>({});
 	let missing = $state(false);
 	let now = $state(Date.now());
 	let busy = $state(false);
 
 	async function load() {
 		try {
-			journey = await api<Journey>('GET', `/api/events/${id}`);
+			const [loaded, messages] = await Promise.all([
+				api<Journey>('GET', `/api/events/${id}`),
+				// The journey is still worth showing when the messages cannot be worded.
+				api<MessagePreview[]>('GET', `/api/events/${id}/preview`).catch((error) => {
+					if (!(error instanceof ApiError && error.status === 404)) toasts.problem(error);
+					return [];
+				})
+			]);
+			journey = loaded;
+			previews = Object.fromEntries(messages.map((message) => [message.notification_id, message]));
 			missing = false;
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 404) missing = true;
@@ -30,6 +41,7 @@
 	$effect(() => {
 		void id;
 		journey = null;
+		previews = {};
 		load();
 		lookups.load().catch((error) => toasts.problem(error));
 		const offs = [
@@ -99,6 +111,7 @@
 			{journey}
 			connections={lookups.connectionNames}
 			sources={lookups.sourceNames}
+			{previews}
 			{now}
 			onreplay={replayDelivery}
 		/>
@@ -108,7 +121,7 @@
 		<div class="flex flex-col gap-4">
 			{#if event.body}
 				<div>
-					<h2 class="mb-1">Message</h2>
+					<h2 class="mb-1">Body</h2>
 					<p class="code">{event.body}</p>
 				</div>
 			{/if}

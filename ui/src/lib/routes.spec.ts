@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { FailureRow, Route } from './api/types';
+import type { FailureRow, Route, RouteInput, RouteResult } from './api/types';
 import { groupByError } from './failures';
-import { cleanMatch, moved, routesUsing, summarize } from './routes';
+import {
+	SAMPLE_EVENT,
+	cleanMatch,
+	cleanTargets,
+	moved,
+	outcomeWords,
+	parseSampleEvent,
+	routesForTest,
+	routesUsing,
+	summarize
+} from './routes';
 
 function route(id: string, connections: string[]): Route {
 	return {
@@ -46,6 +56,14 @@ describe('summarize', () => {
 		expect(summarize({ min_severity: 'critical' }, sources)).toBe('severity critical');
 		expect(summarize({ source_id: 'gone' }, sources)).toBe('from a deleted source');
 	});
+
+	it('ends with the expression', () => {
+		expect(summarize({ expr: 'payload.amount > 100' }, sources)).toBe('where payload.amount > 100');
+		expect(summarize({ topic: 'orders.*', expr: "labels.env == 'prod'" }, sources)).toBe(
+			"topic orders.*, where labels.env == 'prod'"
+		);
+		expect(summarize({ expr: null }, sources)).toBe('Every event');
+	});
 });
 
 describe('cleanMatch', () => {
@@ -76,6 +94,93 @@ describe('cleanMatch', () => {
 			min_severity: 'warning',
 			source_id: 's1'
 		});
+	});
+
+	it('keeps an expression, trimmed, and drops a blank one', () => {
+		expect(cleanMatch({ expr: '  payload.amount > 100 ' })).toEqual({ expr: 'payload.amount > 100' });
+		expect(cleanMatch({ expr: '   ' })).toEqual({});
+		expect(cleanMatch({ expr: null })).toEqual({});
+	});
+});
+
+describe('cleanTargets', () => {
+	const takes = (id: string) => id === 'mail';
+
+	it('drops rows without a connection and empty optional values', () => {
+		expect(
+			cleanTargets(
+				[
+					{ connection_id: '' },
+					{ connection_id: 'hook', destination: '', template_id: '' },
+					{ connection_id: 'mail', destination: ' ops@example.com ', template_id: 't1' }
+				],
+				takes
+			)
+		).toEqual([{ connection_id: 'hook' }, { connection_id: 'mail', destination: 'ops@example.com', template_id: 't1' }]);
+	});
+
+	it('drops a destination the connector does not take', () => {
+		expect(cleanTargets([{ connection_id: 'hook', destination: '#ops' }], takes)).toEqual([{ connection_id: 'hook' }]);
+	});
+});
+
+describe('routesForTest', () => {
+	const stored = [route('1', ['c1']), { ...route('2', ['c2']), stop: true, enabled: false }];
+	const input: RouteInput = { name: 'draft', enabled: true, stop: false, match: { expr: 'true' }, targets: [] };
+
+	it('sends the stored routes in order when nothing is being edited', () => {
+		expect(routesForTest(stored, null)).toEqual([
+			{ name: 'route 1', enabled: true, stop: false, match: {}, targets: [{ connection_id: 'c1' }] },
+			{ name: 'route 2', enabled: false, stop: true, match: {}, targets: [{ connection_id: 'c2' }] }
+		]);
+	});
+
+	it('puts the draft in place of the route being edited', () => {
+		const sent = routesForTest(stored, { id: '2', input });
+		expect(sent.map((r) => r.name)).toEqual(['route 1', 'draft']);
+		expect(sent[1]).toEqual(input);
+	});
+
+	it('appends a new draft', () => {
+		expect(routesForTest(stored, { id: null, input }).map((r) => r.name)).toEqual(['route 1', 'route 2', 'draft']);
+	});
+
+	it('names a draft that has no name yet', () => {
+		const sent = routesForTest([], { id: null, input: { ...input, name: '  ' } });
+		expect(sent[0].name).toBe('New route');
+	});
+});
+
+describe('parseSampleEvent', () => {
+	it('reads the prefilled sample', () => {
+		const parsed = parseSampleEvent(SAMPLE_EVENT);
+		expect(parsed.problem).toBeUndefined();
+		expect(parsed.event).toMatchObject({ topic: 'orders.payment.failed', severity: 'error' });
+	});
+
+	it('says what is wrong with text that is not an event', () => {
+		expect(parseSampleEvent('{').problem).toBe('The sample event is not valid JSON.');
+		expect(parseSampleEvent('[1]').problem).toBe('The sample event must be a JSON object with a topic and a title.');
+		expect(parseSampleEvent('{"topic": "a"}').problem).toBe(
+			'The sample event must be a JSON object with a topic and a title.'
+		);
+	});
+});
+
+describe('outcomeWords', () => {
+	const result = (outcome: string, error: string | null = null): RouteResult => ({
+		name: 'r',
+		outcome,
+		error,
+		targets: []
+	});
+
+	it('words each outcome', () => {
+		expect(outcomeWords(result('matched'))).toBe('matched');
+		expect(outcomeWords(result('not_matched'))).toBe('not matched');
+		expect(outcomeWords(result('disabled'))).toBe('off');
+		expect(outcomeWords(result('skipped'))).toBe('skipped, an earlier route stops here');
+		expect(outcomeWords(result('error', 'unknown filter nosuch'))).toBe('expression failed: unknown filter nosuch');
 	});
 });
 

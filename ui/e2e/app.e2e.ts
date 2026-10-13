@@ -6,6 +6,8 @@ const PASSWORD = 'correct horse battery';
 
 /** The source key, read from the setup screen and reused by later tests. */
 let sourceKey = '';
+/** The id of the "Charge failed" event, sent by the feed test and reused by the template test. */
+let chargeEventId = '';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -91,7 +93,7 @@ test('a new event appears in the feed without a reload and its journey shows the
 	await signIn(page);
 	await expect(page.getByRole('link', { name: /Hello from my service/ })).toBeVisible();
 
-	await sendEvent(request, {
+	chargeEventId = await sendEvent(request, {
 		topic: 'payments.charge.failed',
 		title: 'Charge failed: card network timeout',
 		severity: 'critical',
@@ -170,6 +172,7 @@ test('the management pages load and a route can be created', async ({ page }) =>
 	await expect(page.locator('ol > li').first()).toContainText('Payment failures');
 
 	for (const [link, shot] of [
+		['Templates', 'templates'],
 		['Connections', 'connections'],
 		['Sources', 'sources'],
 		['Failures', 'failures'],
@@ -180,6 +183,65 @@ test('the management pages load and a route can be created', async ({ page }) =>
 		await page.waitForLoadState('networkidle');
 		await page.screenshot({ path: `e2e-shots/${shot}.png`, fullPage: true });
 	}
+});
+
+test('the route tester shows what an unsaved expression would match', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('link', { name: 'Routes', exact: true }).click();
+	await page.getByRole('button', { name: 'New route' }).click();
+	await page.getByLabel('Name').fill('Big orders');
+	await page.getByLabel('Expression').fill('payload.amount > 100');
+
+	// The sample event is an order of 250 on the topic orders.payment.failed.
+	await page.getByLabel('Event', { exact: true }).selectOption({ label: 'An event I write here' });
+	const results = page.getByRole('list', { name: 'Result for each route' }).getByRole('listitem');
+	const result = (name: string) => results.filter({ hasText: name });
+	await expect(result('Big orders')).toHaveAttribute('data-outcome', 'matched');
+	await expect(result('Big orders')).toContainText('being edited');
+	await expect(result('Big orders')).toContainText('to test receiver: Payment failed for order 1042');
+	await expect(result('Payment failures')).toHaveAttribute('data-outcome', 'not_matched');
+	await expect(result('Payment failures')).toContainText('not matched');
+	await expect(result('Everything')).toHaveAttribute('data-outcome', 'matched');
+	await page.screenshot({ path: 'e2e-shots/route-tester.png', fullPage: true });
+
+	await page.getByLabel('Expression').fill('payload.amount > 1000');
+	await expect(result('Big orders')).toHaveAttribute('data-outcome', 'not_matched');
+
+	await page.getByLabel('Expression').fill('payload.amount >');
+	await expect(page.getByRole('region', { name: 'Try an event' }).getByRole('alert')).toContainText('Big orders');
+
+	// Trying a route does not save it.
+	await page.getByRole('button', { name: 'Cancel' }).click();
+	await expect(page.getByRole('list', { name: 'Routes' }).getByRole('listitem')).toHaveCount(2);
+	await expect(results).toHaveCount(2);
+});
+
+test('a template preview shows the worded title and the request', async ({ page }) => {
+	await signIn(page);
+	await page.getByRole('link', { name: 'Templates', exact: true }).click();
+	await expect(page.getByText('No templates yet')).toBeVisible();
+	await page.getByRole('button', { name: 'New template' }).click();
+	await page.getByLabel('Name').fill('With environment');
+	await page.getByLabel('Title').fill('[{{ labels.env }}] {{ title }}');
+	await page.getByLabel('Body').fill('{{ payload.attempts }} attempts');
+	await page.getByLabel('With the event').selectOption(chargeEventId);
+
+	await expect(page.getByTestId('preview-title')).toHaveText('[prod] Charge failed: card network timeout');
+	await expect(page.getByTestId('preview-body')).toHaveText('3 attempts');
+
+	await page.getByLabel('As sent to').selectOption({ label: 'test receiver' });
+	await expect(page.getByTestId('request')).toContainText(`POST ${RECEIVER}/hook`);
+	await expect(page.getByTestId('request')).toContainText('[prod] Charge failed: card network timeout');
+	await page.screenshot({ path: 'e2e-shots/template-preview.png', fullPage: true });
+
+	await page.getByLabel('Title').fill('{{ title | nosuch }}');
+	await expect(page.getByRole('region', { name: 'Preview' }).getByRole('alert')).toContainText('nosuch');
+	await expect(page.getByTestId('preview-title')).toHaveText('Charge failed: card network timeout');
+
+	await page.getByLabel('Title').fill('[{{ labels.env }}] {{ title }}');
+	await page.getByRole('button', { name: 'Create template' }).click();
+	await expect(page.getByText('Template created.')).toBeVisible();
+	await expect(page.getByRole('listitem').filter({ hasText: 'With environment' })).toBeVisible();
 });
 
 test('the feed works on a phone-sized screen', async ({ page }) => {

@@ -116,6 +116,43 @@ describe('Timeline', () => {
 		await expect.element(page.getByText('Waiting to be routed')).toBeInTheDocument();
 	});
 
+	it('shows the message each target received, with its request folded away', async () => {
+		const j = journey([delivery('delivered', [attempt('a1', 'delivered', 200, null)])]);
+		const previews = {
+			n1: {
+				notification_id: 'n1',
+				connection_id: 'c1',
+				title: '[prod] Charge failed',
+				body: '14 charges failed',
+				warning: 'the template failed, so the default wording was sent',
+				request: {
+					method: 'POST',
+					url: 'https://hooks.example.com/T000',
+					headers: [['content-type', 'application/json']] as [string, string][],
+					body: '{"text":"[prod] Charge failed"}'
+				}
+			}
+		};
+		render(Timeline, { journey: j, ...names, previews, now: NOW, onreplay: vi.fn() });
+		await expect.element(page.getByText('[prod] Charge failed', { exact: true })).toBeVisible();
+		await expect.element(page.getByText('14 charges failed')).toBeVisible();
+		await expect.element(page.getByText('the template failed, so the default wording was sent')).toBeVisible();
+		await expect.element(page.getByText('https://hooks.example.com/T000')).not.toBeVisible();
+		await page.getByText('Request', { exact: true }).click();
+		await expect.element(page.getByText('https://hooks.example.com/T000')).toBeVisible();
+		await expect.element(page.getByText('content-type:')).toBeVisible();
+	});
+
+	it('says why the request cannot be shown and shows a delivery warning', async () => {
+		const j = journey([delivery('delivered', [], { warning: 'the message was shortened to 1000 characters' })]);
+		const previews = {
+			n1: { notification_id: 'n1', connection_id: 'c1', title: 'Charge failed', request_error: 'the connection was deleted' }
+		};
+		render(Timeline, { journey: j, ...names, previews, now: NOW, onreplay: vi.fn() });
+		await expect.element(page.getByText('The request cannot be shown: the connection was deleted')).toBeVisible();
+		await expect.element(page.getByText('the message was shortened to 1000 characters')).toBeVisible();
+	});
+
 	it('names a connection that no longer exists', async () => {
 		const j = journey([delivery('failed', [], { last_error: 'the connection was deleted' })]);
 		render(Timeline, { journey: j, connections: {}, sources: {}, now: NOW, onreplay: vi.fn() });
