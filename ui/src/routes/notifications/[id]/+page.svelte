@@ -107,7 +107,7 @@
 					<SeverityMark severity={event.severity} />
 					<span class="min-w-0 break-words">
 						<a href={resolve('/events/[id]', { id: event.id })}>{event.title}</a>
-						<span class="text-faint ml-2">{event.topic}</span>
+						<span class="text-faint block break-all md:ml-2 md:inline">{event.topic}</span>
 					</span>
 					<span class="tag justify-self-end" data-testid="event-role">{event.role}</span>
 				</li>

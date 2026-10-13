@@ -132,7 +132,7 @@
 				</div>
 			</div>
 			<div class="state min-w-0"><NotificationState notification={row} {now} /></div>
-			<div class="actions lg:justify-self-end"><NotificationActions notification={row} onchange={refresh} /></div>
+			<div class="actions xl:justify-self-end"><NotificationActions notification={row} onchange={refresh} /></div>
 		</li>
 	{:else}
 		{#if loaded}
@@ -184,10 +184,10 @@
 		grid-column: 1 / -1;
 	}
 
-	@media (min-width: 64rem) {
+	@media (min-width: 80rem) {
 		.note-row {
 			/* Fixed widths, so the states and the buttons line up from row to row. */
-			grid-template-columns: 0.6rem minmax(0, 1fr) 17rem 23.5rem;
+			grid-template-columns: 0.6rem minmax(0, 1fr) 21rem 26rem;
 		}
 
 		.note-row .state,

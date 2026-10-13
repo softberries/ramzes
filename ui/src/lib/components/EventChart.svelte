@@ -85,7 +85,10 @@
 
 	.bar {
 		width: 100%;
+		/* A bar stays a bar when there are only a few columns. */
+		max-width: 2.5rem;
 		min-height: 2px;
+		margin: 0 auto;
 		border-radius: 2px 2px 0 0;
 		background: var(--accent);
 	}
@@ -99,13 +102,14 @@
 		white-space: nowrap;
 	}
 
+	/* Near an edge of the chart the label lines up with its bar's edge instead, so it stays inside. */
 	.over[data-side='start'] {
-		left: 0;
+		left: max(0px, 50% - 1.25rem);
 		transform: none;
 	}
 
 	.over[data-side='end'] {
-		right: 0;
+		right: max(0px, 50% - 1.25rem);
 		left: auto;
 		transform: none;
 	}

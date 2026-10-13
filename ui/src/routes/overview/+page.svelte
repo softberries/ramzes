@@ -111,23 +111,23 @@
 
 {#if overview && shown === hours}
 	<dl class="border-line bg-line mb-8 grid grid-cols-2 gap-px border md:grid-cols-4">
-		<div class="bg-surface p-3">
+		<div class="bg-surface flex flex-col justify-between p-3">
 			<dt class="text-muted">Events received</dt>
 			<dd class="figure" data-testid="events-total">{overview.events}</dd>
 		</div>
-		<div class="bg-surface p-3">
+		<div class="bg-surface flex flex-col justify-between p-3">
 			<dt class="text-muted">Deliveries that arrived</dt>
 			<dd class="figure" data-testid="delivered-share">
 				{shareWords(overview.deliveries_delivered, deliveries) || '–'}
 			</dd>
 		</div>
-		<div class="bg-surface p-3">
+		<div class="bg-surface flex flex-col justify-between p-3">
 			<dt class="text-muted">Notifications waiting now</dt>
 			<dd class="figure">
 				<a href={resolve('/notifications')} data-testid="waiting-now">{overview.waiting}</a>
 			</dd>
 		</div>
-		<div class="bg-surface p-3">
+		<div class="bg-surface flex flex-col justify-between p-3">
 			<dt class="text-muted">Sent, not acknowledged</dt>
 			<dd class="figure">
 				<a href={resolve('/notifications?view=sent')} data-testid="unacknowledged-now">{overview.unacknowledged}</a>
