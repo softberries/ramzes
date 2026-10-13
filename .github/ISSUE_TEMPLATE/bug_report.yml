@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in ramzes does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [Troubleshooting](https://softberries.github.io/ramzes/operations/troubleshooting/) and the existing issues first. Report security issues privately, not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ramzes version or commit
+      description: The output of `ramzes --version`, or the commit you built from.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How ramzes is deployed
+      options:
+        - Docker Compose
+        - Helm on Kubernetes
+        - From source
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite
+        - Postgres
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output from ramzes, and what the event's journey page shows. Remove secrets and personal data first.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Which channel or source is involved, the route's settings, screenshots.

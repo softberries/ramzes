@@ -7,3 +7,5 @@ ui/test-results
 .git
 .superpowers
 data
+site
+docs

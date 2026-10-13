@@ -16,3 +16,8 @@ ui/playwright-report/
 # Working notes, design specs and plans: kept locally, not published.
 /docs/internal/
 /CLAUDE.md
+
+# Docs site (site/)
+site/node_modules/
+site/dist/
+site/.astro/

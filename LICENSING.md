@@ -14,7 +14,7 @@ A commercial license removes the AGPL obligations, including the source-offering
 
 ## Contributions
 
-Outside contributions are not being merged yet. A Contributor License Agreement will be set up first, so that the project can offer the code under both the AGPL and a commercial license.
+Outside contributions are not being merged yet. A Contributor License Agreement will be set up first, so that the project can offer the code under both the AGPL and a commercial license. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

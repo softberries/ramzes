@@ -1,6 +1,46 @@
 ---
-title: "Verified claims"
-description: "Verified claims in ramzes."
+title: Verified claims
+description: What in this documentation and the README was checked, how, and when; and what was not.
 ---
 
-This page is being written.
+Every statement in the README and in this documentation is meant to be checkable. This page says how each kind of claim was checked, and names what has not been checked at all. If you find something here that is wrong, [open an issue](https://github.com/softberries/ramzes/issues).
+
+## Not verified
+
+These are the gaps. Read them before you rely on ramzes.
+
+| Claim | State |
+|---|---|
+| Messages arrive in Slack, Microsoft Teams, Discord, ntfy, Telegram, Pushover, PagerDuty and Opsgenie | **Not sent to the live services.** The request each connector makes was written from the service's documentation as read on 13 October 2026 and is pinned by snapshot tests. That shows the format has not changed by accident, not that the service accepts it |
+| Webhooks from Alertmanager, Grafana, GitHub, GitLab and Sentry are understood | **Not received from the live tools.** Each mapping was written from the tool's documented payload and tested against sample payloads in the repository |
+| Email is delivered | Sent to a test SMTP server inside the test suite only. Not sent through a real provider, and the `starttls` and `tls` modes were not exercised against a server that speaks TLS |
+| The Helm chart installs | `helm lint --strict` and `helm template` pass. The chart has not been installed on a cluster |
+| The release workflow produces binaries and an image | The workflow has never run. There is no release, no published image and no chart repository |
+| GitLab's signing token | The check follows GitLab's webhook documentation as read on 13 October 2026. That documentation does not say which base64 alphabet the token uses; ramzes assumes the standard one, as GitLab's own examples do |
+| ramzes in production | Nobody has run it in production. There are no performance measurements |
+
+## Verified by automated tests
+
+Run on 13 October 2026 on the commit this page was written for.
+
+| What | How |
+|---|---|
+| Behaviour described under Concepts, Sending events, Operations and Reference | 526 Rust tests, run on SQLite and on Postgres 18. 13 of them start the real binary and talk to it over HTTP |
+| What the web UI does | 294 unit and component tests that run in a real browser, and 22 browser tests that drive the real binary with the built UI |
+| Formatting and lints | `cargo fmt --check`, `cargo clippy` with warnings as errors, ESLint and `svelte-check` are clean |
+| A resolved event milder than a route's minimum severity closes what the route opened | Unit tests of the matcher and an engine test |
+| Two user deletions at once cannot remove the last users | A concurrency test that failed on Postgres before the fix and passes after |
+| GitHub's signature check | Tested against the example signature GitHub publishes in its webhook documentation |
+
+## Verified by hand
+
+| What | How |
+|---|---|
+| Quickstart with Docker | Both compose files were built and started on 13 October 2026. The health and readiness checks and the UI answered; with the Postgres file the first user was created and found in Postgres |
+| Quickstart from source | `make build` was run on 13 October 2026. The binary started, served the UI and exited with status 0 on SIGTERM |
+| The screenshots in this documentation | Taken by `site/scripts/capture.mjs` from an instance filled by `site/scripts/seed.mjs`. They show the real UI with made-up data |
+| The Opsgenie shutdown date, 5 April 2027 | Atlassian's migration page, read on 13 October 2026 |
+
+## How the documentation was written
+
+The pages were written from the code, not from memory: each default, limit, field name, header and error message was read from the file that implements it. Where something could not be confirmed it was left out.
