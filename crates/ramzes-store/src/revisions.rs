@@ -76,25 +76,21 @@ impl Store {
         snapshot: &str,
         now_ms: i64,
     ) -> Result<()> {
-        // The summary shares the author column's row; it is stored as "author\nsummary".
         let insert = self.sql(
-            "INSERT INTO config_revisions (id, workspace_id, author, created_at, snapshot) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO config_revisions (id, workspace_id, author, summary, created_at, snapshot) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
         );
         let trim = self.sql(
             "DELETE FROM config_revisions WHERE workspace_id = $1 AND id NOT IN \
              (SELECT id FROM config_revisions WHERE workspace_id = $1 ORDER BY id DESC LIMIT $2)",
         );
         let id = ramzes_core::new_id();
-        let stamped = format!(
-            "{}\n{}",
-            author.replace('\n', " "),
-            summary.replace('\n', " ")
-        );
         with_db!(self, |pool| {
             sqlx::query(AssertSqlSafe(&*insert))
                 .bind(&id)
                 .bind(workspace_id)
-                .bind(&stamped)
+                .bind(author)
+                .bind(summary)
                 .bind(now_ms)
                 .bind(snapshot)
                 .execute(pool)
@@ -112,7 +108,7 @@ impl Store {
     /// Revisions without their snapshots, newest first.
     pub async fn list_revisions(&self, workspace_id: &str) -> Result<Vec<RevisionMeta>> {
         let sql = self.sql(
-            "SELECT id, author, created_at FROM config_revisions WHERE workspace_id = $1 ORDER BY id DESC",
+            "SELECT id, author, summary, created_at FROM config_revisions WHERE workspace_id = $1 ORDER BY id DESC",
         );
         with_db!(self, |pool| {
             let rows = sqlx::query(AssertSqlSafe(&*sql))
@@ -121,11 +117,12 @@ impl Store {
                 .await?;
             rows.iter()
                 .map(|row| {
-                    Ok(meta(
-                        row.try_get("id")?,
-                        row.try_get("author")?,
-                        row.try_get("created_at")?,
-                    ))
+                    Ok(RevisionMeta {
+                        id: row.try_get("id")?,
+                        author: row.try_get("author")?,
+                        summary: row.try_get("summary")?,
+                        created_at: row.try_get("created_at")?,
+                    })
                 })
                 .collect()
         })
@@ -133,7 +130,7 @@ impl Store {
 
     pub async fn get_revision(&self, workspace_id: &str, id: &str) -> Result<Option<Revision>> {
         let sql = self.sql(
-            "SELECT id, author, created_at, snapshot FROM config_revisions WHERE workspace_id = $1 AND id = $2",
+            "SELECT id, author, summary, created_at, snapshot FROM config_revisions WHERE workspace_id = $1 AND id = $2",
         );
         with_db!(self, |pool| {
             let row = sqlx::query(AssertSqlSafe(&*sql))
@@ -143,11 +140,12 @@ impl Store {
                 .await?;
             row.map(|row| {
                 Ok(Revision {
-                    meta: meta(
-                        row.try_get("id")?,
-                        row.try_get("author")?,
-                        row.try_get("created_at")?,
-                    ),
+                    meta: RevisionMeta {
+                        id: row.try_get("id")?,
+                        author: row.try_get("author")?,
+                        summary: row.try_get("summary")?,
+                        created_at: row.try_get("created_at")?,
+                    },
                     snapshot: row.try_get("snapshot")?,
                 })
             })
@@ -339,15 +337,5 @@ impl Store {
             tx.commit().await?;
             Ok(())
         })
-    }
-}
-
-fn meta(id: String, stamped: String, created_at: i64) -> RevisionMeta {
-    let (author, summary) = stamped.split_once('\n').unwrap_or((stamped.as_str(), ""));
-    RevisionMeta {
-        id,
-        author: author.to_owned(),
-        summary: summary.to_owned(),
-        created_at,
     }
 }

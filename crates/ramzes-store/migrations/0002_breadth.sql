@@ -10,3 +10,4 @@ ALTER TABLE templates ADD COLUMN title TEXT NOT NULL DEFAULT '';
 ALTER TABLE connector_definitions ADD COLUMN kind TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX connector_definitions_kind ON connector_definitions (workspace_id, kind);
 CREATE INDEX config_revisions_workspace ON config_revisions (workspace_id, id);
+ALTER TABLE config_revisions ADD COLUMN summary TEXT NOT NULL DEFAULT '';
