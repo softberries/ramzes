@@ -1318,6 +1318,20 @@ dependencies = [
 [[package]]
 name = "ramzes-engine"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "ramzes-connectors",
+ "ramzes-core",
+ "ramzes-store",
+ "rand",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
 
 [[package]]
 name = "ramzes-ingest"
