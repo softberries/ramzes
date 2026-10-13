@@ -200,6 +200,7 @@ describe('outcomeWords', () => {
 	it('words each outcome', () => {
 		expect(outcomeWords(result('matched'))).toBe('matched');
 		expect(outcomeWords(result('not_matched'))).toBe('not matched');
+		expect(outcomeWords(result('closes_only'))).toBe('not matched: too mild, and nothing of this route is open');
 		expect(outcomeWords(result('disabled'))).toBe('off');
 		expect(outcomeWords(result('skipped'))).toBe('skipped, an earlier route stops here');
 		expect(outcomeWords(result('error', 'unknown filter nosuch'))).toBe('expression failed: unknown filter nosuch');

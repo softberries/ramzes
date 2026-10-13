@@ -344,3 +344,43 @@ fn an_escalation_chain_is_validated_and_read_from_json() {
     .unwrap();
     assert!(old.escalation.is_empty());
 }
+
+#[test]
+fn a_resolved_event_below_the_minimum_severity_only_closes() {
+    use ramzes_core::{RouteOutcome, trace_routes};
+    let errors = RouteMatch {
+        topic: Some("ci.*".into()),
+        min_severity: Some(Severity::Error),
+        ..RouteMatch::default()
+    };
+    let mut first = route("errors", 0, errors, &["c1"]);
+    first.stop = true;
+    let routes = vec![first, route("all", 1, topic("*"), &["c2"])];
+
+    let mut passed = event("ci.build", Severity::Info, &[]);
+    passed.status = EventStatus::Resolved;
+    let trace = trace_routes(&passed, &routes);
+    assert_eq!(trace[0].outcome, RouteOutcome::ClosesOnly);
+    // It did not match, so a stopping route does not hide it from later routes.
+    assert_eq!(trace[1].outcome, RouteOutcome::Matched);
+    let routed = route_event(&passed, &routes);
+    let got: Vec<(&str, bool)> = routed
+        .matched
+        .iter()
+        .map(|m| (m.route.id.as_str(), m.closes_only))
+        .collect();
+    assert_eq!(got, vec![("errors", true), ("all", false)]);
+
+    // Still firing, or resolved but otherwise not matching: the route is not involved.
+    let firing = event("ci.build", Severity::Info, &[]);
+    assert_eq!(trace_routes(&firing, &routes)[0].outcome, RouteOutcome::NotMatched);
+    let mut elsewhere = event("orders.paid", Severity::Info, &[]);
+    elsewhere.status = EventStatus::Resolved;
+    assert_eq!(trace_routes(&elsewhere, &routes)[0].outcome, RouteOutcome::NotMatched);
+    // Severe enough: an ordinary match, and the route stops.
+    let mut severe = event("ci.build", Severity::Error, &[]);
+    severe.status = EventStatus::Resolved;
+    let trace = trace_routes(&severe, &routes);
+    assert_eq!(trace[0].outcome, RouteOutcome::Matched);
+    assert_eq!(trace[1].outcome, RouteOutcome::Skipped);
+}

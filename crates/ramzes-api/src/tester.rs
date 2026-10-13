@@ -38,7 +38,9 @@ pub(crate) struct RouteResult {
     /// Absent for a route that is not saved.
     route_id: Option<String>,
     name: String,
-    /// `matched`, `not_matched`, `disabled`, `skipped` (an earlier route stopped evaluation) or `error`.
+    /// `matched`, `closes_only` (a resolved event less severe than the route asks for, which only
+    /// closes what the route opened), `not_matched`, `disabled`, `skipped` (an earlier route
+    /// stopped evaluation) or `error`.
     outcome: &'static str,
     /// Why the route's expression failed.
     error: Option<String>,
@@ -142,13 +144,15 @@ pub(crate) async fn test(
     for trace in trace_routes(&event, &routes) {
         let (outcome, error) = match trace.outcome {
             RouteOutcome::Matched => ("matched", None),
+            RouteOutcome::ClosesOnly => ("closes_only", None),
             RouteOutcome::NotMatched => ("not_matched", None),
             RouteOutcome::Disabled => ("disabled", None),
             RouteOutcome::Skipped => ("skipped", None),
             RouteOutcome::Error(reason) => ("error", Some(reason)),
         };
         let mut targets = Vec::new();
-        if outcome == "matched" {
+        let closes_only = outcome == "closes_only";
+        if outcome == "matched" || closes_only {
             for target in &trace.route.targets {
                 let composed = state
                     .engine
@@ -166,8 +170,13 @@ pub(crate) async fn test(
                 let matched = Matched {
                     route: trace.route,
                     target,
+                    closes_only,
                 };
                 let (decision, _) = state.engine.decide(&event, &matched, &silences).await?;
+                // Nothing of this route is open, so the event does nothing here.
+                if closes_only && !matches!(decision.action, Action::Resolve(_)) {
+                    continue;
+                }
                 targets.push(TargetResult {
                     outcome: match decision.action {
                         Action::Send { .. } => "sent",

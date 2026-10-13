@@ -110,6 +110,11 @@ export function parseSampleEvent(text: string): { event?: NewEvent; problem?: st
 /** What the tester found for one route, in plain words. */
 export function outcomeWords(result: RouteResult): string {
 	if (result.outcome === 'matched') return 'matched';
+	if (result.outcome === 'closes_only') {
+		return result.targets.length > 0
+			? 'too mild to match, but it resolves what this route opened'
+			: 'not matched: too mild, and nothing of this route is open';
+	}
 	if (result.outcome === 'not_matched') return 'not matched';
 	if (result.outcome === 'disabled') return 'off';
 	if (result.outcome === 'skipped') return 'skipped, an earlier route stops here';

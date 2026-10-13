@@ -79,6 +79,7 @@ pub(crate) fn unshaped(event: &Event, routes: &[Route]) -> Plan {
         dispatches: routed
             .matched
             .iter()
+            .filter(|m| !m.closes_only)
             .map(|m| NewDispatch {
                 delivery_id: Some(new_id()),
                 dedup_key: event.dedup_key.clone(),
@@ -179,6 +180,10 @@ impl Engine {
         };
         for m in &routed.matched {
             let (decision, event_key) = self.decide(event, m, silences).await?;
+            // Too mild to be this route's business, unless it ends something the route opened.
+            if m.closes_only && !matches!(decision.action, Action::Resolve(_)) {
+                continue;
+            }
             let fresh = dispatch(m, false);
             match decision.action {
                 Action::Send {

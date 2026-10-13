@@ -1988,3 +1988,49 @@ async fn an_acknowledgement_through_the_engine_stops_reminders_and_updates_messa
         NotificationState::Resolved
     );
 }
+
+#[tokio::test]
+async fn a_resolution_less_severe_than_the_route_asks_for_still_closes_what_the_route_opened() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    let r = Route {
+        id: new_id(),
+        name: "failures".into(),
+        enabled: true,
+        r#match: RouteMatch {
+            topic: Some("orders.*".into()),
+            min_severity: Some(Severity::Error),
+            ..RouteMatch::default()
+        },
+        targets: vec![Target {
+            connection_id: c.clone(),
+            ..Target::default()
+        }],
+        shaping: shaping(json!({"dedup": {"window_s": 600}})),
+        ..Route::default()
+    };
+    w.store.create_route(&w.ws, &r, 0).await.unwrap();
+    let passed = |e: &mut Event| {
+        e.dedup_key = Some("build".into());
+        e.status = EventStatus::Resolved;
+        e.severity = Severity::Info;
+    };
+
+    // Nothing is open: the route has nothing to do with the event.
+    let quiet = w.send("Build passed", passed).await;
+    w.settle().await;
+    assert!(w.notifications().await.is_empty());
+    let journey = w.store.journey(&w.ws, &quiet.id).await.unwrap().unwrap();
+    assert!(journey.notifications.is_empty());
+
+    w.send("Build failed", key("build")).await;
+    w.settle().await;
+    w.send("Build passed", passed).await;
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].status, EventStatus::Resolved);
+    let rows = w.notifications().await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, NotificationState::Resolved);
+}

@@ -1,7 +1,7 @@
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::event::{Event, Severity};
+use crate::event::{Event, EventStatus, Severity};
 
 /// Upper bound on a compiled label pattern, so a route cannot hold an arbitrarily expensive regex.
 const REGEX_SIZE_LIMIT: usize = 100_000;
@@ -125,11 +125,22 @@ impl RouteMatch {
 
     /// Whether the event satisfies every condition. An expression that fails is an error.
     pub fn evaluate(&self, e: &Event) -> Result<bool, String> {
+        let severe = self.min_severity.is_none_or(|min| e.severity >= min);
+        Ok(severe && self.holds_apart_from_severity(e)?)
+    }
+
+    /// Whether a resolved event fails only the minimum severity. What ends a failure is often
+    /// reported as less severe than the failure, and still has to close it.
+    pub fn closes(&self, e: &Event) -> Result<bool, String> {
+        let too_mild = self.min_severity.is_some_and(|min| e.severity < min);
+        Ok(e.status == EventStatus::Resolved && too_mild && self.holds_apart_from_severity(e)?)
+    }
+
+    fn holds_apart_from_severity(&self, e: &Event) -> Result<bool, String> {
         let structured = self
             .topic
             .as_ref()
             .is_none_or(|p| glob_matches(p, &e.topic))
-            && self.min_severity.is_none_or(|min| e.severity >= min)
             && self.source_id.as_ref().is_none_or(|s| *s == e.source_id)
             && self.labels.iter().all(|c| c.holds(e));
         match &self.expr {

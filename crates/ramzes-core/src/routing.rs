@@ -70,6 +70,9 @@ pub fn validate_escalation(steps: &[EscalationStep]) -> Result<(), String> {
 pub struct Matched<'a> {
     pub route: &'a Route,
     pub target: &'a Target,
+    /// The event is a resolution less severe than the route asks for: it closes what the route
+    /// opened and does nothing else there.
+    pub closes_only: bool,
 }
 
 /// The outcome of checking an event against the routes.
@@ -85,6 +88,9 @@ pub struct Routed<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteOutcome {
     Matched,
+    /// A resolved event that matches except for being less severe than the route asks for. It
+    /// closes what the route opened and does not count as a match otherwise.
+    ClosesOnly,
     NotMatched,
     /// The route is switched off.
     Disabled,
@@ -118,7 +124,11 @@ pub fn trace_routes<'a>(e: &Event, routes: &'a [Route]) -> Vec<RouteTrace<'a>> {
                         stopped = route.stop;
                         RouteOutcome::Matched
                     }
-                    Ok(false) => RouteOutcome::NotMatched,
+                    Ok(false) => match route.r#match.closes(e) {
+                        Ok(true) => RouteOutcome::ClosesOnly,
+                        Ok(false) => RouteOutcome::NotMatched,
+                        Err(reason) => RouteOutcome::Error(reason),
+                    },
                     Err(reason) => RouteOutcome::Error(reason),
                 }
             };
@@ -131,11 +141,14 @@ pub fn route_event<'a>(e: &Event, routes: &'a [Route]) -> Routed<'a> {
     let mut routed = Routed::default();
     for trace in trace_routes(e, routes) {
         match trace.outcome {
-            RouteOutcome::Matched => {
+            RouteOutcome::Matched | RouteOutcome::ClosesOnly => {
                 let route = trace.route;
-                routed
-                    .matched
-                    .extend(route.targets.iter().map(|target| Matched { route, target }));
+                let closes_only = trace.outcome == RouteOutcome::ClosesOnly;
+                routed.matched.extend(route.targets.iter().map(|target| Matched {
+                    route,
+                    target,
+                    closes_only,
+                }));
             }
             RouteOutcome::Error(reason) => routed.errors.push((trace.route.id.clone(), reason)),
             RouteOutcome::NotMatched | RouteOutcome::Disabled | RouteOutcome::Skipped => {}
