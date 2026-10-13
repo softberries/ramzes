@@ -381,6 +381,37 @@
         }
       }
     },
+    "/api/connections/{id}/resume": {
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "End a connection's pause now and send what was waiting for it.",
+        "operationId": "resume",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/connections/{id}/test": {
       "post": {
         "tags": [
@@ -964,6 +995,225 @@
         }
       }
     },
+    "/api/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "A page of notifications, newest first.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "States to include, separated by commas: `grouping`, `held`, `sent`, `acknowledged`,\n`resolved`, `suppressed`. All when absent.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Return notifications older than this id. Use `next_before` from the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 200. Default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/{id}": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "One notification with its events and deliveries.",
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/{id}/acknowledge": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Acknowledge a notification: reminders stop, and one still waiting is not sent.",
+        "operationId": "acknowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/{id}/resolve": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Close a notification by hand. Nothing is sent.",
+        "operationId": "resolve",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/overview": {
+      "get": {
+        "tags": [
+          "overview"
+        ],
+        "summary": "Volume, delivery results, the noisiest sources and the failing connections of a period.",
+        "operationId": "overview",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "description": "How many hours back to look, 1 to 744. Default 24.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewView"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/routes": {
       "get": {
         "tags": [
@@ -1077,7 +1327,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TestResult"
+                  "$ref": "#/components/schemas/RouteTestResult"
                 }
               }
             }
@@ -1302,6 +1552,128 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/silences": {
+      "get": {
+        "tags": [
+          "silences"
+        ],
+        "summary": "Silences, the one ending last first. Ended ones are included.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SilenceRow"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "silences"
+        ],
+        "summary": "Silence matching events for a period: they are recorded but sent nowhere.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewSilence"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SilenceRow"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/silences/{id}": {
+      "delete": {
+        "tags": [
+          "silences"
+        ],
+        "summary": "Delete a silence from the list.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/silences/{id}/end": {
+      "post": {
+        "tags": [
+          "silences"
+        ],
+        "summary": "End a silence now.",
+        "operationId": "end",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1627,7 +1999,7 @@
           "events"
         ],
         "summary": "Live changes as server-sent events.",
-        "description": "`event` carries `{\"event_id\"}` when an event has been routed. `delivery` carries\n`{\"event_ids\", \"delivery_id\", \"state\"}` after each delivery attempt. `resync` means changes\nwere missed and the client should reload.",
+        "description": "`event` carries `{\"event_id\"}` when an event has been routed. `delivery` carries\n`{\"event_ids\", \"delivery_id\", \"state\"}` after each delivery attempt. `notification` carries\n`{\"notification_id\"}` when a notification changes state. `resync` means changes\nwere missed and the client should reload.",
         "operationId": "stream",
         "responses": {
           "200": {
@@ -2121,6 +2493,24 @@
           }
         }
       },
+      "Bucket": {
+        "type": "object",
+        "required": [
+          "start",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Start of the bucket, unix milliseconds."
+          }
+        }
+      },
       "BulkReplay": {
         "type": "object",
         "required": [
@@ -2250,6 +2640,7 @@
           "name",
           "settings",
           "has_credentials",
+          "failure_streak",
           "created_at",
           "updated_at"
         ],
@@ -2257,6 +2648,11 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "failure_streak": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Attempts that failed in a row."
           },
           "has_credentials": {
             "type": "boolean",
@@ -2281,6 +2677,14 @@
           },
           "name": {
             "type": "string"
+          },
+          "paused_until": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Set while the connection is paused after failing repeatedly; deliveries wait until then."
           },
           "settings": {
             "type": "object",
@@ -2335,6 +2739,22 @@
           }
         }
       },
+      "Counted": {
+        "type": "object",
+        "required": [
+          "name",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "Credentials": {
         "type": "object",
         "required": [
@@ -2349,6 +2769,28 @@
             "type": "string"
           }
         }
+      },
+      "Dedup": {
+        "type": "object",
+        "description": "Events with the same key as an open notification are counted, not sent again.",
+        "required": [
+          "window_s"
+        ],
+        "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An expression giving the key. Without it the event's own `dedup_key` is used, and\nfailing that its topic and labels."
+          },
+          "window_s": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds after a notification is created during which duplicates are absorbed."
+          }
+        },
+        "additionalProperties": false
       },
       "DefinitionInput": {
         "type": "object",
@@ -2666,6 +3108,47 @@
           }
         }
       },
+      "Failing": {
+        "type": "object",
+        "required": [
+          "connection_id",
+          "failed",
+          "delivered"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "delivered": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the connection was deleted."
+          },
+          "paused_until": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "FailureRow": {
         "allOf": [
           {
@@ -2736,6 +3219,36 @@
           "url"
         ]
       },
+      "Group": {
+        "type": "object",
+        "description": "Events are collected and sent as one message.",
+        "required": [
+          "wait_s"
+        ],
+        "properties": {
+          "by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels whose values define a group. Empty means one group per target."
+          },
+          "repeat_s": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seconds after which a sent notification that is still open is sent again."
+          },
+          "wait_s": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds to wait after the first event before sending."
+          }
+        },
+        "additionalProperties": false
+      },
       "Import": {
         "type": "object",
         "required": [
@@ -2805,6 +3318,8 @@
           "connection_id",
           "state",
           "replay",
+          "role",
+          "event_count",
           "created_at",
           "deliveries"
         ],
@@ -2828,6 +3343,19 @@
               "null"
             ]
           },
+          "event_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events the notification covers."
+          },
+          "held_until": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When a held notification is released."
+          },
           "id": {
             "type": "string"
           },
@@ -2839,6 +3367,10 @@
           },
           "replay": {
             "type": "boolean"
+          },
+          "role": {
+            "type": "string",
+            "description": "How this event relates to the notification: `first`, `duplicate`, `grouped` or `resolved`."
           },
           "route_id": {
             "type": "string"
@@ -3144,6 +3676,48 @@
         },
         "additionalProperties": false
       },
+      "NewSilence": {
+        "type": "object",
+        "required": [
+          "match"
+        ],
+        "properties": {
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_s": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "How long it lasts from its start, in seconds."
+          },
+          "ends_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it ends, unix milliseconds. Give this or `duration_s`."
+          },
+          "match": {
+            "$ref": "#/components/schemas/RouteMatch",
+            "description": "Which events to silence. At least one condition is required."
+          },
+          "starts_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it starts, unix milliseconds. Defaults to now."
+          }
+        }
+      },
       "NewSource": {
         "type": "object",
         "required": [
@@ -3199,6 +3773,280 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "NotificationDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationRow"
+          },
+          {
+            "type": "object",
+            "required": [
+              "events",
+              "deliveries"
+            ],
+            "properties": {
+              "deliveries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/JourneyDelivery"
+                }
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NotificationEvent"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "NotificationEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Event"
+          },
+          {
+            "type": "object",
+            "required": [
+              "role"
+            ],
+            "properties": {
+              "role": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "NotificationPage": {
+        "type": "object",
+        "required": [
+          "notifications"
+        ],
+        "properties": {
+          "next_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `before` to get the next page; absent on the last page."
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationRow"
+            }
+          }
+        }
+      },
+      "NotificationRow": {
+        "type": "object",
+        "description": "A notification in a list.",
+        "required": [
+          "id",
+          "route_id",
+          "route_name",
+          "connection_id",
+          "state",
+          "title",
+          "severity",
+          "event_count",
+          "sent_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "acked_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "acked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_id": {
+            "type": "string"
+          },
+          "connection_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the connection was deleted."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "held_until": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "next_timer_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it is next due to be sent, released or repeated."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "route_id": {
+            "type": "string"
+          },
+          "route_name": {
+            "type": "string"
+          },
+          "sent_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Messages sent for it so far."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "The highest severity among its events."
+          },
+          "state": {
+            "$ref": "#/components/schemas/NotificationState"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the event that opened it."
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "NotificationState": {
+        "type": "string",
+        "enum": [
+          "grouping",
+          "held",
+          "sent",
+          "acknowledged",
+          "resolved",
+          "suppressed"
+        ]
+      },
+      "OverviewView": {
+        "type": "object",
+        "required": [
+          "since",
+          "bucket_ms",
+          "events",
+          "buckets",
+          "deliveries_pending",
+          "deliveries_delivered",
+          "deliveries_failed",
+          "sources",
+          "topics",
+          "waiting",
+          "unacknowledged",
+          "failing"
+        ],
+        "properties": {
+          "bucket_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bucket"
+            },
+            "description": "Events per bucket, for buckets that have any, oldest first."
+          },
+          "deliveries_delivered": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deliveries_failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deliveries_pending": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "events": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events received in the period."
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Failing"
+            },
+            "description": "Connections with failed deliveries in the period or paused now, worst first."
+          },
+          "since": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Start of the period, unix milliseconds."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Counted"
+            },
+            "description": "The sources that sent most."
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Counted"
+            },
+            "description": "The topics with most events."
+          },
+          "unacknowledged": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Notifications sent and neither acknowledged nor resolved."
+          },
+          "waiting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Notifications collecting or held right now."
           }
         }
       },
@@ -3272,6 +4120,67 @@
             "type": "string"
           }
         }
+      },
+      "QuietHours": {
+        "type": "object",
+        "description": "A daily period in which notifications are held and sent as one digest when it ends.",
+        "required": [
+          "tz",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "bypass_severity": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Severity",
+                "description": "Events at or above this severity are sent anyway."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Days on which a quiet period starts: `mon` … `sun`. Empty means every day."
+          },
+          "end": {
+            "type": "string",
+            "description": "When it ends, `HH:MM`. Earlier than `start` means the next morning."
+          },
+          "start": {
+            "type": "string",
+            "description": "When the quiet period starts, `HH:MM`."
+          },
+          "tz": {
+            "type": "string",
+            "description": "IANA time zone, for example `Europe/Warsaw`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RateLimit": {
+        "type": "object",
+        "description": "At most `max` notifications per window; the rest are held and sent as one summary.",
+        "required": [
+          "max",
+          "window_s"
+        ],
+        "properties": {
+          "max": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_s": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "Reorder": {
         "type": "object",
@@ -3388,6 +4297,10 @@
             "type": "integer",
             "format": "int64"
           },
+          "shaping": {
+            "$ref": "#/components/schemas/Shaping",
+            "description": "What the route does besides sending: dedup, grouping, quiet hours, rate limit."
+          },
           "stop": {
             "type": "boolean",
             "description": "When this route matches, routes after it are not evaluated."
@@ -3416,6 +4329,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "shaping": {
+            "$ref": "#/components/schemas/Shaping",
+            "description": "Dedup, grouping, quiet hours and rate limit. Empty sends every matching event at once."
           },
           "stop": {
             "type": "boolean",
@@ -3510,6 +4427,25 @@
           }
         }
       },
+      "RouteTestResult": {
+        "type": "object",
+        "required": [
+          "event",
+          "results"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteResult"
+            },
+            "description": "One entry per route, in evaluation order."
+          }
+        }
+      },
       "RouteView": {
         "allOf": [
           {
@@ -3590,6 +4526,113 @@
           "error",
           "critical"
         ]
+      },
+      "Shaping": {
+        "type": "object",
+        "description": "A route's shaping policy. Empty means every matching event is sent at once.",
+        "properties": {
+          "dedup": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Dedup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Group"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notify_resolved": {
+            "type": "boolean",
+            "description": "Tell a target when something it was notified about is resolved."
+          },
+          "quiet_hours": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QuietHours"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RateLimit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Silence": {
+        "type": "object",
+        "description": "A period during which matching events are not sent anywhere.",
+        "required": [
+          "id",
+          "match",
+          "starts_at",
+          "ends_at"
+        ],
+        "properties": {
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ends_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "match": {
+            "$ref": "#/components/schemas/RouteMatch"
+          },
+          "starts_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SilenceRow": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Silence"
+          },
+          {
+            "type": "object",
+            "required": [
+              "author",
+              "created_at"
+            ],
+            "properties": {
+              "author": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "description": "A silence with who created it."
       },
       "Source": {
         "type": "object",
@@ -3745,6 +4788,23 @@
         ],
         "description": "A source with the path its sender posts to."
       },
+      "Step": {
+        "type": "object",
+        "description": "One shaping step and what it concluded, for the journey and the route tester.",
+        "required": [
+          "step",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string",
+            "description": "`silence`, `resolve`, `dedup`, `group`, `quiet_hours`, `rate_limit` or `send`."
+          }
+        }
+      },
       "Target": {
         "type": "object",
         "description": "Where a route sends: a connection and an optional destination within it (for example a channel).",
@@ -3775,7 +4835,9 @@
         "type": "object",
         "required": [
           "connection_id",
-          "title"
+          "title",
+          "outcome",
+          "steps"
         ],
         "properties": {
           "body": {
@@ -3799,6 +4861,17 @@
               "string",
               "null"
             ]
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What shaping would do right now: `sent`, `not sent`, `joins an open notification`,\n`opens a group`, `held` or `resolves an open notification`."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "description": "The shaping steps that led there."
           },
           "title": {
             "type": "string"
@@ -3943,19 +5016,26 @@
       "TestResult": {
         "type": "object",
         "required": [
-          "event",
-          "results"
+          "ok"
         ],
         "properties": {
-          "event": {
-            "$ref": "#/components/schemas/Event"
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
-          "results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RouteResult"
-            },
-            "description": "One entry per route, in evaluation order."
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "HTTP status the service answered with, if it answered.",
+            "minimum": 0
           }
         }
       },

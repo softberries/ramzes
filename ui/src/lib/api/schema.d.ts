@@ -176,6 +176,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connections/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End a connection's pause now and send what was waiting for it. */
+        post: operations["resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connections/{id}/test": {
         parameters: {
             query?: never;
@@ -365,6 +382,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A page of notifications, newest first. */
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One notification with its events and deliveries. */
+        get: operations["detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge a notification: reminders stop, and one still waiting is not sent. */
+        post: operations["acknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close a notification by hand. Nothing is sent. */
+        post: operations["resolve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Volume, delivery results, the noisiest sources and the failing connections of a period. */
+        get: operations["overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routes": {
         parameters: {
             query?: never;
@@ -465,6 +567,58 @@ export interface paths {
         put?: never;
         /** Create the first user and sign them in. Works only while no user exists. */
         post: operations["setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/silences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Silences, the one ending last first. Ended ones are included. */
+        get: operations["list"];
+        put?: never;
+        /** Silence matching events for a period: they are recorded but sent nowhere. */
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/silences/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a silence from the list. */
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/silences/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End a silence now. */
+        post: operations["end"];
         delete?: never;
         options?: never;
         head?: never;
@@ -604,7 +758,8 @@ export interface paths {
         /**
          * Live changes as server-sent events.
          * @description `event` carries `{"event_id"}` when an event has been routed. `delivery` carries
-         *     `{"event_ids", "delivery_id", "state"}` after each delivery attempt. `resync` means changes
+         *     `{"event_ids", "delivery_id", "state"}` after each delivery attempt. `notification` carries
+         *     `{"notification_id"}` when a notification changes state. `resync` means changes
          *     were missed and the client should reload.
          */
         get: operations["stream"];
@@ -773,6 +928,15 @@ export interface components {
              */
             status?: number | null;
         };
+        Bucket: {
+            /** Format: int64 */
+            events: number;
+            /**
+             * Format: int64
+             * @description Start of the bucket, unix milliseconds.
+             */
+            start: number;
+        };
         BulkReplay: {
             delivery_ids: string[];
         };
@@ -816,12 +980,22 @@ export interface components {
         ConnectionView: {
             /** Format: int64 */
             created_at: number;
+            /**
+             * Format: int64
+             * @description Attempts that failed in a row.
+             */
+            failure_streak: number;
             /** @description Whether secret fields have been stored. Their values are never returned. */
             has_credentials: boolean;
             health?: components["schemas"]["ConnectionHealth"] | null;
             id: string;
             kind: string;
             name: string;
+            /**
+             * Format: int64
+             * @description Set while the connection is paused after failing repeatedly; deliveries wait until then.
+             */
+            paused_until?: number | null;
             /** @description The connector's non-secret settings. */
             settings: Record<string, never>;
             /** Format: int64 */
@@ -839,9 +1013,27 @@ export interface components {
             kind: string;
             name: string;
         };
+        Counted: {
+            /** Format: int64 */
+            events: number;
+            name: string;
+        };
         Credentials: {
             email: string;
             password: string;
+        };
+        /** @description Events with the same key as an open notification are counted, not sent again. */
+        Dedup: {
+            /**
+             * @description An expression giving the key. Without it the event's own `dedup_key` is used, and
+             *     failing that its topic and labels.
+             */
+            key?: string | null;
+            /**
+             * Format: int64
+             * @description Seconds after a notification is created during which duplicates are absorbed.
+             */
+            window_s: number;
         };
         DefinitionInput: {
             /** @description The connector definition as YAML. */
@@ -945,6 +1137,18 @@ export interface components {
             /** @description The configuration as YAML, without credentials or source keys. */
             yaml: string;
         };
+        Failing: {
+            connection_id: string;
+            /** Format: int64 */
+            delivered: number;
+            /** Format: int64 */
+            failed: number;
+            last_error?: string | null;
+            /** @description Absent when the connection was deleted. */
+            name?: string | null;
+            /** Format: int64 */
+            paused_until?: number | null;
+        };
         /** @description A failed or dead delivery with enough context to show in a list. */
         FailureRow: components["schemas"]["Delivery"] & {
             /** @description `None` when the connection has been deleted. */
@@ -964,6 +1168,21 @@ export interface components {
         };
         /** @enum {string} */
         FieldKind: "text" | "url";
+        /** @description Events are collected and sent as one message. */
+        Group: {
+            /** @description Labels whose values define a group. Empty means one group per target. */
+            by?: string[];
+            /**
+             * Format: int64
+             * @description Seconds after which a sent notification that is still open is sent again.
+             */
+            repeat_s?: number | null;
+            /**
+             * Format: int64
+             * @description Seconds to wait after the first event before sending.
+             */
+            wait_s: number;
+        };
         Import: {
             yaml: string;
         };
@@ -984,9 +1203,21 @@ export interface components {
             created_at: number;
             deliveries: components["schemas"]["JourneyDelivery"][];
             destination?: string | null;
+            /**
+             * Format: int64
+             * @description Events the notification covers.
+             */
+            event_count: number;
+            /**
+             * Format: int64
+             * @description When a held notification is released.
+             */
+            held_until?: number | null;
             id: string;
             reason?: string | null;
             replay: boolean;
+            /** @description How this event relates to the notification: `first`, `duplicate`, `grouped` or `resolved`. */
+            role: string;
             route_id: string;
             route_name: string;
             state: string;
@@ -1071,6 +1302,26 @@ export interface components {
             /** @description RFC 3339 time the event occurred. Defaults to the time of receipt. */
             ts?: string | null;
         };
+        NewSilence: {
+            comment?: string | null;
+            /**
+             * Format: int64
+             * @description How long it lasts from its start, in seconds.
+             */
+            duration_s?: number | null;
+            /**
+             * Format: int64
+             * @description When it ends, unix milliseconds. Give this or `duration_s`.
+             */
+            ends_at?: number | null;
+            /** @description Which events to silence. At least one condition is required. */
+            match: components["schemas"]["RouteMatch"];
+            /**
+             * Format: int64
+             * @description When it starts, unix milliseconds. Defaults to now.
+             */
+            starts_at?: number | null;
+        };
         NewSource: {
             /** @description Use this secret instead of a generated key, for senders that generate their own. */
             key?: string | null;
@@ -1086,6 +1337,97 @@ export interface components {
         NewUser: {
             email: string;
             password: string;
+        };
+        NotificationDetail: components["schemas"]["NotificationRow"] & {
+            deliveries: components["schemas"]["JourneyDelivery"][];
+            events: components["schemas"]["NotificationEvent"][];
+        };
+        NotificationEvent: components["schemas"]["Event"] & {
+            role: string;
+        };
+        NotificationPage: {
+            /** @description Pass as `before` to get the next page; absent on the last page. */
+            next_before?: string | null;
+            notifications: components["schemas"]["NotificationRow"][];
+        };
+        /** @description A notification in a list. */
+        NotificationRow: {
+            /** Format: int64 */
+            acked_at?: number | null;
+            acked_by?: string | null;
+            connection_id: string;
+            /** @description Absent when the connection was deleted. */
+            connection_name?: string | null;
+            /** Format: int64 */
+            created_at: number;
+            destination?: string | null;
+            /** Format: int64 */
+            event_count: number;
+            /** Format: int64 */
+            held_until?: number | null;
+            id: string;
+            /**
+             * Format: int64
+             * @description When it is next due to be sent, released or repeated.
+             */
+            next_timer_at?: number | null;
+            reason?: string | null;
+            /** Format: int64 */
+            resolved_at?: number | null;
+            route_id: string;
+            route_name: string;
+            /**
+             * Format: int64
+             * @description Messages sent for it so far.
+             */
+            sent_count: number;
+            /** @description The highest severity among its events. */
+            severity: components["schemas"]["Severity"];
+            state: components["schemas"]["NotificationState"];
+            /** @description The title of the event that opened it. */
+            title: string;
+            /** Format: int64 */
+            updated_at: number;
+        };
+        /** @enum {string} */
+        NotificationState: "grouping" | "held" | "sent" | "acknowledged" | "resolved" | "suppressed";
+        OverviewView: {
+            /** Format: int64 */
+            bucket_ms: number;
+            /** @description Events per bucket, for buckets that have any, oldest first. */
+            buckets: components["schemas"]["Bucket"][];
+            /** Format: int64 */
+            deliveries_delivered: number;
+            /** Format: int64 */
+            deliveries_failed: number;
+            /** Format: int64 */
+            deliveries_pending: number;
+            /**
+             * Format: int64
+             * @description Events received in the period.
+             */
+            events: number;
+            /** @description Connections with failed deliveries in the period or paused now, worst first. */
+            failing: components["schemas"]["Failing"][];
+            /**
+             * Format: int64
+             * @description Start of the period, unix milliseconds.
+             */
+            since: number;
+            /** @description The sources that sent most. */
+            sources: components["schemas"]["Counted"][];
+            /** @description The topics with most events. */
+            topics: components["schemas"]["Counted"][];
+            /**
+             * Format: int64
+             * @description Notifications sent and neither acknowledged nor resolved.
+             */
+            unacknowledged: number;
+            /**
+             * Format: int64
+             * @description Notifications collecting or held right now.
+             */
+            waiting: number;
         };
         /** @description The request a connector would send for a message, with secrets masked. */
         Preview: {
@@ -1105,6 +1447,25 @@ export interface components {
             /** @description The event to word. Without it the newest event is used, or a sample when there is none. */
             event_id?: string | null;
             title: string;
+        };
+        /** @description A daily period in which notifications are held and sent as one digest when it ends. */
+        QuietHours: {
+            bypass_severity?: components["schemas"]["Severity"] | null;
+            /** @description Days on which a quiet period starts: `mon` … `sun`. Empty means every day. */
+            days?: string[];
+            /** @description When it ends, `HH:MM`. Earlier than `start` means the next morning. */
+            end: string;
+            /** @description When the quiet period starts, `HH:MM`. */
+            start: string;
+            /** @description IANA time zone, for example `Europe/Warsaw`. */
+            tz: string;
+        };
+        /** @description At most `max` notifications per window; the rest are held and sent as one summary. */
+        RateLimit: {
+            /** Format: int64 */
+            max: number;
+            /** Format: int64 */
+            window_s: number;
         };
         Reorder: {
             /** @description Every route id exactly once, in the new evaluation order. */
@@ -1138,6 +1499,8 @@ export interface components {
             name: string;
             /** Format: int64 */
             position: number;
+            /** @description What the route does besides sending: dedup, grouping, quiet hours, rate limit. */
+            shaping?: components["schemas"]["Shaping"];
             /** @description When this route matches, routes after it are not evaluated. */
             stop: boolean;
             targets: components["schemas"]["Target"][];
@@ -1146,6 +1509,8 @@ export interface components {
             enabled?: boolean;
             match: components["schemas"]["RouteMatch"];
             name: string;
+            /** @description Dedup, grouping, quiet hours and rate limit. Empty sends every matching event at once. */
+            shaping?: components["schemas"]["Shaping"];
             /** @description When this route matches, routes after it are not evaluated. */
             stop?: boolean;
             targets: components["schemas"]["Target"][];
@@ -1170,6 +1535,11 @@ export interface components {
             route_id?: string | null;
             /** @description What each target would receive, when the route matched. */
             targets: components["schemas"]["TargetResult"][];
+        };
+        RouteTestResult: {
+            event: components["schemas"]["Event"];
+            /** @description One entry per route, in evaluation order. */
+            results: components["schemas"]["RouteResult"][];
         };
         /** @description A route with the last failure of its expression, if any. */
         RouteView: components["schemas"]["Route"] & {
@@ -1197,6 +1567,31 @@ export interface components {
         };
         /** @enum {string} */
         Severity: "debug" | "info" | "warning" | "error" | "critical";
+        /** @description A route's shaping policy. Empty means every matching event is sent at once. */
+        Shaping: {
+            dedup?: components["schemas"]["Dedup"] | null;
+            group?: components["schemas"]["Group"] | null;
+            /** @description Tell a target when something it was notified about is resolved. */
+            notify_resolved?: boolean;
+            quiet_hours?: components["schemas"]["QuietHours"] | null;
+            rate_limit?: components["schemas"]["RateLimit"] | null;
+        };
+        /** @description A period during which matching events are not sent anywhere. */
+        Silence: {
+            comment?: string | null;
+            /** Format: int64 */
+            ends_at: number;
+            id: string;
+            match: components["schemas"]["RouteMatch"];
+            /** Format: int64 */
+            starts_at: number;
+        };
+        /** @description A silence with who created it. */
+        SilenceRow: components["schemas"]["Silence"] & {
+            author: string;
+            /** Format: int64 */
+            created_at: number;
+        };
         /** @description A producer of events. The ingest key itself is never stored, only its hash and a display prefix. */
         Source: {
             /** Format: int64 */
@@ -1239,6 +1634,12 @@ export interface components {
             /** @description `/v1/events` for native sources, `/v1/in/{id}` for the others. */
             path: string;
         };
+        /** @description One shaping step and what it concluded, for the journey and the route tester. */
+        Step: {
+            outcome: string;
+            /** @description `silence`, `resolve`, `dedup`, `group`, `quiet_hours`, `rate_limit` or `send`. */
+            step: string;
+        };
         /** @description Where a route sends: a connection and an optional destination within it (for example a channel). */
         Target: {
             connection_id: string;
@@ -1252,6 +1653,13 @@ export interface components {
             /** @description Absent when the connection does not exist. */
             connection_name?: string | null;
             destination?: string | null;
+            /**
+             * @description What shaping would do right now: `sent`, `not sent`, `joins an open notification`,
+             *     `opens a group`, `held` or `resolves an open notification`.
+             */
+            outcome: string;
+            /** @description The shaping steps that led there. */
+            steps: components["schemas"]["Step"][];
             title: string;
             /** @description For example: the template failed and the default wording would be sent. */
             warning?: string | null;
@@ -1290,9 +1698,13 @@ export interface components {
             routes?: components["schemas"]["RouteInput"][] | null;
         };
         TestResult: {
-            event: components["schemas"]["Event"];
-            /** @description One entry per route, in evaluation order. */
-            results: components["schemas"]["RouteResult"][];
+            detail?: string | null;
+            ok: boolean;
+            /**
+             * Format: int32
+             * @description HTTP status the service answered with, if it answered.
+             */
+            status?: number | null;
         };
         TokenCreated: components["schemas"]["ApiToken"] & {
             /** @description The token. Shown only in this response. */
@@ -1622,6 +2034,33 @@ export interface operations {
         };
     };
     remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume: {
         parameters: {
             query?: never;
             header?: never;
@@ -2044,6 +2483,172 @@ export interface operations {
     };
     list: {
         parameters: {
+            query?: {
+                /**
+                 * @description States to include, separated by commas: `grouping`, `held`, `sent`, `acknowledged`,
+                 *     `resolved`, `suppressed`. All when absent.
+                 */
+                state?: string;
+                /** @description Return notifications older than this id. Use `next_before` from the previous page. */
+                before?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    acknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resolve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    overview: {
+        parameters: {
+            query?: {
+                /** @description How many hours back to look, 1 to 744. Default 24. */
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewView"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
             query?: never;
             header?: never;
             path?: never;
@@ -2139,7 +2744,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TestResult"];
+                    "application/json": components["schemas"]["RouteTestResult"];
                 };
             };
             404: {
@@ -2327,6 +2932,110 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SilenceRow"][];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewSilence"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SilenceRow"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    end: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -27,7 +27,7 @@ pub(crate) struct TestRequest {
 }
 
 #[derive(Serialize, ToSchema)]
-pub(crate) struct TestResult {
+pub(crate) struct RouteTestResult {
     event: Event,
     /// One entry per route, in evaluation order.
     results: Vec<RouteResult>,
@@ -66,13 +66,13 @@ pub(crate) struct TargetResult {
 /// Evaluate an event against routes and show what each would send. Nothing is stored or sent.
 #[utoipa::path(
     post, path = "/api/routes/test", tag = "routes", request_body = TestRequest,
-    responses((status = 200, body = TestResult), (status = 404, body = ErrorBody), (status = 422, body = ErrorBody))
+    responses((status = 200, body = RouteTestResult), (status = 404, body = ErrorBody), (status = 422, body = ErrorBody))
 )]
 pub(crate) async fn test(
     State(state): State<AppState>,
     auth: Auth,
     Json(body): Json<TestRequest>,
-) -> Result<Json<TestResult>, ApiError> {
+) -> Result<Json<RouteTestResult>, ApiError> {
     let ws = &auth.workspace_id;
     let now = state.clock.now_ms();
     let event = match (body.event_id, body.event) {
@@ -194,5 +194,5 @@ pub(crate) async fn test(
             targets,
         });
     }
-    Ok(Json(TestResult { event, results }))
+    Ok(Json(RouteTestResult { event, results }))
 }

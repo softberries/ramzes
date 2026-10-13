@@ -20,15 +20,7 @@ export type SourceRequest = Schemas['SourceRequest'];
 export type ConnectorDescriptor = Schemas['ConnectorDescriptor'];
 export type ConnectorField = Schemas['Field'];
 export type ConnectionView = Schemas['ConnectionView'];
-/**
- * What a connection's test message came back with. Written by hand: the API description names both
- * this and the route tester's answer `TestResult`, and the generated type is the route tester's.
- */
-export interface TestResult {
-	ok: boolean;
-	status?: number | null;
-	detail?: string | null;
-}
+export type TestResult = Schemas['TestResult'];
 export type Route = Schemas['RouteView'];
 export type RouteInput = Schemas['RouteInput'];
 export type RouteMatch = Schemas['RouteMatch'];
@@ -48,7 +40,7 @@ export type Template = Schemas['Template'];
 export type TemplatePreview = Schemas['TemplatePreview'];
 export type RequestPreview = Schemas['Preview'];
 export type MessagePreview = Schemas['MessagePreview'];
-export type RouteTest = Schemas['TestResult'];
+export type RouteTest = Schemas['RouteTestResult'];
 export type RouteResult = Schemas['RouteResult'];
 export type TargetResult = Schemas['TargetResult'];
 export type RevisionMeta = Schemas['RevisionMeta'];
