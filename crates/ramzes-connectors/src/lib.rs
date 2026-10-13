@@ -15,7 +15,7 @@ use serde::Serialize;
 pub use http::classify;
 
 /// What a connector is and which settings it needs. Drives the setup form in the UI.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct ConnectorDescriptor {
     pub kind: &'static str,
     pub name: &'static str,
@@ -26,7 +26,7 @@ pub struct ConnectorDescriptor {
     pub destination_label: Option<&'static str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Field {
     pub key: &'static str,
     pub label: &'static str,
@@ -37,14 +37,14 @@ pub struct Field {
     pub kind: FieldKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FieldKind {
     Text,
     Url,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Capabilities {
     pub rich: bool,
     pub update: bool,

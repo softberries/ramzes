@@ -4,7 +4,7 @@ use crate::event::Event;
 use crate::matching::RouteMatch;
 
 /// Where a route sends: a connection and an optional destination within it (for example a channel).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
     pub connection_id: String,
@@ -12,7 +12,7 @@ pub struct Target {
     pub destination: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Route {
     pub id: String,
     pub name: String,

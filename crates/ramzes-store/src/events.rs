@@ -47,7 +47,7 @@ pub struct EventFilter {
 }
 
 /// An event with a summary of what happened to it, for lists.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct EventRow {
     #[serde(flatten)]
     pub event: Event,

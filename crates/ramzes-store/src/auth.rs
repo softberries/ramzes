@@ -15,7 +15,7 @@ pub struct User {
 }
 
 /// An admin API token. The token itself is never stored, only its hash and a display prefix.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct ApiToken {
     pub id: String,
     pub name: String,

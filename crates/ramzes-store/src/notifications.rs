@@ -10,7 +10,7 @@ use crate::sql::{Sql, bind_args};
 use crate::{Result, Store, with_db};
 
 /// Everything that happened to one event.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct Journey {
     pub event: Event,
     pub routed: bool,
@@ -18,7 +18,7 @@ pub struct Journey {
     pub notifications: Vec<JourneyNotification>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct JourneyNotification {
     pub id: String,
     pub route_id: String,
@@ -32,7 +32,7 @@ pub struct JourneyNotification {
     pub deliveries: Vec<JourneyDelivery>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct JourneyDelivery {
     #[serde(flatten)]
     pub delivery: Delivery,

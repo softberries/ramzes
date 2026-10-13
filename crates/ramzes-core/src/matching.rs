@@ -7,7 +7,7 @@ use crate::event::{Event, Severity};
 const REGEX_SIZE_LIMIT: usize = 100_000;
 
 /// The conditions of a route. Every condition that is set must hold.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RouteMatch {
     /// Glob over the whole topic: `*` matches any run of characters.
@@ -21,7 +21,7 @@ pub struct RouteMatch {
     pub labels: Vec<LabelCond>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
 pub enum LabelCond {
     Equals {

@@ -4,7 +4,7 @@ use sqlx::{AssertSqlSafe, Row};
 use crate::{Result, Store, StoreError, with_db};
 
 /// A producer of events. The ingest key itself is never stored, only its hash and a display prefix.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Source {
     pub id: String,
     pub workspace_id: String,
@@ -15,7 +15,7 @@ pub struct Source {
 }
 
 /// A request a source sent that ramzes rejected, kept for debugging.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct SourceRequest {
     pub id: String,
     pub received_at: i64,

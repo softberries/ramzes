@@ -1498,6 +1498,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tokio",
+ "utoipa",
  "wiremock",
 ]
 
@@ -1514,6 +1515,7 @@ dependencies = [
  "sha2 0.11.1",
  "thiserror",
  "time",
+ "utoipa",
  "uuid",
 ]
 
@@ -1569,6 +1571,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "utoipa",
 ]
 
 [[package]]

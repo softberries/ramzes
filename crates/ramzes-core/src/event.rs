@@ -13,7 +13,18 @@ const LABEL_VALUE_MAX: usize = 1000;
 const DEDUP_KEY_MAX: usize = 200;
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -48,7 +59,9 @@ impl Severity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum EventStatus {
     #[default]
@@ -97,7 +110,7 @@ pub struct NewEvent {
 }
 
 /// A stored event.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Event {
     pub id: String,
     pub workspace_id: String,

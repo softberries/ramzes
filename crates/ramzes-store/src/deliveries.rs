@@ -18,7 +18,7 @@ pub struct NewDispatch {
     pub replay: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryState {
     Pending,
@@ -54,7 +54,7 @@ impl DeliveryState {
 }
 
 /// One send of a notification to one target.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Delivery {
     pub id: String,
     pub workspace_id: String,
@@ -72,7 +72,7 @@ pub struct Delivery {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Attempt {
     pub id: String,
     pub delivery_id: String,
@@ -95,7 +95,7 @@ pub enum Finish {
 }
 
 /// A failed or dead delivery with enough context to show in a list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct FailureRow {
     #[serde(flatten)]
     pub delivery: Delivery,
