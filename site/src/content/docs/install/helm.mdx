@@ -1,6 +1,201 @@
 ---
 title: "Helm and Kubernetes"
-description: "Helm and Kubernetes in ramzes."
+description: "Install ramzes on Kubernetes with the chart in the repository: what it creates, every value, SQLite on a volume or external Postgres, and why it runs one replica."
 ---
 
-This page is being written.
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The repository contains a Helm chart in `deploy/helm/ramzes`. It runs ramzes as a StatefulSet with
+exactly one replica, with SQLite on a persistent volume or with a Postgres database you provide.
+
+<Aside type="caution">
+The chart has been checked with `helm lint` and `helm template`. It has not been installed on a
+cluster. There is no chart repository and no published image: you install the chart from a checkout
+and supply an image you built. See [Verified claims](/ramzes/verified/).
+</Aside>
+
+## Install
+
+<Steps>
+
+1. **Build and push the image.** The chart's default image is `ghcr.io/softberries/ramzes` with the
+   chart's `appVersion` (`0.1.0`) as the tag. Nothing has been published there, so build the image
+   and push it to a registry your cluster can pull from:
+
+   ```sh
+   docker build -f deploy/Dockerfile -t registry.example.com/ramzes:0.1.0 .
+   docker push registry.example.com/ramzes:0.1.0
+   ```
+
+2. **Install the chart from the checkout.**
+
+   ```sh
+   helm install ramzes ./deploy/helm/ramzes \
+     --set image.repository=registry.example.com/ramzes \
+     --set image.tag=0.1.0
+   ```
+
+3. **Open it.** The Service is of type `ClusterIP`, named after the release, on port 7269:
+
+   ```sh
+   kubectl port-forward svc/ramzes 7269:7269
+   ```
+
+   Then open `http://localhost:7269` and go through the setup screen. Until
+   the first account exists, anyone who can reach the instance can create it, so do this before you
+   enable the Ingress.
+
+</Steps>
+
+## What the chart creates
+
+| Resource | Details |
+|---|---|
+| StatefulSet | One replica. One container listening on 7269. |
+| Service | `ClusterIP` by default, port 7269, named after the release. |
+| PersistentVolumeClaim | From a volume claim template, `ReadWriteOnce`, 5Gi by default, mounted at `/data`. Only when `persistence.enabled` is true. |
+| Ingress | Only when `ingress.enabled` is true. One host, path `/`. |
+
+The pod runs as uid and gid 10001 with `runAsNonRoot`, a read-only root file system, no privilege
+escalation and all capabilities dropped. `/tmp` is an `emptyDir`. The readiness probe calls
+`/readyz` every 5 seconds and the liveness probe calls `/healthz` every 10 seconds. The termination
+grace period is 30 seconds.
+
+The chart always sets `RAMZES_LISTEN=0.0.0.0:7269`, `RAMZES_DATA_DIR=/data` and
+`RAMZES_LOG_FORMAT=json`.
+
+## Values
+
+| Value | Default | Meaning |
+|---|---|---|
+| `image.repository` | `ghcr.io/softberries/ramzes` | Image to run. Set it to the one you built. |
+| `image.tag` | `""` | Defaults to the chart's `appVersion`, `0.1.0`. |
+| `image.pullPolicy` | `IfNotPresent` | |
+| `publicUrl` | `""` | Address people reach ramzes at, for links in messages. Sets `RAMZES_PUBLIC_URL` when not empty. |
+| `secureCookies` | `false` | Sets `RAMZES_SECURE_COOKIES`. Set to `true` when ramzes is served over HTTPS. |
+| `blockPrivateAddresses` | `false` | Sets `RAMZES_BLOCK_PRIVATE_ADDRESSES`: refuse to deliver to loopback, private and link-local addresses. |
+| `database.existingSecret` | `""` | Name of a Secret holding the Postgres URL. Empty uses SQLite on the volume. |
+| `database.secretKey` | `database-url` | Key in that Secret. |
+| `secretKey.existingSecret` | `""` | Name of a Secret holding the key that encrypts stored credentials. Empty lets ramzes generate one on the volume. |
+| `secretKey.secretKey` | `secret-key` | Key in that Secret. |
+| `persistence.enabled` | `true` | Create a volume for `/data`. |
+| `persistence.size` | `5Gi` | |
+| `persistence.storageClass` | `""` | Empty uses the cluster's default class. |
+| `service.type` | `ClusterIP` | |
+| `service.port` | `7269` | |
+| `ingress.enabled` | `false` | |
+| `ingress.className` | `""` | |
+| `ingress.annotations` | `{}` | |
+| `ingress.host` | `ramzes.example.com` | |
+| `ingress.tlsSecret` | `""` | Name of a TLS Secret for the host. Empty serves plain HTTP. |
+| `resources` | `{}` | |
+| `nodeSelector`, `tolerations`, `affinity` | empty | |
+| `podAnnotations` | `{}` | |
+| `extraEnv` | `[]` | More environment variables for the container, as a list of `name`/`value` entries. |
+
+The chart has no value for the number of replicas, for image pull secrets, for the metrics token or
+for a ServiceMonitor. Set the metrics token and anything else from the
+[Configuration reference](/ramzes/operations/configuration/) through `extraEnv`:
+
+```yaml
+extraEnv:
+  - name: RAMZES_METRICS_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: ramzes-metrics
+        key: token
+```
+
+## SQLite on a volume
+
+This is the default. The database file and the generated `secret.key` both live on the persistent
+volume, which stays when the pod is replaced.
+
+```sh
+helm install ramzes ./deploy/helm/ramzes \
+  --set image.repository=registry.example.com/ramzes \
+  --set image.tag=0.1.0 \
+  --set persistence.size=20Gi
+```
+
+Uninstalling a release does not delete a claim made from a volume claim template. Delete the claim
+yourself when you no longer want the data.
+
+## External Postgres
+
+Put the database URL in a Secret and name it in the values. The chart does not run Postgres for you.
+
+```sh
+kubectl create secret generic ramzes-db \
+  --from-literal=database-url='postgres://ramzes:PASSWORD@postgres.example.internal:5432/ramzes'
+
+helm install ramzes ./deploy/helm/ramzes \
+  --set image.repository=registry.example.com/ramzes \
+  --set image.tag=0.1.0 \
+  --set database.existingSecret=ramzes-db
+```
+
+With persistence left on, the volume still exists and holds the generated `secret.key`.
+
+To run without any volume, supply the secret key too. The chart refuses to render otherwise, with
+one of these messages:
+
+- `SQLite needs persistence.enabled=true; or set database.existingSecret to use Postgres`
+- `without a persistent volume, set secretKey.existingSecret so stored credentials survive a restart`
+
+```sh
+kubectl create secret generic ramzes-key \
+  --from-literal=secret-key="$(openssl rand -base64 32)"
+
+helm install ramzes ./deploy/helm/ramzes \
+  --set image.repository=registry.example.com/ramzes \
+  --set image.tag=0.1.0 \
+  --set database.existingSecret=ramzes-db \
+  --set secretKey.existingSecret=ramzes-key \
+  --set persistence.enabled=false
+```
+
+<Aside type="caution">
+Keep a copy of the secret key outside the cluster. If the Secret is lost, the credentials stored in
+the database cannot be read. See [Security](/ramzes/operations/security/).
+</Aside>
+
+## One replica, and why
+
+The StatefulSet's replica count is fixed at 1 in the template. ramzes makes its noise-control
+decisions (dedup, grouping, holds, acknowledgements) under a lock inside one process, counts the
+ingest rate limit and the sign-in lockout in that process's memory, and does not coordinate with
+other instances. Two instances on the same database would each decide on their own. With SQLite
+there is also only one volume, mounted `ReadWriteOnce`.
+
+Do not scale the StatefulSet by hand. While the pod is being replaced, ramzes is down: senders get
+connection errors and have to retry. Events already accepted are in the database and are routed and
+delivered when the pod is back.
+
+## Ingress and HTTPS
+
+```yaml
+publicUrl: https://ramzes.example.com
+secureCookies: true
+ingress:
+  enabled: true
+  className: nginx
+  host: ramzes.example.com
+  tlsSecret: ramzes-tls
+```
+
+The Ingress sends every path on the host to the Service. That includes `/metrics`, which is open
+unless a metrics token is set. The UI's live updates use server-sent events on `/api/stream`; if
+your ingress controller buffers responses, turn buffering off for that path with
+`ingress.annotations`.
+
+## Upgrading the release
+
+Build and push a new image, then:
+
+```sh
+helm upgrade ramzes ./deploy/helm/ramzes --reuse-values --set image.tag=<new tag>
+```
+
+The new pod runs the database migrations when it starts. Take a backup first; see
+[Upgrading](/ramzes/install/upgrading/) and [Backup, export and import](/ramzes/operations/backup/).

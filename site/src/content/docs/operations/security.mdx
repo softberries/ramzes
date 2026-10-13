@@ -1,6 +1,256 @@
 ---
 title: "Security"
-description: "Security in ramzes."
+description: "How ramzes authenticates people, scripts and senders, how secrets are stored, what the secret key protects, and which protections do not exist."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+
+This page describes what ramzes does to keep the instance and its secrets safe, and what it leaves
+to you. Read the last two sections before you let anyone else reach the instance.
+
+## Who can do what
+
+There is one level of access. Every user who can sign in, and every API token, can read and change
+everything: routes, connections, sources, users, tokens and settings. There are no roles and no
+read-only accounts.
+
+| Who | Proves itself with | Can |
+|---|---|---|
+| A person | Email and password, then a session cookie | Everything in the UI and the admin API |
+| A script | An API token as `Authorization: Bearer <token>` | Everything in the admin API |
+| A sender | A source key, or a signature made with it | Send events as that source. Nothing else. |
+| Someone with a link from a message | The signature in the link | Acknowledge that one notification |
+| Prometheus | The metrics token, if one is set | Read `/metrics` |
+
+These endpoints need no authentication at all: `/healthz`, `/readyz`, `/api/openapi.json`,
+`GET /api/setup` (which only says whether setup is still needed), and `/metrics` when no metrics
+token is set.
+
+## Sign-in and sessions
+
+**The first account.** While no user exists, `POST /api/setup` creates one, and the UI sends every
+visitor to the setup screen. Whoever reaches the instance first becomes its administrator, so
+complete the setup before the instance is reachable by others. Once a user exists the endpoint
+answers `409` with "setup has already been completed".
+
+**Passwords.** A password must be at least 10 characters. It is stored as an Argon2 hash (the
+defaults of the `argon2` crate), never in the clear. When the email is unknown, sign-in still does
+the work of checking a hash, so the two failures take the same time.
+
+**Sessions.** Signing in sets a cookie named `ramzes_session`:
+
+```txt
+ramzes_session=<token>; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000
+```
+
+- The token is random (256 bits). The database stores only its SHA-256 hash.
+- A session lasts 30 days from sign-in. It is not extended by use.
+- `; Secure` is added when `secure_cookies` is on. Turn it on when you serve ramzes over HTTPS.
+- Signing out deletes the session. Removing a user deletes all of that user's sessions.
+
+**Users.** Users are added and removed under **Settings**, **Users**. The last user cannot be
+removed. There is no screen or endpoint to change or reset a password: to replace one, another user
+removes the account and adds it again. If the only user's password is lost, ramzes has no recovery
+path.
+
+## The sign-in lockout
+
+After 10 wrong passwords for one email address within 15 minutes, sign-in for that address is
+refused with `429` until the oldest of those attempts is 15 minutes old:
+
+```json
+{"error":"too_many_attempts","message":"too many wrong passwords for this email; try again in 15 minutes"}
+```
+
+A successful sign-in clears the count. Things to know about it:
+
+- It counts per email address, not per client address. Anyone who can reach the sign-in endpoint
+  can lock an address out by sending wrong passwords for it.
+- The counts are in memory. A restart clears them.
+- At most 10,000 addresses are tracked at once.
+- There is no other rate limit on the admin API.
+
+## The request header for state-changing calls
+
+A request that is authenticated by the session cookie and uses any method other than `GET`, `HEAD`
+or `OPTIONS` must carry the header `X-Ramzes-Request`. Any value will do; the UI sends `1`. Without
+it the answer is `403`:
+
+```json
+{"error":"missing_request_header","message":"requests that change state must carry the header X-Ramzes-Request: 1"}
+```
+
+This is the protection against cross-site request forgery: a form on another site can make a
+browser send the cookie, but it cannot add a custom header. Requests that use an API token do not
+need the header.
+
+## API tokens
+
+API tokens are for scripts. Create one under **Settings**, **API tokens**, and send it as
+`Authorization: Bearer <token>`.
+
+- A token starts with `rz_tok_` followed by 43 random characters (256 bits).
+- Its value is shown once, when it is created. The database stores its SHA-256 hash and the first
+  characters, which the UI shows so you can tell tokens apart.
+- A token has the same access as a user. It does not expire. Revoking it under **Settings** makes
+  it stop working at once.
+- The time a token was last used is recorded.
+
+When a request carries an `Authorization: Bearer` header, only the token is checked; a session
+cookie on the same request is ignored.
+
+## Source keys
+
+A source key lets a sender submit events as one source. It starts with `rz_src_` followed by 43
+random characters, unless you supply the secret yourself (16 to 200 characters), which is what you
+do for senders such as GitHub or Sentry that generate their own.
+
+ramzes stores a source key in two forms:
+
+- **Its SHA-256 hash.** This is what a presented key is looked up by.
+- **An encrypted copy**, sealed with the instance's secret key. Checking a signature (GitHub's
+  `X-Hub-Signature-256`, Sentry's, GitLab's signing token, an HMAC header of an any-JSON source)
+  needs the key itself, so ramzes has to be able to read it back.
+
+The key is shown once. The UI and the API never return it afterwards; they show its first
+characters. **Replace key** on the **Sources** page makes the old key stop working immediately.
+Each key can belong to only one source.
+
+Some requests are recorded so you can debug the sender, the newest 20 per source:
+
+- a request to `/v1/events` that was refused as invalid (`400` or `422`), with its body cut to
+  10,000 characters;
+- every request to a per-source address `/v1/in/<source id>` that passed verification, accepted or
+  not, with its body cut to 64,000 characters and its headers. `Authorization`, `Cookie`, the
+  header that carries the key, and any header whose name contains `signature` or `token` are left
+  out.
+
+Every user can read these records, so do not send secrets in event bodies.
+
+## The secret key
+
+The secret key is 32 random bytes. ramzes uses it for three things:
+
+- encrypting the credentials of every connection (the fields a connector marks as secret, such
+  as a Slack webhook URL, an SMTP password or an API key), with XChaCha20-Poly1305 and a fresh
+  random nonce per value;
+- encrypting the stored copy of each source key;
+- signing acknowledgement links, with a key derived from it.
+
+It comes from `--secret-key` or `RAMZES_SECRET_KEY` (base64 of 32 bytes), or from the file
+`secret.key` in the data directory, which ramzes creates on first start with mode `0600`.
+
+The API never returns credentials. A connection reports only whether it has any, and previews of
+the request a connection would send show stored secrets as `••••`.
+
+A connection's other fields are settings, stored and exported as they are. The **URL** of a
+Webhook connection is one of them: if you put a token in that URL, it is not treated as a secret.
+
+### What losing it means
+
+The database without its key still starts. This is what breaks, and what does not:
+
+| | With a lost or different key |
+|---|---|
+| Sign-in, API tokens | Work. They are hashes and do not depend on the key. |
+| Senders that present the key itself (`Authorization: Bearer`, a header, a URL parameter) | Work. The lookup is by hash. |
+| Senders verified by signature (GitHub, Sentry, GitLab's signing token, HMAC) | Refused with `401`: "this source has no stored secret to check signatures with; replace its key in ramzes". |
+| Deliveries | Fail for good with "the connection's credentials could not be read: decryption failed; was it sealed with a different secret key?". |
+| Acknowledgement links already sent | Show "This link is not valid". |
+| Slack buttons | Refused, because the app's signing secret cannot be read. |
+
+To recover, enter the credentials of every connection again and replace the key of every source
+that is verified by signature. There is no way to recover the old values.
+
+Back the key up with the database, and store the copy somewhere the database backup is not.
+
+## Outbound requests and the private-address block
+
+Connections make ramzes send HTTP requests and SMTP connections to addresses a user typed in. By
+default any address is allowed, including `localhost` and addresses inside your network. A signed-in
+user can therefore make ramzes call an internal service and see its status and, when the answer is
+not a success, up to 500 characters of its body.
+
+Set `block_private_addresses` to `true` to refuse these. With it on, ramzes does not send to:
+
+- loopback (`127.0.0.0/8`, `::1`) and the unspecified address;
+- private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and IPv6 unique local
+  (`fc00::/7`);
+- link-local (`169.254.0.0/16`, which includes cloud metadata addresses, and `fe80::/10`);
+- `0.0.0.0/8`, `100.64.0.0/10`, `198.18.0.0/15` and `240.0.0.0/4`;
+- any of the above written as an IPv4-mapped, IPv4-compatible or NAT64 IPv6 address.
+
+The check applies to addresses written literally and to what a host name resolves to, both before
+the request and again when the connection is made. It covers every HTTP channel and email. A
+refused delivery fails for good with:
+
+```txt
+not sent: the address is private, and this instance blocks requests to private addresses
+```
+
+Whether the block is on or off, ramzes never follows redirects, gives each request 10 seconds, and
+reads at most 64 KiB of an answer.
+
+## `/metrics`
+
+`/metrics` is open unless `metrics_token` is set. With a token, a request without the right
+`Authorization: Bearer <token>` header gets `401`. The metrics contain counts and connector kinds,
+not event contents, but set a token or keep the path off the internet.
+
+## The acknowledgement link
+
+When the instance has a public address, each message for an open notification can carry a link of
+this form:
+
+```txt
+https://ramzes.example.com/ack/<notification id>?t=<signature>
+```
+
+- The signature is the HMAC-SHA256 of the text `ack:<notification id>`, keyed with a key derived
+  from the secret key. It is valid for that notification only.
+- Opening the link shows a page with one button. The notification is acknowledged only when the
+  button is pressed, so link previews and scanners that fetch the address do not acknowledge
+  anything.
+- The link needs no sign-in. Anyone who has it can acknowledge that notification, which is recorded
+  as acknowledged by "link". Treat the channels you send it to accordingly.
+- It does not expire. It works as long as the notification is kept and the secret key is unchanged.
+- A wrong signature and a notification that does not exist give the same page, "This link is not
+  valid".
+
+Button presses from Slack arrive at `/v1/slack/<connection id>/interactions` and are accepted only
+with a valid Slack signature made with the app's signing secret, no more than 5 minutes old.
+
+## Templates and expressions
+
+Templates, route expressions, connector definitions and source mappings are text written by users
+and evaluated by ramzes. Evaluation is bounded:
+
+| Limit | Value |
+|---|---|
+| Work per evaluation | 50,000 instructions; beyond that it stops with "it did too much work and was stopped" |
+| Source text | 32 KiB |
+| Output of a template | 256 KiB |
+| Compiled size of a label regular expression | 100,000 bytes |
+
+There is no memory limit. The output limit is checked after rendering, so a template can build a
+very large string within the work limit before it is refused. Only signed-in users and API tokens
+can write templates. Do not give accounts or tokens to people you would not trust with the server.
+
+## What is not there
+
+- **Roles.** Every user and every token is an administrator.
+- **Single sign-on.** Sign-in is email and password only. There is no OIDC, SAML or LDAP, and no
+  second factor.
+- **An audit log.** The configuration history records who changed routes, templates, connections,
+  connectors, sources and settings. It does not record sign-ins, reads, or changes to users and
+  API tokens.
+- **Password change or reset.**
+- **TLS.** ramzes serves plain HTTP. Put it behind a reverse proxy; see
+  [Docker Compose](/ramzes/install/docker-compose/).
+- **CORS headers.** A page on another origin cannot call the API from a browser.
+- **A memory limit for templates and expressions**, as described above.
+
+<Aside type="caution" title="Before you expose an instance">
+Complete the setup, serve it over HTTPS with `secure_cookies` on, set a metrics token, decide
+whether to turn on `block_private_addresses`, and back up the secret key.
+</Aside>

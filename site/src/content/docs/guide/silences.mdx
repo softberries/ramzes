@@ -1,6 +1,94 @@
 ---
 title: "Silences"
-description: "Silences in ramzes."
+description: "How to create a silence, end one early, and read the Active, Upcoming and Ended lists on the Silences page."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+While a silence is active, the events it matches are still recorded in the feed but sent nowhere. The
+Silences page is where you create one, end one early, and see which ones apply. How a silence interacts
+with routes and open notifications is covered in [Noise control](/ramzes/concepts/noise-control/).
+
+<Screenshot name="silences" caption="One active silence on the topic infra.disk.*, with its comment, when it ends and who created it." />
+
+## Creating a silence
+
+<Steps>
+
+1. Press **New silence**.
+
+2. Under **Which events**, say what to silence. The fields are the same as a route's conditions:
+
+   - **Topic**: an exact topic, or a pattern in which `*` matches any run of characters, as in `orders.*`.
+   - **Minimum severity** and **Source**.
+   - **Add label condition**: a label key that **equals** a value, **matches** a regular expression, or
+     **is present**.
+   - **Expression**: an optional test over the event. See
+     [Expressions and templates](/ramzes/reference/expressions/).
+
+   An event must meet all the conditions you fill in. A line under the fields repeats them in words,
+   for example "Silences: topic infra.disk.\*". At least one condition is required: a silence cannot
+   cover every event.
+
+3. Under **For how long**, choose **30 min**, **1 h**, **4 h** or **24 h**, or **Until a date and
+   time** and fill in **Ends at**. The form starts on 1 h. A date and time is in your browser's time
+   zone and must be in the future.
+
+4. Optionally write a **Comment** saying why, up to 500 characters. It is shown in the list and as the
+   reason on notifications the silence holds back.
+
+5. Press **Create silence**.
+
+</Steps>
+
+A silence created here starts at once. It can last at most a year.
+
+### Silencing from a notification
+
+The **Silence** button on a notification opens this form already filled in with the topic and every
+label of the event that opened the notification. Loosen it before creating, for example by removing a
+label that is unique to one event. See [Notifications](/ramzes/guide/notifications/).
+
+## The lists
+
+The three buttons above the table switch between silences by when they apply. Each carries a count.
+
+| List | Holds | Starts sorted by | Action |
+| --- | --- | --- | --- |
+| **Active** | Silences that apply now. | The one ending soonest first. | **End now** |
+| **Upcoming** | Silences that start later. | The one starting soonest first. | **Delete** |
+| **Ended** | Silences that are over. | The one that ended last first. | **Delete** |
+
+The form on this page always starts a silence now. An upcoming one exists only when it was created
+through the [admin API](/ramzes/reference/api/) with a start time.
+
+The columns:
+
+| Column | What it shows |
+| --- | --- |
+| **Events silenced** | The conditions in words, with the comment underneath. |
+| **Ends**, **Starts** or **Ended** | For an active silence, "ends in 1 h, at 22:51". For an upcoming one, when it starts and for how long. For an ended one, how long ago. |
+| **Created by** | The email address of the person, "API token", or a Slack user name followed by "(Slack)" for a silence made with the [Slack app](/ramzes/channels/slack/) button. |
+| **Created** | When it was created. |
+| **Actions** | **End now** or **Delete**. |
+
+The search box ("Search conditions, comment or author") filters the list in view. The lists re-sort
+themselves every 15 seconds, so a silence that ends moves to **Ended** without a reload. The page holds
+up to 500 silences.
+
+## Ending and deleting
+
+- **End now** sets an active silence's end to this moment. It moves to **Ended**, and matching events
+  are sent again from then on. Events that arrived while it was active stay unsent.
+- **Delete** removes an upcoming or ended silence from the list. Neither button asks for confirmation.
+
+When there are no silences at all, the page says "No silences, so every event that matches a route is
+sent."
+
+## Seeing what a silence held back
+
+A notification that a silence suppressed is listed under the **Not sent** view of
+[Notifications](/ramzes/guide/notifications/), with "silenced:" and the silence's comment as the reason.
+In the [Feed](/ramzes/guide/feed/), filter by the outcome **Not sent**. The route tester on
+[Routes](/ramzes/guide/routes/) also takes active silences into account and names the one that applies.

@@ -1,6 +1,193 @@
 ---
 title: "PagerDuty and Opsgenie"
-description: "PagerDuty and Opsgenie in ramzes."
+description: "Page people through PagerDuty or Opsgenie: the settings, the trigger, acknowledge and resolve requests ramzes sends, how the dedup key ties them together, regions, and what a connection test does."
 ---
 
-This page is being written.
+The **PagerDuty** and **Opsgenie** connectors open an alert in the paging service, tell it when the notification is acknowledged in ramzes, and close it when the notification is resolved by an event. This page covers the settings and the exact requests of each.
+
+:::note
+Neither connector has been sent to its live service. The requests were written from each service's documentation and are pinned by snapshot tests. See [Verified claims](/ramzes/verified/).
+:::
+
+## How the three requests fit together
+
+| What happens in ramzes | PagerDuty | Opsgenie |
+| --- | --- | --- |
+| A message is delivered for a firing notification | `trigger` | create alert |
+| The notification is acknowledged, in any of the [four ways](/ramzes/concepts/escalation/#four-ways-to-acknowledge) | `acknowledge` | acknowledge alert |
+| The notification is resolved by a resolved event, and the notice is delivered | `resolve` | close alert |
+
+All three carry the same **key**, which is how the paging service knows they are about the same alert. The key is the notification's dedup key: the event's own `dedup_key`, or the one the route's [dedup policy](/ramzes/concepts/noise-control/) gives it. A notification without a dedup key uses its own id.
+
+Things that follow from this:
+
+- A reminder or an [escalation step](/ramzes/concepts/escalation/) sent to the same connection is another `trigger` or create with the same key. Whether that makes a new alert is up to the paging service.
+- The acknowledgement is passed on once and not retried. If the paging service refuses it, ramzes logs a warning and the notification is still acknowledged in ramzes.
+- The resolution is an ordinary delivery: it is retried like any message and appears on the [Failures](/ramzes/guide/failures/) page if it cannot be delivered.
+- A resolution reaches the paging service only when ramzes sends a resolution notice: a message had gone out for the notification and the route has `notify_resolved` on. See [Notifications](/ramzes/concepts/notifications/#resolution).
+- Resolving a notification **by hand** in ramzes sends nothing. Close the alert in the paging service yourself.
+- Acknowledging in PagerDuty or Opsgenie does not acknowledge in ramzes. Nothing flows back. Use the acknowledgement link in the alert, or the ramzes UI, to stop ramzes's own reminders and escalation.
+
+:::caution
+**Send test message** opens a real alert. The test message belongs to no notification, so its key is the fixed text `ramzes-test`. Nothing in ramzes resolves it; close it in the paging service.
+:::
+
+## PagerDuty
+
+### Settings
+
+In PagerDuty, open the service, go to **Integrations**, add an **Events API v2** integration and copy its **Integration Key**. Then open **Connections** in ramzes and select **PagerDuty** under **Paging**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **Integration key** | yes | The integration's key. Stored encrypted. |
+| **Region** | no | Leave empty for the US service region; write `eu` for the EU one. |
+
+The region decides the address: `https://events.pagerduty.com/v2/enqueue`, or `https://events.eu.pagerduty.com/v2/enqueue` with `eu`. Any other value is treated as empty.
+
+There is no destination. One connection pages one PagerDuty service; add a connection per service.
+
+### Trigger
+
+A `POST` to the address above with `Content-Type: application/json`:
+
+```json
+{
+  "routing_key": "••••",
+  "event_action": "trigger",
+  "dedup_key": "payments/charge",
+  "payload": {
+    "summary": "Charge failed: card network timeout",
+    "source": "payments.charge.failed",
+    "severity": "critical",
+    "custom_details": {
+      "body": "14 charges failed in the last 30 s",
+      "labels": { "env": "prod", "service": "payments" }
+    }
+  },
+  "client": "ramzes",
+  "client_url": "https://ramzes.example.com/events/0199",
+  "links": [
+    { "href": "https://ramzes.example.com/ack/n1?t=abc", "text": "Acknowledge in ramzes" }
+  ]
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `routing_key` | The integration key. |
+| `event_action` | `trigger` for a firing message, `resolve` for a resolved one. |
+| `dedup_key` | The key, at most 255 characters. |
+| `payload.summary` | The title, at most 1,000 characters. |
+| `payload.source` | The event's topic. |
+| `payload.severity` | `critical`, `error` or `warning` as they are. `info` and `debug` are both sent as `info`. |
+| `payload.custom_details.body` | The body, at most 4,000 characters; empty when the message has none. |
+| `payload.custom_details.labels` | The labels as an object. |
+| `client` | `ramzes` |
+| `client_url` | The link to ramzes. Left out without a public URL. |
+| `links` | One link, **Acknowledge in ramzes**. Present only while the notification can be acknowledged and ramzes has a public URL. |
+
+### Acknowledge
+
+Sent when the notification is acknowledged in ramzes, to the same address:
+
+```json
+{
+  "routing_key": "••••",
+  "event_action": "acknowledge",
+  "dedup_key": "payments/charge"
+}
+```
+
+### Resolve
+
+The resolution notice is the trigger request with `"event_action": "resolve"` and the same `dedup_key`. The `payload` is still included.
+
+### Answers
+
+Only `202` means delivered. Another `2xx` status is a final failure. `408`, `425`, `429` and `5xx` are retried; any other status is final.
+
+## Opsgenie
+
+The connector's own description carries a notice worth repeating: **Atlassian shuts Opsgenie down on 5 April 2027.**
+
+### Settings
+
+In Opsgenie, add an **API** integration under **Teams**, your team, **Integrations**, and copy its key. Then open **Connections** in ramzes and select **Opsgenie** under **Paging**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **API key** | yes | The key of the API integration. Stored encrypted. |
+| **Region** | no | Leave empty for the US instance; write `eu` for the EU one. |
+
+The region decides the host: `api.opsgenie.com`, or `api.eu.opsgenie.com` with `eu`. Any other value is treated as empty.
+
+Every request carries `Authorization: GenieKey <API key>`. There is no destination: one connection uses one API key.
+
+### Create
+
+A `POST` to `https://api.opsgenie.com/v2/alerts`:
+
+```json
+{
+  "message": "Charge failed: card network timeout",
+  "alias": "payments/charge",
+  "description": "14 charges failed in the last 30 s\n\nAcknowledge: https://ramzes.example.com/ack/n1?t=abc",
+  "priority": "P1",
+  "source": "ramzes",
+  "entity": "payments.charge.failed",
+  "tags": ["critical"],
+  "details": { "env": "prod", "service": "payments" }
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `message` | The title, at most 130 characters. |
+| `alias` | The key, at most 512 characters. |
+| `description` | The body, followed by a blank line and `Acknowledge:` with the acknowledgement link when there is one. At most 15,000 characters. |
+| `priority` | From the severity: `critical` is `P1`, `error` `P2`, `warning` `P3`, `info` `P4`, `debug` `P5`. |
+| `source` | `ramzes` |
+| `entity` | The event's topic, at most 512 characters. |
+| `tags` | One tag, the severity. |
+| `details` | The first 20 labels; key at most 100 characters, value at most 300. |
+
+### Acknowledge
+
+Sent when the notification is acknowledged in ramzes:
+
+```txt
+POST https://api.opsgenie.com/v2/alerts/<key>/acknowledge?identifierType=alias
+
+{"source": "ramzes", "note": "Acknowledged in ramzes"}
+```
+
+### Close
+
+The resolution notice is sent as a close request instead of a create:
+
+```txt
+POST https://api.opsgenie.com/v2/alerts/<key>/close?identifierType=alias
+
+{"source": "ramzes", "note": "Resolved in ramzes"}
+```
+
+In both addresses the key is percent-encoded, every character that is not a letter or a digit included, so a key such as `acme/shop CI` becomes `acme%2Fshop%20CI`.
+
+### Answers
+
+Only `202` means delivered. Another `2xx` status is a final failure. `408`, `425`, `429` and `5xx` are retried; any other status is final.
+
+## Choosing a good key
+
+The paging service pairs requests by the key, so it pays to control it:
+
+- Send a `dedup_key` with your events, or let a bundled source set one: Alertmanager and Grafana use the alert's fingerprint.
+- Without any dedup key each notification uses its own id. The trigger and its resolve still match, because they belong to the same notification.
+- Two routes that page for the same event use the same key when both take it from the event's `dedup_key`. If both connections reach the same PagerDuty service, that service sees one key twice.
+
+## Related
+
+- [Escalation and acknowledgement](/ramzes/concepts/escalation/): chains, and how acknowledgement stops them.
+- [Notifications](/ramzes/concepts/notifications/): what resolves a notification and who is told.
+- Both connectors are YAML definitions compiled into the binary, under `crates/ramzes-connectors/src/definitions/`. To change a request, copy the definition under another kind as [your own connector](/ramzes/channels/custom/).

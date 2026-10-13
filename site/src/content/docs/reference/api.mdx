@@ -1,6 +1,275 @@
 ---
 title: "Admin API"
-description: "Admin API in ramzes."
+description: "The admin API under /api: how to authenticate with a session or an API token, the header state-changing requests need, the error format, where to get the OpenAPI document, and every endpoint by area."
 ---
 
-This page is being written.
+The admin API is everything the web UI can do, over HTTP and JSON. The UI uses nothing else. This page covers authentication and conventions, then lists every endpoint. The exact request and response schemas are in the OpenAPI document.
+
+The examples assume ramzes at `http://localhost:7269` and an API token in `$RAMZES_TOKEN`.
+
+## The OpenAPI document
+
+The binary carries the description of its own API, as OpenAPI 3.1. Get it in either way:
+
+```sh
+# From the binary. Needs no configuration and no database.
+ramzes openapi > openapi.json
+
+# From a running instance. Needs no authentication.
+curl http://localhost:7269/api/openapi.json
+```
+
+The document describes the paths under `/api`. The [public endpoints](#public-endpoints) are not in it.
+
+## Authentication
+
+A request authenticates in one of two ways.
+
+### An API token
+
+Send the token as a bearer token:
+
+```sh
+curl http://localhost:7269/api/routes \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+Create a token under **Settings**, or with `POST /api/tokens`. Its value starts with `rz_tok_` and is shown once, in the answer that creates it; ramzes stores only a hash. A token does not expire. Revoke it by deleting it.
+
+A token acts for the instance, not for a person. What it does is recorded as done by `API token`.
+
+### A session cookie
+
+`POST /api/auth/login` with an email and a password sets the cookie `ramzes_session`, valid for 30 days. It is `HttpOnly` and `SameSite=Lax`, and `Secure` when the instance is [configured for HTTPS](/ramzes/operations/configuration/).
+
+```sh
+curl -c cookies.txt -X POST http://localhost:7269/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "kris@example.com", "password": "correct horse battery"}'
+```
+
+After 10 wrong passwords for one email within 15 minutes, sign-in for that email is refused with `429` until the oldest of them is 15 minutes old.
+
+### The header for state-changing requests
+
+A request that authenticates with the **cookie** and uses any method other than `GET`, `HEAD` or `OPTIONS` must carry the header `X-Ramzes-Request`:
+
+```sh
+curl -b cookies.txt -X POST http://localhost:7269/api/notifications/$ID/acknowledge \
+  -H "X-Ramzes-Request: 1"
+```
+
+Without it the answer is `403` with the error `missing_request_header`. A form on another site can make a browser send your cookie, but it cannot add a header, so this is the protection against cross-site request forgery. Requests with an API token do not need the header.
+
+When a request carries both an `Authorization: Bearer` header and a cookie, the token is checked and the cookie is ignored.
+
+### Who may do what
+
+Every user and every token is an administrator. There are no roles, no scopes, no single sign-on and no audit log beyond the configuration history. See [Security](/ramzes/operations/security/).
+
+Four things work without authentication: `GET /api/setup`, `POST /api/setup` while the instance has no user, `POST /api/auth/login` and `GET /api/openapi.json`.
+
+## Conventions
+
+- **Bodies** are JSON. Send `Content-Type: application/json`.
+- **Ids** are UUIDv7 strings. They sort by creation time.
+- **Times** are Unix milliseconds, as integers.
+- **Paging** goes by cursor. A list answer has `next_before` when there is more; pass it as `before` to get the next page.
+- **Secrets are write-only.** Connection credentials are never returned. A source key and a token value are returned once, when created.
+
+## Errors
+
+An error has a status and this body:
+
+```json
+{ "error": "invalid", "message": "a route needs at least one target" }
+```
+
+`error` is a stable code for programs. `message` is for people and says what to change.
+
+| Status | `error` | Meaning |
+| --- | --- | --- |
+| `401` | `unauthorized` | No valid session or token. |
+| `403` | `missing_request_header` | A cookie request that changes state without `X-Ramzes-Request`. |
+| `404` | `not_found` | No such resource, or no such endpoint. |
+| `409` | `conflict` | The thing is not in a state that allows this, for example acknowledging a resolved notification. |
+| `409` | `in_use` | Something still refers to it, for example a template used by a route. |
+| `422` | `invalid` | The request was understood and a value in it is wrong. |
+| `429` | `too_many_attempts` | Sign-in is locked for this email. |
+| `500` | `internal` | Something failed inside ramzes. The cause is in its log, not in the answer. |
+
+A request that cannot be read at all is refused before it reaches ramzes's own checks, with a plain-text message and not the JSON body above: `400` for a body that is not JSON or a query parameter with an unknown value, `415` without `Content-Type: application/json`, `422` for JSON of the wrong shape.
+
+## Endpoints
+
+### Setup and sign-in
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/setup` | Whether the instance still needs its first user: `{"needs_setup": true}`. |
+| `POST /api/setup` | Create the first user and sign in. Body: `email`, `password` (at least 10 characters). `409` once a user exists. |
+| `POST /api/auth/login` | Sign in. Body: `email`, `password`. Sets the session cookie. |
+| `POST /api/auth/logout` | End the current session. |
+| `GET /api/auth/me` | The signed-in user's `id` and `email`. Both are `null` with an API token. |
+
+### Events
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/events` | A page of events, newest first, each with counts of its deliveries and the names of the connections it went to. Also returns `total`. |
+| `GET /api/events/{id}` | Everything that happened to one event: its notifications, their deliveries and every attempt. |
+| `GET /api/events/{id}/preview` | The message each target of the event receives as it would be worded now, and the request that carries it, with secrets masked. |
+| `POST /api/events/{id}/replay` | [Run the event through the current routes again](/ramzes/concepts/delivery/#replay), bypassing noise control. Returns `{"deliveries": n}`. |
+| `GET /api/stream` | [Live changes](/ramzes/concepts/architecture/#the-live-stream-to-the-ui) as server-sent events. |
+
+Query parameters of `GET /api/events`:
+
+| Parameter | Meaning |
+| --- | --- |
+| `topic` | An exact topic, or a pattern where `*` matches any run of characters. |
+| `min_severity` | `debug`, `info`, `warning`, `error` or `critical`. |
+| `source` | A source id. |
+| `label` | One label as `key=value`. |
+| `q` | Text to find in the title, without regard to case. |
+| `since`, `until` | Received at or after, at or before; Unix milliseconds. |
+| `outcome` | `pending`, `delivered`, `failed`, `unrouted`, `waiting` or `not_sent`. See [What became of an event](/ramzes/concepts/events/#what-became-of-an-event). |
+| `limit` | Page size, 1 to 200. Default 50. |
+| `before` | The `next_before` of the previous page. |
+| `sort`, `order` | `received` (default), `severity`, `topic` or `title`; `desc` (default) or `asc`. |
+| `offset` | Events to skip, for paging through a list that is not sorted by arrival. |
+
+```sh
+curl -G http://localhost:7269/api/events \
+  -H "Authorization: Bearer $RAMZES_TOKEN" \
+  --data-urlencode "topic=payments.*" \
+  --data-urlencode "min_severity=error" \
+  --data-urlencode "outcome=failed"
+```
+
+### Failures and deliveries
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/failures` | Deliveries that failed for good, newest first, up to 200. One that was sent again is left out. |
+| `POST /api/deliveries/{id}/replay` | [Send a delivery again](/ramzes/concepts/delivery/#replay) to the same target. Returns the new delivery. |
+| `POST /api/failures/replay` | Send several again. Body: `delivery_ids`. Returns `replayed` and the ids that were `missing`. |
+
+### Notifications
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/notifications` | A page of notifications, newest first. `state` takes one or more [states](/ramzes/concepts/notifications/#states) separated by commas; `limit` is 1 to 200, default 50; `before` pages. |
+| `GET /api/notifications/{id}` | One notification with its events and their roles, its deliveries and attempts, and its progress through the route's escalation chain. |
+| `POST /api/notifications/{id}/acknowledge` | [Acknowledge](/ramzes/concepts/escalation/#four-ways-to-acknowledge). `409` when it is already acknowledged or over. |
+| `POST /api/notifications/{id}/resolve` | [Close it by hand](/ramzes/concepts/notifications/#acknowledging-and-resolving-by-hand). Nothing is sent. `409` when it is already over. |
+
+```sh
+curl "http://localhost:7269/api/notifications?state=sent,held&limit=20" \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+### Routes
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/routes` | All routes in evaluation order, each with `last_error` and `last_error_at` when its expression last failed. |
+| `POST /api/routes` | Add a route after the existing ones. The body is described under [Routes](/ramzes/concepts/routes/#a-route), [Noise control](/ramzes/concepts/noise-control/) and [Escalation](/ramzes/concepts/escalation/#chains). |
+| `PUT /api/routes/{id}` | Replace a route. Its position is kept. |
+| `DELETE /api/routes/{id}` | Delete a route. |
+| `POST /api/routes/reorder` | Set the order. Body: `ids`, every route id exactly once; otherwise `409`. |
+| `POST /api/routes/test` | [Try an event](/ramzes/concepts/routes/#trying-a-route) against routes. Body: `event_id` or `event`, and optionally `routes` to test routes that are not saved. Nothing is stored or sent. |
+
+### Silences
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/silences` | Silences, the one ending last first, ended ones included, up to 500. |
+| `POST /api/silences` | [Create a silence](/ramzes/concepts/noise-control/#silences). Body: `match`, and `duration_s` or `ends_at`; optionally `starts_at` and `comment`. |
+| `POST /api/silences/{id}/end` | End a silence now. It stays in the list. |
+| `DELETE /api/silences/{id}` | Remove a silence from the list. |
+
+### Templates
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/templates` | All templates. |
+| `POST /api/templates` | Create one. Body: `name`, `title`, `body`. At least one of `title` and `body` must not be empty. |
+| `PUT /api/templates/{id}` | Replace one. |
+| `DELETE /api/templates/{id}` | Delete one. `409` with `in_use` while a route's target or escalation step uses it. |
+| `POST /api/templates/preview` | [Word an event](/ramzes/concepts/templates/#the-preview) with a template that need not be saved. |
+
+### Connections and connectors
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/connectors` | The connector kinds this instance has, shipped and your own, with the fields each needs. |
+| `GET /api/connections` | All connections, without credentials. Each has `has_credentials`, its delivery `health` over the last 24 hours, `paused_until` and `failure_streak`. |
+| `POST /api/connections` | Create one. Body: `kind`, `name`, `settings` (the connector's fields that are not secret), `credentials` (its secret fields). |
+| `PUT /api/connections/{id}` | Change one. Body: `name`, `settings`, and optionally `credentials`; leave `credentials` out to keep the stored ones. The kind cannot change. |
+| `DELETE /api/connections/{id}` | Delete one. Routes that target it fail to deliver until they are changed. |
+| `POST /api/connections/{id}/test` | Send a test message now and return what the service said: `ok`, `status`, `detail`. |
+| `POST /api/connections/{id}/resume` | [End a pause](/ramzes/concepts/delivery/#connection-pausing) and send what was waiting. |
+| `GET /api/connector-definitions` | The [connector definitions](/ramzes/reference/connector-definitions/) you added. |
+| `POST /api/connector-definitions` | Add one. Body: `definition`, the YAML as a string. |
+| `PUT /api/connector-definitions/{id}` | Replace one. |
+| `DELETE /api/connector-definitions/{id}` | Delete one that no connection uses. |
+
+### Sources
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/source-kinds` | The kinds of source, with setup instructions for each. |
+| `GET /api/sources` | All sources, each with the `path` its sender posts to. |
+| `POST /api/sources` | Create one. Body: `name`; optionally `kind` (default `native`), `key` (your own secret, 16 to 200 characters, instead of a generated one) and `mapping` (YAML, for the kind `json`). The answer is the only time the `key` is shown. |
+| `POST /api/sources/{id}/rotate` | Replace the key. The old one stops working at once. The body is optional: `key` to supply your own. |
+| `DELETE /api/sources/{id}` | Delete a source. Its events are kept. |
+| `GET /api/sources/{id}/requests` | The source's last 20 recorded requests: rejected ones for native sources, all of them for the other kinds. |
+| `PUT /api/sources/{id}/mapping` | Replace the [mapping](/ramzes/reference/mappings/) of an Any JSON source. Body: `mapping`. |
+| `POST /api/sources/preview-mapping` | Try a mapping on a body without saving. Body: `mapping`, `body`, optionally `headers`. |
+
+The built-in source of [ramzes's own events](/ramzes/concepts/delivery/#events-ramzes-raises-about-itself) cannot be deleted and has no key to rotate.
+
+### Settings, users and tokens
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/settings` | The instance settings: `retention_days`, `retention_overrides`, `public_url`. |
+| `PUT /api/settings` | Replace them; send the whole object. Retention is 0 to 3,650 days, where 0 keeps events for ever. See [Retention](/ramzes/operations/retention/). |
+| `GET /api/users` | All users. |
+| `POST /api/users` | Add a user. Body: `email`, `password` (at least 10 characters). |
+| `DELETE /api/users/{id}` | Remove a user and end their sessions. `409` for the last user. |
+| `GET /api/tokens` | All API tokens, without their values. Each has `token_prefix` and `last_used_at`. |
+| `POST /api/tokens` | Create a token. Body: `name`. The answer is the only time `value` is shown. |
+| `DELETE /api/tokens/{id}` | Revoke a token. |
+
+### Configuration as a whole
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/config/export` | The whole configuration as YAML in the field `yaml`, without credentials or source keys. |
+| `POST /api/config/import` | Replace the configuration with an exported one. Body: `yaml`. Stored credentials and source keys are kept; a connection that is new starts without credentials. |
+| `GET /api/config/revisions` | Configuration changes, newest first, with author and summary. |
+| `GET /api/config/revisions/{id}` | The configuration as it was after one change, as YAML. |
+| `POST /api/config/revisions/{id}/rollback` | Make the configuration what it was after that change. Source keys are not affected, and connections that still exist keep their current credentials. |
+
+A revision is recorded after each change to a route, a template, a connection, a connector definition or the settings, after a source is added or deleted or its mapping changed, and after an import or a rollback. Silences, users, tokens and key rotations are not part of the history.
+
+The same export and import are available without a running server: `ramzes export [file]` and `ramzes import <file>`. See [Backup](/ramzes/operations/backup/).
+
+### Overview
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/overview` | Volume, delivery results, the busiest sources and topics, and the failing connections of a period. `hours` is 1 to 744, default 24. |
+
+## Public endpoints
+
+These are not part of the admin API. They do not use sessions or API tokens; each authenticates in its own way.
+
+| Method and path | Authenticates by | Described in |
+| --- | --- | --- |
+| `POST /v1/events` | A source key, as a bearer token. | [The events API](/ramzes/sending/events-api/) |
+| `POST /v1/in/{source_id}` | What the source's mapping says: a key or a signature. | [Source mappings](/ramzes/reference/mappings/) and [Any JSON webhook](/ramzes/sending/any-json/) |
+| `GET` and `POST /ack/{id}` | A signed token in the link. | [The acknowledgement link](/ramzes/concepts/escalation/#the-acknowledgement-link) |
+| `POST /v1/slack/{connection_id}/interactions` | Slack's request signature. | [Slack](/ramzes/channels/slack/) |
+| `GET /healthz`, `/readyz`, `/metrics` | Nothing; `/metrics` by a token when one is set. | [Metrics](/ramzes/operations/metrics/) |

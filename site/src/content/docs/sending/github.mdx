@@ -1,6 +1,157 @@
 ---
 title: "GitHub"
-description: "GitHub in ramzes."
+description: "Receive GitHub webhooks in ramzes: the source and the webhook's fields, the signature check, which events get a readable title, and how workflow runs fire and resolve."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+A GitHub source receives repository and organisation webhooks. Every delivery except `ping` becomes one event; workflow runs, pull requests, issues, pushes and releases get a title written for them. This page covers the setup on both sides and the exact mapping.
+
+:::note
+ramzes has not received requests from the live GitHub. The mapping was written from GitHub's documented payloads and is tested against sample payloads in the repository. The signature check passes the example in GitHub's "Validating webhook deliveries" documentation. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+<Steps>
+
+1. In ramzes, open **Sources**. Under **Add a source**, choose **GitHub** in **What sends the events**, give the source a name and select **Create source**.
+
+2. A card titled **_name_ is ready to receive** appears. Copy the key now: it cannot be shown again. The card also shows the address to give the sender, of the form `http://localhost:7269/v1/in/<source id>`.
+
+3. In GitHub, open the repository's or organisation's **Settings**, **Webhooks**, **Add webhook**, and fill in:
+
+   | Field in GitHub | Value |
+   | --- | --- |
+   | Payload URL | the source's address |
+   | Content type | `application/json` |
+   | Secret | the source key |
+
+4. Choose the events to send and save.
+
+</Steps>
+
+The content type matters: ramzes reads the body as JSON. A form-encoded delivery is refused with `400 invalid_json`.
+
+GitHub has to reach ramzes over the network, so the address must be one GitHub can connect to. The address in the card uses the host name you opened the ramzes UI with; replace the host if the public name differs.
+
+To use a secret you already have instead of the generated key, select **Replace key** on the source's row and enter it in **Secret from the sender, if it generates its own**. It must be 16 to 200 characters.
+
+## How requests are verified
+
+GitHub signs each delivery with the secret. ramzes computes the HMAC-SHA256 of the raw request body, keyed with the source key, and compares it in hexadecimal with the `X-Hub-Signature-256` header after its `sha256=` prefix. The comparison ignores the case of the hex digits and takes the same time whatever the input.
+
+A delivery with a missing or wrong signature gets `401` with the message `the request's signature does not match this source's key` and is not recorded.
+
+## How a delivery becomes an event
+
+The mapping reads the `X-GitHub-Event` header and the JSON body.
+
+| Event field | Value |
+| --- | --- |
+| `topic` | `github.` followed by the event name, for example `github.workflow_run` or `github.push` |
+| `title` | `<repository>: <what happened>`, see below |
+| `severity` | `error` when a workflow run's conclusion is `failure`, `timed_out` or `startup_failure`; `info` for everything else |
+| `status` | `resolved` when a workflow run's conclusion is `success`; `firing` for everything else |
+| `body` | the first of these that is present: the workflow run's, pull request's, issue's or release's `html_url`, the head commit's message, the `compare` URL |
+| `labels` | `repo`, `event`, `action`, `sender`, and for workflow runs `branch` and `workflow`. A label whose value is absent is left out. |
+| `dedup_key` | for workflow runs `<repository>/<workflow name>/<branch>`; none for other events |
+| `payload` | the whole request body |
+
+`ts` is not set, so the event is stamped with the time ramzes received it.
+
+### Titles
+
+The title starts with the repository's full name. If the payload has no repository it starts with the organisation's login, and failing that with `GitHub`.
+
+| `X-GitHub-Event` | Title after the prefix | Example |
+| --- | --- | --- |
+| `workflow_run` | `workflow <name> <conclusion> on <branch>` | `acme/shop: workflow CI failure on main` |
+| `pull_request` | `pull request #<number> <action>: <title>`, with `merged` in place of the action when the pull request was merged | `acme/shop: pull request #7 merged: Add retries` |
+| `issues` | `issue #<number> <action>: <title>` | `acme/shop: issue #3 opened: Crash on start` |
+| `push` | `push to <branch> by <pusher> (<n> commits)`; a tag is shown as `tag <name>` | `acme/shop: push to main by kris (2 commits)` |
+| `release` | `release <tag> <action>` | `acme/shop: release v1.2.0 published` |
+| anything else | the event name, then the action if there is one | `acme/shop: star created`, `acme/shop: fork` |
+
+For a workflow run that has no conclusion yet, the title uses the run's `status` in its place, and failing that the `action`.
+
+### Ping is ignored
+
+GitHub sends a `ping` event when a webhook is created. ramzes checks its signature, answers `202` with an empty `ids` list and makes no event. The request appears under **Recent requests** as accepted, which is a quick way to confirm the secret is right.
+
+## Example
+
+A delivery with `X-GitHub-Event: workflow_run` and this body:
+
+```json
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 1,
+    "name": "CI",
+    "html_url": "https://github.com/acme/shop/actions/runs/1",
+    "status": "completed",
+    "conclusion": "failure",
+    "head_branch": "main"
+  },
+  "repository": { "full_name": "acme/shop" },
+  "sender": { "login": "kris" }
+}
+```
+
+becomes this event:
+
+```json
+{
+  "topic": "github.workflow_run",
+  "title": "acme/shop: workflow CI failure on main",
+  "severity": "error",
+  "status": "firing",
+  "body": "https://github.com/acme/shop/actions/runs/1",
+  "labels": {
+    "action": "completed",
+    "branch": "main",
+    "event": "workflow_run",
+    "repo": "acme/shop",
+    "sender": "kris",
+    "workflow": "CI"
+  },
+  "dedup_key": "acme/shop/CI/main",
+  "payload": { "action": "completed", "workflow_run": { "…": "…" }, "…": "…" }
+}
+```
+
+## What resolves what
+
+Only workflow runs resolve anything. A run of the same workflow on the same branch of the same repository that concludes with `success` is a resolved event with the same dedup key as an earlier failure, so it closes the notifications that failure opened. See [Notifications](/ramzes/concepts/notifications/).
+
+Two things follow from the mapping that are worth knowing before you write a route:
+
+- GitHub sends `workflow_run` deliveries when a run is requested and while it is in progress, not only when it completes. Those are `firing` events with severity `info` and the same dedup key as the workflow's failures. To be told only about failures, give the route a minimum severity of `error`. See [Routes](/ramzes/concepts/routes/).
+- A run that ends as `cancelled` or `skipped` is `firing` with severity `info`. It does not resolve an earlier failure.
+
+Pull requests, issues, pushes and releases have no dedup key and are always `firing`.
+
+## Repeated deliveries
+
+GitHub puts a unique id in the `X-GitHub-Delivery` header. ramzes uses it as the [idempotency key](/ramzes/concepts/events/#idempotency-keys): a second request with the same id stores nothing and is answered `202` with the first request's ids and `"duplicate": true`.
+
+## Try it without GitHub
+
+Sign a body yourself with `openssl` to test a route:
+
+```sh
+KEY='<the source key>'
+BODY='{"action":"completed","workflow_run":{"name":"CI","conclusion":"failure","head_branch":"main","html_url":"https://github.com/acme/shop/actions/runs/1"},"repository":{"full_name":"acme/shop"},"sender":{"login":"kris"}}'
+SIGNATURE=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$KEY" | sed 's/^.* //')
+
+curl -X POST http://localhost:7269/v1/in/<source id> \
+  -H 'Content-Type: application/json' \
+  -H 'X-GitHub-Event: workflow_run' \
+  -H "X-Hub-Signature-256: sha256=$SIGNATURE" \
+  -d "$BODY"
+```
+
+## Answers and limits
+
+The body may be at most 1 MiB, and the source may send 6,000 events per minute; past that the answer is `429` with a `Retry-After` header. All answers are listed in [Source mappings](/ramzes/reference/mappings/#answers).

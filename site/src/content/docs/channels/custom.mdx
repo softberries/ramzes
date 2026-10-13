@@ -1,6 +1,185 @@
 ---
 title: "Your own connector"
-description: "Your own connector in ramzes."
+description: "Add a channel ramzes does not ship by describing one HTTP request in YAML in the UI: a worked example for a fictional chat service, how to test it, what happens when it is wrong, and its limits."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+When a service takes one HTTP request per message, you can add it as a connector without writing code: describe the request as YAML on the Connections page. This page works through an example and lists the limits. Every key of the format is in the [Connector definitions](/ramzes/reference/connector-definitions/) reference.
+
+Seven of the connectors that ship with ramzes are written this way: Discord, Microsoft Teams, ntfy, Telegram, Pushover, PagerDuty and Opsgenie. Their definitions, in `crates/ramzes-connectors/src/definitions/`, are the best longer examples.
+
+If all you need is the message as JSON at a URL, the [Webhook](/ramzes/channels/webhook/) connector already does that.
+
+## The example
+
+Hubbub is a made-up team chat server. Its API takes a message for a room like this:
+
+```txt
+POST https://chat.example.com/api/v1/rooms/<room>/messages
+Authorization: Bearer <bot token>
+Content-Type: application/json
+
+{"title": "…", "text": "…", "colour": "red", "tags": ["env=prod"], "link": "https://…"}
+```
+
+It answers `201` when the message is posted. The connector for it:
+
+```yaml
+kind: hubbub
+name: Hubbub
+description: Post each message to a room on our Hubbub chat server.
+destination_label: Room
+fields:
+  - key: base_url
+    label: Server address
+    help: "For example https://chat.example.com"
+    required: true
+    kind: url
+  - key: room
+    label: Default room
+    help: Used by routes that name no room.
+  - key: token
+    label: Bot token
+    help: "In Hubbub: Admin, Bots, New bot."
+    secret: true
+    required: true
+request:
+  url: "{{ settings.base_url }}/api/v1/rooms/{{ destination | default(settings.room) | urlpath }}/messages"
+  headers:
+    Authorization: "Bearer {{ credentials.token }}"
+  body: |
+    {% if message.status == 'resolved' %}{% set colour = 'green' %}
+    {% elif message.severity in ['critical', 'error'] %}{% set colour = 'red' %}
+    {% elif message.severity == 'warning' %}{% set colour = 'yellow' %}
+    {% else %}{% set colour = 'grey' %}{% endif %}
+    {
+      "title": {{ message.title | cut(200) | tojson }},
+      "text": {{ (message.body | default(message.topic)) | cut(3000) | tojson }},
+      "colour": {{ colour | tojson }},
+      "tags": [
+        {% for f in message.fields[:10] %}
+        {{ (f.key ~ '=' ~ f.value) | cut(80) | tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+      {% if message.link %},"link": {{ message.link | tojson }}{% endif %}
+    }
+success: [201]
+max_len: 3000
+```
+
+What each part does:
+
+- **`kind`** is the connector's identifier. Connections refer to it, so choose it once. It may not be the kind of a connector that ships with ramzes.
+- **`fields`** become the inputs of the connection form. A field with `secret: true` is stored encrypted and read in templates as `credentials.<key>`; the others are read as `settings.<key>`.
+- **`destination_label`** gives route targets a **Room** input. In the templates its value is `destination`.
+- **`request.url`** is a template. `destination | default(settings.room)` uses the route target's room, or the connection's default. `urlpath` percent-encodes the value so that it stays one path segment whatever it contains.
+- **`request.headers`** maps header names to templates.
+- **`request.body`** is a template that must produce JSON. Pass every value through `tojson`: it adds the quotes and escapes the text, so a title containing a quote or a line break cannot break the body.
+- **`cut(200)`** shortens text to 200 characters, ending in an ellipsis. ramzes shortens nothing for you.
+- **`success: [201]`** says which statuses mean delivered. Without it any `2xx` does.
+
+The resolution of a notification comes through the same request with `message.status` set to `resolved`, which is why the example picks the colour from the status first.
+
+## Add it
+
+<Steps>
+
+1. Open **Connections** and scroll to **Your own connectors**. Select **Write a connector**.
+
+2. An editor labelled **New connector** opens with a small working example. Replace it with your definition.
+
+3. Select **Add connector**. If the definition is not valid, the reason is shown under the editor, naming the key, for example `request.method: must be one of POST, PUT, PATCH, GET`, and nothing is saved.
+
+4. The connector now appears under **Add a connection** in the group **Your own**, marked **your own**. Select it. The form has the inputs you defined: **Server address**, **Default room** and **Bot token**.
+
+5. Fill them in and select **Add connection**.
+
+</Steps>
+
+A definition takes effect as soon as it is saved. The table under **Your own connectors** lists your definitions with **Edit** and **Delete**. Editing a definition changes what every connection of that kind sends from the next message on.
+
+## Test it
+
+Select **Send test message** on the connection's row. ramzes renders the request for a test message and sends it. For a connection with the server address `https://chat.example.com` and the default room `ops`, the example sends:
+
+```txt
+POST https://chat.example.com/api/v1/rooms/ops/messages
+Content-Type: application/json
+Authorization: Bearer <the bot token>
+
+{
+  "title": "Test message from ramzes",
+  "text": "If you can read this, the connection works.",
+  "colour": "grey",
+  "tags": []
+}
+```
+
+The result appears under the connection's name: **Test message delivered.**, or **Test failed:** with the reason, such as `HTTP 404: …` with the first 500 characters of the service's answer, or `HTTP 200, which this connector does not count as delivered` when the status is a `2xx` that is not in `success`.
+
+The test message is deliberately bare: no labels, no link, no destination, and no `dedup_key`, `ack_link` or `notification_id`. A template that needs one of these must give it a default, as in `message.dedup_key | default('ramzes-test')`, or the test fails where a real delivery would work.
+
+To see the request for a real event without sending it, open the event's page: it shows the request each target would receive, with secrets masked. A message about a failed payment, routed with the room `on call`, renders as:
+
+```txt
+POST https://chat.example.com/api/v1/rooms/on%20call/messages
+Content-Type: application/json
+Authorization: Bearer ••••
+
+{
+  "title": "Payment failed for order 1042",
+  "text": "The card network timed out after 3 attempts.",
+  "colour": "red",
+  "tags": ["env=prod", "service=checkout"],
+  "link": "https://ramzes.example.com/events/0199dd5c"
+}
+```
+
+`Content-Type: application/json` was added because the definition sets no content type and the body format is JSON.
+
+## Things that go wrong
+
+| What you see | Why |
+| --- | --- |
+| `the connector's body is not valid JSON: …` | The body template produced something that does not parse, often a missing comma between optional parts or a value not passed through `tojson`. Nothing was sent. The failure is final. |
+| `the connector's address could not be built: …` | The URL template failed to render. |
+| `the address is not an http or https URL` | The rendered URL has no scheme or host, for example because a setting is empty. |
+| A request to `/rooms//messages` | Neither the target nor the connection named a room, so the segment came out empty. Make the default a `required` field, or handle the case in the template. |
+| `the connector's header … would contain a line break` | A header value rendered with a line break in it. ramzes refuses, so event text cannot add headers. |
+| `it did too much work and was stopped` | A template looped too long. See the limits below. |
+| `kind: "slack" is the name of a connector that ships with ramzes; choose another` | The kind is reserved. |
+| `this connector is used by: … Delete those connections first.` | You tried to delete a definition, or change its kind, while a connection uses it. |
+
+## Passing acknowledgement on
+
+If the service tracks acknowledgement itself, add an `acknowledge` request. ramzes sends it once when a notification is acknowledged in ramzes, to each place a message of that notification was delivered through this connector:
+
+```yaml
+acknowledge:
+  method: PUT
+  url: "{{ settings.base_url }}/api/v1/alerts/{{ message.dedup_key | urlpath }}/ack"
+  headers:
+    Authorization: "Bearer {{ credentials.token }}"
+  body: '{"by": "ramzes"}'
+```
+
+`message.dedup_key` is the same on the first message, the acknowledgement and the resolution, which is what lets the service find its alert. PagerDuty and Opsgenie are built this way: see [PagerDuty and Opsgenie](/ramzes/channels/paging/).
+
+## Limits
+
+- **One request per message.** A connector defined in YAML cannot rewrite a message it sent, thread follow-ups, show buttons that act in ramzes, or make two requests for one message. Of the shipped connectors only the Slack app does those things, and it is written in Rust.
+- **HTTP only.** The method is `POST`, `PUT`, `PATCH` or `GET`. The body is JSON, checked before sending, or plain text with `format: text`.
+- **No access to the event's payload.** Templates see the message, the connection's settings and credentials, the destination and the time. To send a payload value, put it in the title or body with a [template](/ramzes/concepts/templates/).
+- **The response is only a status.** ramzes reads the status code and, on failure, an excerpt for the error text. It cannot extract an id from the answer.
+- **Template limits.** Each template may be at most 32 KiB of source and produce at most 256 KiB. Rendering has a work limit, after which it is stopped. There is no memory limit. See [Expressions and templates](/ramzes/reference/expressions/).
+- **Network limits.** 10 seconds per request, no redirects followed, and the [private-address block](/ramzes/channels/overview/#the-private-address-block) when it is on.
+- **Every user can write one.** ramzes has no roles: anyone who can sign in can add or edit a connector, and a connector decides where a connection's credentials are sent.
+
+Definitions are part of the configuration. They are stored in the database and included in the configuration export; see [Settings and history](/ramzes/guide/settings/).
+
+## Related
+
+- [Connector definitions](/ramzes/reference/connector-definitions/): every key, what the templates can read, success statuses, the retry header, masking.
+- [Expressions and templates](/ramzes/reference/expressions/): the template language and its filters.
+- [Delivery and retries](/ramzes/concepts/delivery/): what happens after a failed attempt.

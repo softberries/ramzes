@@ -1,6 +1,155 @@
 ---
 title: "From source"
-description: "From source in ramzes."
+description: "Build ramzes from a checkout: the toolchain versions the repository pins, the make targets, the development workflow and how to run the tests."
 ---
 
-This page is being written.
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Building from source gives you one binary, `target/release/ramzes`, with the web UI embedded in it.
+This page lists what you need, what each `make` target does, and how to work on the code.
+
+## What you need
+
+| Tool | Version | Where it is pinned |
+|---|---|---|
+| Rust | 1.98 (edition 2024) | `rust-version` in `Cargo.toml`, the Dockerfile and CI |
+| Node.js with npm | 24 | The Dockerfile and CI |
+| `make` | any | |
+| [cargo-nextest](https://nexte.st/) | any recent | Only for `make test` and `make test-pg` |
+| Docker | any recent | Only for `make test-pg` |
+| Chromium through Playwright | installed by `npx playwright install chromium` in `ui/` | Only for `make ui-test` and `make e2e` |
+
+SQLite is compiled into the binary. You do not need it installed.
+
+## Build and run
+
+```sh
+git clone https://github.com/softberries/ramzes.git
+cd ramzes
+make build
+./target/release/ramzes
+```
+
+`make build` installs the UI's dependencies (`npm ci`), builds the UI into `ui/build`, and compiles
+the server in release mode with the UI embedded.
+
+Started without options, ramzes creates `./data/ramzes.db` and `./data/secret.key` in the current
+directory, listens on `127.0.0.1:7269`, and logs to standard error. On an empty database it prints
+the address of the setup screen. Change any of this with flags or environment variables; see the
+[Configuration reference](/ramzes/operations/configuration/).
+
+```sh
+./target/release/ramzes --listen 0.0.0.0:7269 --data-dir /var/lib/ramzes
+```
+
+<Aside type="note">
+The Rust build never needs Node. If `ui/build` does not exist when the server is compiled, a
+placeholder page is embedded that says the binary was built without the web UI. The API works
+either way. Run `make ui` and build again to get the UI.
+</Aside>
+
+## Make targets
+
+| Target | What it does |
+|---|---|
+| `make build` | `make ui`, then `cargo build --release -p ramzes-server` |
+| `make ui` | `npm ci` and `npm run build` in `ui/` |
+| `make run` | `cargo run -p ramzes-server`: a debug build, started with the defaults |
+| `make test` | `cargo nextest run --workspace`: the Rust tests on SQLite. The Postgres tests print a skip notice. |
+| `make test-pg` | Starts a throwaway `postgres:18` container on `127.0.0.1:55432`, runs every Rust test against SQLite and Postgres, and removes the container |
+| `make lint` | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` |
+| `make ui-test` | In `ui/`: ESLint, the Svelte type check, and the unit and component tests |
+| `make e2e` | Browser tests against the real binary |
+| `make pg-up`, `make pg-down` | Start and remove the test Postgres container on their own |
+
+The Postgres tests run whenever `RAMZES_TEST_POSTGRES_URL` is set, so you can point them at a
+database of your own instead of using `make test-pg`.
+
+`make e2e` builds the UI, starts a fresh ramzes on `127.0.0.1:4790` with an empty temporary data
+directory and a stand-in webhook receiver on `127.0.0.1:4791`, and drives the UI in a browser.
+
+## Working on the code
+
+The workspace has seven crates under `crates/`:
+
+| Crate | What is in it |
+|---|---|
+| `ramzes-core` | Events, matching, routing, noise-control decisions, expressions and templates, source mappings, the retry schedule. Pure logic that takes the time as an argument. |
+| `ramzes-store` | Storage over SQLite and Postgres, and the migrations |
+| `ramzes-connectors` | The channels: Slack, email, webhook, and the YAML-defined ones |
+| `ramzes-engine` | The workers: routing, timers, delivery, retention |
+| `ramzes-ingest` | `POST /v1/events` and `POST /v1/in/{source_id}` |
+| `ramzes-api` | The admin API under `/api` |
+| `ramzes-server` | The binary: command line, configuration, health and metrics, the embedded UI |
+
+The web UI is a SvelteKit app in `ui/`, built to static files.
+
+### UI with hot reload
+
+<Steps>
+
+1. Start the server:
+
+   ```sh
+   make run
+   ```
+
+2. In another terminal, start the UI's development server:
+
+   ```sh
+   npm --prefix ui ci
+   npm --prefix ui run dev
+   ```
+
+3. Open the address the development server prints. It forwards `/api` and `/v1` to
+   `http://127.0.0.1:7269`. Set `RAMZES_DEV_BACKEND` to forward somewhere else.
+
+</Steps>
+
+### After changing the admin API
+
+The UI's types are generated from the server's OpenAPI document. Regenerate them:
+
+```sh
+npm --prefix ui run gen:api
+```
+
+This runs `ramzes openapi`, writes `ui/src/lib/api/openapi.json`, and generates
+`ui/src/lib/api/schema.d.ts` from it.
+
+### Where a change goes
+
+- A channel that is one HTTP request is a YAML definition in
+  `crates/ramzes-connectors/src/definitions/`, not Rust code. See
+  [Connector definitions](/ramzes/reference/connector-definitions/).
+- A third-party sender is a YAML mapping in `crates/ramzes-core/src/adapters/`. See
+  [Source mappings](/ramzes/reference/mappings/).
+- Storage uses one migration set for both databases, with only `TEXT` and `BIGINT` columns, and SQL
+  written once with `$N` placeholders.
+
+### Before you send a change
+
+```sh
+make lint
+make test-pg
+make ui-test
+make e2e
+```
+
+CI runs the same checks, plus `helm lint` and `helm template` on the chart, `docker compose config`
+on both compose files, and a build of this documentation site.
+
+<Aside type="note">
+Outside contributions are not being merged yet. See [License](/ramzes/license/).
+</Aside>
+
+## The documentation site
+
+The site you are reading is in `site/`:
+
+```sh
+cd site
+npm ci
+npm run dev      # preview with reload
+npm run build    # build and check internal links
+```

@@ -1,6 +1,130 @@
 ---
 title: "Grafana"
-description: "Grafana in ramzes."
+description: "Receive Grafana Alerting notifications in ramzes through a webhook contact point: the source, the contact point's fields, and how each alert becomes an event."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+A Grafana source receives the requests of a Grafana Alerting webhook contact point and turns each alert in a request into one event. This page covers the setup on both sides and the exact mapping.
+
+:::note
+ramzes has not received requests from a live Grafana. The mapping was written from Grafana's documented webhook payload and is tested against a sample payload in the repository. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+<Steps>
+
+1. In ramzes, open **Sources**. Under **Add a source**, choose **Grafana** in **What sends the events**, give the source a name and select **Create source**.
+
+2. A card titled **_name_ is ready to receive** appears. Copy the key now: it cannot be shown again. The card also shows the address to give the sender, of the form `http://localhost:7269/v1/in/<source id>`.
+
+3. In Grafana, go to **Alerting**, **Contact points**, and add a contact point of type **Webhook** with these values:
+
+   | Field in Grafana | Value |
+   | --- | --- |
+   | URL | the source's address |
+   | Authorization header, scheme | `Bearer` |
+   | Authorization header, credentials | the source key |
+
+   Leave the custom payload off. The mapping expects Grafana's default payload.
+
+4. Use the contact point in a notification policy. When the first request arrives, select **Recent requests** on the source's row in ramzes to see it.
+
+</Steps>
+
+The address in the card uses the host name you opened the ramzes UI with. If Grafana reaches ramzes under another name, replace the host and keep the path.
+
+## How requests are verified
+
+Grafana must send `Authorization: Bearer <key>` with the key of this source. A request without it gets `401` and is not recorded.
+
+## How a request becomes events
+
+ramzes reads the `alerts` array of the request and makes one event per alert.
+
+| Event field | Taken from | If absent |
+| --- | --- | --- |
+| `topic` | `grafana.` followed by the `alertname` label | `grafana.alert` |
+| `title` | the `summary` annotation | the `alertname` label, then the request's `title`, then `Alert` |
+| `severity` | the `severity` label, translated as below | `warning` |
+| `status` | the alert's `status` | `firing` |
+| `body` | the `description` annotation | the alert's `generatorURL`, then no body |
+| `labels` | all the alert's labels | none |
+| `dedup_key` | the alert's `fingerprint` | none |
+| `ts` | the alert's `startsAt` | the time of receipt |
+| `payload` | the whole alert object | |
+
+The `severity` label is matched without regard to case:
+
+| Label value | Event severity |
+| --- | --- |
+| `debug`, `trace` | `debug` |
+| `warning`, `warn` | `warning` |
+| `error`, `err`, `high` | `error` |
+| `critical`, `crit`, `fatal`, `emergency`, `page` | `critical` |
+| anything else | `info` |
+
+An alert with no `severity` label is a `warning`. Add a `severity` label to your alert rules to control it.
+
+A character a topic cannot hold becomes `_`, so alert names with spaces still work. The same happens to label names. At most 64 labels are kept. A `startsAt` that is not an RFC 3339 timestamp is dropped and the event is stamped on receipt.
+
+## Example
+
+This alert in a request:
+
+```json
+{
+  "receiver": "ramzes",
+  "status": "firing",
+  "title": "[FIRING:1] High memory usage",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": { "alertname": "High memory usage", "team": "blue", "zone": "us-1" },
+      "annotations": {
+        "description": "The system has high memory usage",
+        "summary": "This alert was triggered for zone us-1"
+      },
+      "startsAt": "2021-10-12T09:51:03.157076+02:00",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "values": { "B": 44.2, "C": 1 },
+      "generatorURL": "https://play.grafana.org/alerting/1afz29v7z/edit",
+      "fingerprint": "c6eadffa33fcdf37"
+    }
+  ]
+}
+```
+
+becomes this event:
+
+```json
+{
+  "topic": "grafana.High_memory_usage",
+  "title": "This alert was triggered for zone us-1",
+  "severity": "warning",
+  "status": "firing",
+  "body": "The system has high memory usage",
+  "labels": { "alertname": "High memory usage", "team": "blue", "zone": "us-1" },
+  "dedup_key": "c6eadffa33fcdf37",
+  "ts": "2021-10-12T09:51:03.157076+02:00",
+  "payload": { "status": "firing", "values": { "B": 44.2, "C": 1 }, "…": "…" }
+}
+```
+
+The payload is the alert, so a template can read `payload.values.B`, `payload.generatorURL` or `payload.silenceURL`. See [Templates](/ramzes/concepts/templates/).
+
+## What resolves what
+
+An alert with `"status": "resolved"` becomes a resolved event with the same fingerprint, so the same dedup key, as the firing alert. It closes the notifications the firing event opened. See [Notifications](/ramzes/concepts/notifications/).
+
+Each further request for an alert that is still firing produces another firing event with the same dedup key. Whether that sends another message is up to the route's dedup policy: see [Noise control](/ramzes/concepts/noise-control/).
+
+## Answers and limits
+
+- A stored request is answered `202` with `{"ids": [...], "duplicate": false}`, one id per alert.
+- A request with no `alerts`, such as a payload replaced by a custom template, is answered `202` with an empty `ids` list and makes no event.
+- More than 1,000 alerts in one request is refused with `422`.
+- The body may be at most 1 MiB, and the source may send 6,000 events per minute. Past that the answer is `429` with a `Retry-After` header.
+
+The other answers are listed in [Source mappings](/ramzes/reference/mappings/#answers).

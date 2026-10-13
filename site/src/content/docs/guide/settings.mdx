@@ -1,6 +1,150 @@
 ---
 title: "Settings and history"
-description: "Settings and history in ramzes."
+description: "How to set the instance address and retention, manage users and API tokens, export and import the configuration, and read, diff and roll back the configuration history."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+The Settings page holds everything that applies to the whole instance: its address and retention, the
+people who can sign in, API tokens for scripts, the export and import of the configuration, and the
+history of configuration changes with rollback.
+
+<Screenshot name="settings" caption="Settings: the instance card and export and import on the left, users and API tokens on the right, and the configuration history across the bottom." maxHeight="32rem" />
+
+## Instance
+
+The **Instance** card has three settings and a **Save settings** button. Nothing is stored until you
+press it.
+
+| Setting | Meaning | Limits |
+| --- | --- | --- |
+| **Address of this ramzes instance** | The address people reach this instance at, for example `https://ramzes.example.com`. It is used for the links in each message: back to the event, and to acknowledge it. While it is empty, messages carry neither link. | Must start with `http://` or `https://`. A trailing slash is removed. |
+| **Keep events for (days)** | How long events are kept before they are removed. `0` keeps them forever. | 0 to 3650. A new instance starts at 30. |
+| **Different retention for some topics** | **Add a topic** adds a row with a topic and a number of days, for topics that should be kept shorter or longer. A row with an empty topic is ignored. | 0 to 3650 days each. |
+
+What retention removes, and when, is described in [Retention](/ramzes/operations/retention/).
+
+:::note
+Set the address before relying on acknowledgement from a message. Until it is set, the
+[Notifications](/ramzes/guide/notifications/) page shows a reminder.
+:::
+
+## Users
+
+The **Users** table lists everyone who can sign in, with **Email** and **Added**.
+
+To add someone, fill in **Email** and **Password** under the table and press **Add user**. The password
+must be at least 10 characters. ramzes sends no invitation: give the person the password yourself.
+
+**Remove** asks for confirmation. The person is signed out everywhere and can no longer sign in. The
+last remaining user cannot be removed; with one user the button is disabled.
+
+:::caution
+Every user can change everything. There are no roles, no single sign-on and no audit log beyond the
+configuration history below. See [Limits and what is not built](/ramzes/limits/) and
+[Security](/ramzes/operations/security/).
+:::
+
+## API tokens
+
+An API token lets a script use the [admin API](/ramzes/reference/api/) without a session. It can do
+everything a signed-in user can.
+
+<Steps>
+
+1. Under **API tokens**, type **What the token is for**, up to 100 characters, such as `deploy script`.
+
+2. Press **Create token**.
+
+3. Copy the token from the card that appears. **It cannot be shown again**: ramzes stores only a hash
+   of it. Press **I have saved the token** to close the card.
+
+</Steps>
+
+Send the token in the `Authorization` header:
+
+```sh
+curl http://localhost:7269/api/routes \
+  -H "Authorization: Bearer rz_tok_..."
+```
+
+The table lists each token's **Name**, what it **Starts with** (tokens begin with `rz_tok_`), when it
+was **Last used** ("never used" until then) and when it was **Created**. **Revoke** asks for
+confirmation; anything still using the token is refused from then on.
+
+API tokens are not source keys. A source key can only send events; it is made under
+[Sources](/ramzes/guide/sources/).
+
+## Export and import
+
+The configuration can be downloaded as one YAML file and loaded back, on this instance or another.
+
+**Download ramzes.yaml** saves the current configuration: routes, templates, connections, your own
+connector definitions, source names and mappings, and the three instance settings above. It holds no
+connection credentials and no source keys, so it can be kept in version control.
+
+To import:
+
+<Steps>
+
+1. Choose a file under **Import from a file**, or paste the YAML under **Or paste the YAML**. Choosing
+   a file fills the text box, so you can read or edit it before importing.
+
+2. Press **Import configuration** and confirm with **Replace configuration**.
+
+</Steps>
+
+An import replaces all routes, templates, connections and connector definitions with the ones in the
+file, and sets the names and mappings of the sources the file lists. Connections that already exist
+keep their stored credentials; connections the import creates start without any, so open each one
+under [Connections](/ramzes/guide/connections/) and enter its secrets. Source keys are not touched.
+
+The file is checked as a whole before anything is applied. If it is not valid, the page says "Nothing
+was changed." followed by the reason.
+
+For using export and import as a backup, and what they do not cover, see
+[Backup, export and import](/ramzes/operations/backup/).
+
+## Configuration history
+
+Every change to routes, templates, connections, connector definitions, sources and the instance
+settings adds an entry here, newest first. An entry has a summary such as "added route CI results" or
+"changed settings", who made the change (an email address, or "API token"), and how long ago.
+
+Adding or removing users and API tokens is not recorded. Neither are silences, acknowledgements or
+anything else that is not configuration.
+
+The list shows 15 entries; **Show older changes** shows 15 more. ramzes keeps the newest 200 entries
+and drops older ones.
+
+### Seeing what changed
+
+**Show changes** on an entry opens a diff of the configuration as YAML, before and after that change:
+
+- Lines starting with `+` in green were added.
+- Lines starting with `-` in red were removed.
+- Three unchanged lines are kept around each change, and longer unchanged stretches are folded into
+  "… N unchanged lines".
+
+When the entry changed nothing in the configuration, it says "The configuration is the same as before
+this entry." **Hide changes** closes the diff.
+
+### Rolling back
+
+Open an entry with **Show changes**, then press **Roll back to this** and confirm with **Roll back**.
+The newest entry has no such button: it is the current configuration.
+
+A rollback makes the configuration what it was right after the chosen entry:
+
+- Routes, templates, connections, connector definitions, source names and mappings, and the instance
+  settings go back to that state.
+- A connection that still exists keeps the credentials it has now. A connection that had been deleted
+  and is brought back gets the credentials it had at that time.
+- Source keys are not touched.
+
+The rollback is itself recorded, as "rolled back to:" and the entry's summary, so it can be undone by
+rolling back to the entry before it.
+
+Events, notifications and deliveries are not configuration and are not affected by a rollback or an
+import.

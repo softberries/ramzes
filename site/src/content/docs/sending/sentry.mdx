@@ -1,6 +1,150 @@
 ---
 title: "Sentry"
-description: "Sentry in ramzes."
+description: "Receive Sentry issue, issue alert and metric alert webhooks in ramzes: the internal integration, pasting Sentry's client secret as the source key, the signature check and the exact mapping."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+A Sentry source receives the webhooks of a Sentry internal integration: issues, errors, issue alerts and metric alerts. Sentry generates the secret that signs them, so you paste Sentry's client secret into ramzes as the source key. This page covers the setup, the signature check and the exact mapping.
+
+:::note
+ramzes has not received requests from the live Sentry. The mapping was written from Sentry's documented webhook payloads and is tested against sample payloads in the repository. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+With most sources ramzes makes the key and you give it to the sender. Sentry works the other way round: ramzes needs the integration's **Client Secret** before it can create the source, and Sentry needs the source's address as its webhook URL.
+
+<Steps>
+
+1. In Sentry, go to **Settings**, **Developer Settings** and create an **Internal Integration**. Copy its **Client Secret**.
+
+2. In ramzes, open **Sources**. Under **Add a source**, choose **Sentry** in **What sends the events**. A field **Secret from Sentry** appears. Paste the client secret, give the source a name and select **Create source**.
+
+3. A card titled **_name_ is ready to receive** shows the address to give the sender, of the form `http://localhost:7269/v1/in/<source id>`. No key is shown, because the key is the secret you entered. Select **Done**.
+
+4. In Sentry, set the integration's **Webhook URL** to that address. Enable the webhooks you want (issue, error), and enable **Alert Rule Action** to use the integration from alert rules.
+
+</Steps>
+
+If you need the address before Sentry will show you a client secret, create the source with any temporary secret of at least 16 characters, then select **Replace key** on the source's row and enter the real one in **New secret from Sentry**.
+
+The secret must be 16 to 200 characters. ramzes keeps it encrypted, because checking a signature needs the secret itself. The address in the card uses the host name you opened the ramzes UI with; Sentry must be able to reach it.
+
+## How requests are verified
+
+Sentry signs each request with the client secret. ramzes computes the HMAC-SHA256 of the raw request body, keyed with the source key, and compares it in hexadecimal with the `Sentry-Hook-Signature` header.
+
+A request with a missing or wrong signature gets `401` with the message `the request's signature does not match this source's key` and is not recorded. If that happens to every request, the secret in ramzes is not the integration's client secret: replace it.
+
+## Which requests become events
+
+The mapping reads the `Sentry-Hook-Resource` header. Requests for these resources become one event each:
+
+| `Sentry-Hook-Resource` | Topic |
+| --- | --- |
+| `issue` | `sentry.issue` |
+| `error` | `sentry.error` |
+| `event_alert` (an issue alert rule fired) | `sentry.event_alert` |
+| `metric_alert` | `sentry.metric_alert` |
+
+Any other resource, such as `installation` or `comment`, is answered `202` with an empty `ids` list and makes no event.
+
+## How a request becomes an event
+
+| Event field | Taken from, first one present |
+| --- | --- |
+| `title` | `data.issue.title`, `data.event.title`, `data.error.title`, `data.description_title`, then `Sentry <resource>` |
+| `severity` | `data.issue.level`, `data.event.level`, `data.error.level`; for a metric alert without a level, the `action`; otherwise `error`. Translated as below. |
+| `status` | `resolved` when `action` is `resolved`; `firing` otherwise |
+| `body` | `data.issue.culprit`, `data.event.culprit`, `data.error.culprit`, `data.description_text` |
+| `labels` | `action`; `project` (`data.issue.project.slug`); `issue` (`data.issue.shortId`); `rule` (`data.triggered_rule`); `url` (the issue's, event's or error's `web_url`, then `data.web_url`). A label whose value is absent is left out. |
+| `dedup_key` | `data.issue.id`, `data.event.issue_id`, `data.error.issue_id`, `data.metric_alert.id` |
+| `payload` | the whole request body |
+
+`ts` is not set, so the event is stamped with the time ramzes received it.
+
+The level, or the metric alert's action, is translated without regard to case:
+
+| Value | Event severity |
+| --- | --- |
+| `debug` | `debug` |
+| `warning` | `warning` |
+| `error` | `error` |
+| `fatal`, `critical` | `critical` |
+| anything else, including `info` and a metric alert's `resolved` | `info` |
+
+## Example
+
+A request with `Sentry-Hook-Resource: issue` and this body:
+
+```json
+{
+  "action": "created",
+  "installation": { "uuid": "u" },
+  "actor": { "type": "application", "id": "sentry", "name": "Sentry" },
+  "data": {
+    "issue": {
+      "id": "1170820242",
+      "shortId": "SHOP-1A",
+      "title": "TypeError: x is undefined",
+      "culprit": "checkout in pay",
+      "level": "error",
+      "status": "unresolved",
+      "project": { "id": "1", "name": "shop", "slug": "shop" },
+      "web_url": "https://sentry.io/organizations/acme/issues/1170820242/"
+    }
+  }
+}
+```
+
+becomes this event:
+
+```json
+{
+  "topic": "sentry.issue",
+  "title": "TypeError: x is undefined",
+  "severity": "error",
+  "status": "firing",
+  "body": "checkout in pay",
+  "labels": {
+    "action": "created",
+    "issue": "SHOP-1A",
+    "project": "shop",
+    "url": "https://sentry.io/organizations/acme/issues/1170820242/"
+  },
+  "dedup_key": "1170820242",
+  "payload": { "action": "created", "data": { "…": "…" }, "…": "…" }
+}
+```
+
+A metric alert with `"action": "critical"` and `"description_title": "Critical: Too many errors"` becomes an event titled `Critical: Too many errors` with severity `critical` and the metric alert's id as its dedup key.
+
+## What resolves what
+
+A request whose `action` is `resolved` becomes a resolved event. It closes the notifications opened by earlier events with the same dedup key:
+
+- An issue resolved in Sentry closes what that issue's events opened. Issue webhooks, error webhooks and issue alerts for one issue all share the issue's id as their dedup key, so one resolution covers all of them on a route.
+- A metric alert that returns to `resolved` closes what its `critical` or `warning` requests opened.
+
+Every other issue action Sentry sends, for example an assignment, is a `firing` event with the issue's level and the same dedup key. Use the `action` label in a route's conditions if you want only some of them. See [Routes](/ramzes/concepts/routes/) and [Notifications](/ramzes/concepts/notifications/).
+
+## Try it without Sentry
+
+Sign a body yourself with `openssl`:
+
+```sh
+SECRET='<the client secret you entered>'
+BODY='{"action":"created","data":{"issue":{"id":"1170820242","shortId":"SHOP-1A","title":"TypeError: x is undefined","level":"error","project":{"slug":"shop"}}}}'
+SIGNATURE=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+
+curl -X POST http://localhost:7269/v1/in/<source id> \
+  -H 'Content-Type: application/json' \
+  -H 'Sentry-Hook-Resource: issue' \
+  -H "Sentry-Hook-Signature: $SIGNATURE" \
+  -d "$BODY"
+```
+
+## Answers and limits
+
+The body may be at most 1 MiB, and the source may send 6,000 events per minute; past that the answer is `429` with a `Retry-After` header. All answers are listed in [Source mappings](/ramzes/reference/mappings/#answers).

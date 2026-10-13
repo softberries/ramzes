@@ -1,6 +1,123 @@
 ---
-title: "Overview"
-description: "Overview in ramzes."
+title: "Channels overview"
+description: "What a connection is, the connectors ramzes ships and what each can do, per-target destinations, testing a connection, health and pausing, the private-address block, and what has not been tried against the live services."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+A channel is a place ramzes can send a message: a Slack channel, a mailbox, a pager, a URL of your own. This page explains connections and connectors and lists what ships with ramzes. Each connector has a page of its own with the exact request it makes.
+
+:::note
+No connector has been sent to its live service. Each request format was written from the service's documentation and is pinned by snapshot tests, which show the format has not changed by accident, not that the service accepts it. Email was sent to a test SMTP server inside the test suite only. See [Verified claims](/ramzes/verified/).
+:::
+
+## Connectors and connections
+
+A **connector** is a kind of channel: Slack, Email, PagerDuty. It knows how to turn a message into a request for one service, and which settings it needs.
+
+A **connection** is one configured use of a connector: this Slack webhook, that SMTP server. It has a name, the connector's settings, and its secrets. [Routes](/ramzes/concepts/routes/) send to connections.
+
+You create connections on the **Connections** page. Under **Add a connection** the connectors are grouped as **Chat**, **Paging**, **Email and push** and **Generic**, plus **Your own** once you have written one. Select a connector, fill in its form and select **Add connection**.
+
+<Screenshot name="connections" caption="The Connections page: the connections you have, and the connectors you can add one from." maxHeight="34rem" />
+
+Secrets, such as a webhook URL, a token or a password, are encrypted before they are stored and are never returned by the API or shown again. When you edit a connection the secret inputs are empty; leave one empty to keep the stored value.
+
+## The connectors
+
+| Connector | Sends to | Destination per target | Beyond sending |
+| --- | --- | --- | --- |
+| [Slack](/ramzes/channels/slack/) | one channel, through an incoming webhook | none | |
+| [Slack app](/ramzes/channels/slack/#the-slack-app-connector) | any channel the app is in, through a bot token | Channel ID | buttons, threads, updates its messages |
+| [Microsoft Teams](/ramzes/channels/teams/) | one channel, through a Workflows webhook | none | |
+| [Discord](/ramzes/channels/discord/) | one channel, through a channel webhook | none | |
+| [Telegram](/ramzes/channels/push/#telegram) | a chat, group or channel, through a bot | Chat ID | |
+| [Email](/ramzes/channels/email/) | mailboxes, through an SMTP server | Recipients | |
+| [ntfy](/ramzes/channels/push/#ntfy) | a topic on ntfy.sh or your own ntfy server | Topic | |
+| [Pushover](/ramzes/channels/push/#pushover) | a Pushover user or group | none | |
+| [PagerDuty](/ramzes/channels/paging/#pagerduty) | a service, through an Events API v2 integration | none | passes acknowledgement and resolution on |
+| [Opsgenie](/ramzes/channels/paging/#opsgenie) | the Opsgenie alert API | none | passes acknowledgement and resolution on |
+| [Webhook](/ramzes/channels/webhook/) | any URL, as JSON, optionally signed | none | |
+| [Your own](/ramzes/channels/custom/) | whatever one HTTP request can reach | if you define one | can pass acknowledgement on |
+
+The three capabilities the catalogue shows under **Can do** belong only to the Slack app connector:
+
+- **buttons**: a message carries buttons that act in ramzes.
+- **threads**: later messages about the same notification go under the first one.
+- **updates its messages**: a message already sent is rewritten when its notification is acknowledged or resolved.
+
+Every other connector sends a new message each time. For those, a message that can be acknowledged carries an acknowledgement link when the instance has a public URL. See [Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+## Destinations
+
+Some connectors can send to more than one place with the same credentials: a Slack app to any channel, an SMTP server to any mailbox. For these, a route target can name a **destination**, and the connection holds a default.
+
+In the route editor each target has three inputs: **Connection**, **Destination** and **Wording**. The destination input is labelled with what it means for that connector (**Channel ID**, **Recipients**, **Topic**, **Chat ID**) and is optional. Leave it empty to use the connection's default. For a connector without destinations the editor shows **The connection's own** instead.
+
+One connection can therefore serve many routes. A single Slack app connection can post payment alerts to one channel and deploy notices to another.
+
+If a target names no destination and the connection has no default, the delivery fails for good with a message that says so, for example `there is no channel: set one on the route or on the connection`.
+
+## Testing a connection
+
+**Send test message** on a connection's row sends one message through it now and shows the result under the connection's name: **Test message delivered.** or **Test failed:** with the reason the service gave.
+
+The test message is:
+
+| | |
+| --- | --- |
+| Title | `Test message from ramzes` |
+| Body | `If you can read this, the connection works.` |
+| Severity and status | `info`, `firing` |
+| Topic | `ramzes.test` |
+
+Things to know about it:
+
+- It names no destination, so it goes to the connection's default. A Slack app connection without a default channel, or an email connection without default recipients, fails the test even though routes that name a destination would work.
+- It belongs to no notification. It is not recorded as a delivery, is not retried, and does not count towards pausing.
+- For PagerDuty and Opsgenie it opens a real alert with the key `ramzes-test`. Nothing in ramzes resolves it. Close it in the paging service.
+
+## Health and pausing
+
+The connections table shows, for each connection, how its deliveries of the last 24 hours went: **Delivered, 24 h**, **Failed, 24 h**, the number still waiting, and the last error if there was one.
+
+The **State** column is **Active**, or **Paused until** a time. ramzes pauses a connection that fails several times in a row, so that a broken channel does not burn through the attempts of every message waiting for it. While it is paused nothing is sent through it; deliveries wait. After you fix the cause, **Resume now** ends the pause and sends what was waiting.
+
+The rules, with the thresholds and durations, are in [Delivery and retries](/ramzes/concepts/delivery/#connection-pausing).
+
+## What is true of every HTTP connector
+
+- A request has 10 seconds to complete. A timeout or a failure to connect is retried.
+- Redirects are not followed. A `3xx` answer is a failure that is not retried.
+- Any `2xx` answer means delivered, unless the connector names specific statuses. `408`, `425`, `429` and `5xx` are retried, and a `Retry-After` header in seconds is honoured. Any other status is final.
+- At most 64 KiB of an answer is read. When a delivery fails, up to 500 characters of the answer are kept as the reason.
+- The `User-Agent` is `ramzes/` followed by the version.
+- At most 4 deliveries are in flight through one connection at a time.
+
+How failures are retried and when ramzes gives up is in [Delivery and retries](/ramzes/concepts/delivery/).
+
+## The private-address block
+
+By default a connection may point at any address, including `localhost` and addresses inside your network. That is what you want for an internal chat server or SMTP relay, and it also means any signed-in user can make ramzes call internal services.
+
+With `block_private_addresses` on, ramzes refuses to send to loopback, private, link-local and similar addresses, whether written as an IP address or reached through a host name. This covers every HTTP connector and email. A refused delivery fails for good with:
+
+```txt
+not sent: the address is private, and this instance blocks requests to private addresses
+```
+
+The setting and the full list of ranges are in [Security](/ramzes/operations/security/#outbound-requests-and-the-private-address-block) and the [Configuration reference](/ramzes/operations/configuration/).
+
+## Pages in this section
+
+<CardGrid>
+  <LinkCard title="Slack" href="/ramzes/channels/slack/" description="Incoming webhook, and the Slack app with buttons, threads and updates." />
+  <LinkCard title="Microsoft Teams" href="/ramzes/channels/teams/" description="An Adaptive Card through a Workflows webhook." />
+  <LinkCard title="Discord" href="/ramzes/channels/discord/" description="An embed through a channel webhook." />
+  <LinkCard title="Email" href="/ramzes/channels/email/" description="SMTP settings, security modes and recipients." />
+  <LinkCard title="ntfy, Telegram and Pushover" href="/ramzes/channels/push/" description="Push to phones and desktops." />
+  <LinkCard title="PagerDuty and Opsgenie" href="/ramzes/channels/paging/" description="Trigger, acknowledge and resolve." />
+  <LinkCard title="Webhook" href="/ramzes/channels/webhook/" description="The JSON body and how to verify its signature." />
+  <LinkCard title="Your own connector" href="/ramzes/channels/custom/" description="Describe one HTTP request in YAML." />
+</CardGrid>

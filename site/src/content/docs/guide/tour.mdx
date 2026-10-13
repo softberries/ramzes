@@ -1,6 +1,80 @@
 ---
 title: "Tour of the app"
-description: "Tour of the app in ramzes."
+description: "What each page of the ramzes web UI is for, and how to move between them with the navigation, the command palette and the theme switch."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+The web UI is served by the ramzes binary itself. This page walks through its navigation, one line per
+page, and covers the parts that are the same everywhere: signing in, the command palette, the live
+indicator and the theme switch.
+
+## Signing in
+
+<Screenshot name="login" caption="The sign-in page: an email address and a password." />
+
+An instance that has no user yet sends every visitor to the first-run setup at `/setup`. After that,
+anyone who is not signed in is sent to `/login`, which asks for **Email** and **Password**. Users are
+added under [Settings](/ramzes/guide/settings/); there is no self-registration and no single sign-on.
+A session lasts 30 days.
+
+## The navigation
+
+On a wide screen the navigation is a rail on the left. On a narrow one it folds behind a **Menu**
+button in a bar across the top. The pages are in two groups.
+
+### Happening now
+
+| Page | What it is for |
+| --- | --- |
+| [Overview](/ramzes/guide/overview/) | Counts and charts for the last 24 hours, 7 days or 30 days: events received, deliveries, the noisiest sources and topics, and connections that are failing. |
+| [Feed](/ramzes/guide/feed/) | Every event ramzes received, newest first, with what became of it. A row opens the event's journey. This is the page the app opens on. |
+| [Notifications](/ramzes/guide/notifications/) | What each route told each connection, grouped by state. This is where you acknowledge and resolve. |
+| [Failures](/ramzes/guide/failures/) | Deliveries that were rejected or ran out of retries, and the button to send them again. |
+| [Silences](/ramzes/guide/silences/) | Periods during which matching events are recorded but sent nowhere. |
+
+### Configuration
+
+| Page | What it is for |
+| --- | --- |
+| [Routes](/ramzes/guide/routes/) | The ordered list of rules that decide which events go to which connections, the route editor, and a tester that shows what the routes would do with one event. |
+| [Templates](/ramzes/guide/templates/) | Wordings for messages, with a live preview. |
+| [Connections](/ramzes/guide/connections/) | The places messages can go, their health over the last 24 hours, and your own connector definitions. |
+| [Sources](/ramzes/guide/sources/) | The services that send events, their keys, their recent requests and, for any-JSON sources, their mapping. |
+| [Settings](/ramzes/guide/settings/) | The instance address, retention, users, API tokens, export and import, and the configuration history with rollback. |
+
+An event's own page and a notification's own page are not in the navigation. You reach them from the
+Feed and from Notifications; while you are on an event's page, **Feed** stays marked as the current page.
+
+## The command palette
+
+The **Go to…** button at the top of the rail opens a palette that jumps to any of the ten pages above.
+`Ctrl+K` or `Cmd+K` opens and closes it from anywhere in the app. The button is shown on wide screens
+only; the shortcut works at any width.
+
+| Key | What it does |
+| --- | --- |
+| Typing | Narrows the list to pages whose name contains what you typed. |
+| `↓` and `↑` | Move the selection. |
+| `Enter` | Goes to the selected page. |
+| `Esc` | Closes the palette. A click outside it does the same. |
+
+The palette lists pages only. It does not search events, routes or anything else. When nothing fits it
+says "No page matches" followed by what you typed.
+
+## The foot of the navigation
+
+- **Live indicator.** The app keeps one connection open to the server and reloads lists when something
+  changes. The indicator reads **Live** while that connection is open, **Connecting** before the first
+  connection and **Reconnecting** after it dropped. After a reconnect the page in view reloads its data,
+  because changes made in between were not seen.
+- **Theme switch.** The button reads **Light theme** while the app is dark and **Dark theme** while it is
+  light. Dark is the default. The choice is stored in the browser, so it applies to that browser only.
+- **Sign out.** Ends the session and returns to the sign-in page.
+- Your email address is shown under the buttons.
+
+## Where to go next
+
+If the instance is new, the usual order is: add a source under [Sources](/ramzes/guide/sources/), add a
+connection under [Connections](/ramzes/guide/connections/), then create a route under
+[Routes](/ramzes/guide/routes/). [Your first route](/ramzes/getting-started/first-route/) walks through it.

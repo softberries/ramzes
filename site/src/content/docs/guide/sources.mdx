@@ -1,6 +1,120 @@
 ---
 title: "Sources"
-description: "Sources in ramzes."
+description: "How to add a source, copy its key and setup instructions, inspect its recent requests, edit an any-JSON mapping, and replace or revoke a key on the Sources page."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+A source is a service that sends events to ramzes: one of your own, or a tool such as Alertmanager or
+GitHub. Each source has its own key, so you can tell senders apart and cut one off without touching the
+others. This page covers the screen; what to configure on the sending side is in the
+[Sending events](/ramzes/sending/events-api/) pages.
+
+<Screenshot name="sources" caption="Five sources: four of the kind ramzes API and one GitHub source, each with its key prefix and actions. Below, the form that adds a source." />
+
+## Adding a source
+
+<Steps>
+
+1. In **Add a source**, choose **What sends the events**. A line under the menu describes the kind.
+
+   | Kind | Setup page |
+   | --- | --- |
+   | **ramzes API** | [The events API](/ramzes/sending/events-api/) |
+   | **Alertmanager** | [Alertmanager](/ramzes/sending/alertmanager/) |
+   | **Grafana** | [Grafana](/ramzes/sending/grafana/) |
+   | **GitHub** | [GitHub](/ramzes/sending/github/) |
+   | **GitLab** | [GitLab](/ramzes/sending/gitlab/) |
+   | **Sentry** | [Sentry](/ramzes/sending/sentry/) |
+   | **Any JSON** | [Any JSON webhook](/ramzes/sending/any-json/) |
+
+2. Give it a **Name**, up to 100 characters, such as `orders-api`. The name is what the Feed and the
+   route editor show.
+
+3. For Sentry, paste the **Secret from Sentry**. Sentry generates this secret itself and signs each
+   request with it. It must be 16 to 200 characters.
+
+4. Press **Create source**.
+
+</Steps>
+
+A card then appears at the top of the page, titled with the source's name and "is ready to receive".
+It holds:
+
+- The key, with a **Copy** button. **Copy the key now. It cannot be shown again**: ramzes shows it only
+  at this moment. For a source that uses the sender's own secret there is no key to copy.
+- For every kind but ramzes API, the address to give the sender.
+- Setup instructions with the address and the key already filled in. For a ramzes API source this is a
+  `curl` command that sends a first event.
+
+Press **I have saved the key** to close the card.
+
+## The list
+
+| Column | What it shows |
+| --- | --- |
+| **Name** | The source's name. |
+| **Kind** | What sends the events. |
+| **Key prefix** | The first characters of the key, so you can tell which key a sender holds. Generated keys start with `rz_src_`. |
+| **Created** | How long ago it was added. |
+| **Actions** | **Setup**, **Rejected requests** or **Recent requests**, **Mapping** (Any JSON only), **Replace key** and **Delete**. |
+
+The search box looks in the name, kind and key prefix.
+
+**Setup**, the requests button and **Mapping** each open a panel under the table; press the same button
+again, or the close button of the panel, to hide it.
+
+### Setup
+
+Shows the address to give the sender and the setup instructions again. The key is replaced by the
+placeholder `<the source key>`, because it can no longer be read. If the key is lost, replace it.
+
+### Rejected requests and recent requests
+
+ramzes keeps the last 20 recorded requests of each source, newest first.
+
+- For a **ramzes API** source the button reads **Rejected requests**, and only requests ramzes refused
+  are recorded.
+- For every other kind it reads **Recent requests**, and every request that passed verification is
+  recorded, tagged **accepted** or **rejected**. A request with a wrong key or signature is not kept.
+
+Each entry shows the time, the reason for a rejection, the request's headers behind a "N headers"
+toggle, and the body. This is the first place to look when a sender says it is sending and nothing
+arrives in the Feed. See also [Troubleshooting](/ramzes/operations/troubleshooting/).
+
+### Mapping
+
+An **Any JSON** source turns the sender's JSON into events with a mapping that you write. The panel has
+two halves.
+
+- On the left, the **Mapping** as YAML, and **Save mapping**. Each field is an expression over the
+  request: `payload` is its JSON body, `headers` its headers by lower-case name.
+- On the right, **Try it on**: choose one of the source's recorded requests, or **A body I paste
+  here**. Underneath, the preview shows **The event it makes** (or the events, when one request makes
+  several) with title, topic, severity, status, body and labels. It updates shortly after you stop
+  typing. An error in the mapping or the body is shown in red. A request that would be accepted
+  without producing an event says so.
+
+The preview does not save anything and does not create events. The mapping format is documented in
+[Source mappings](/ramzes/reference/mappings/).
+
+## Replacing a key
+
+**Replace key** asks for confirmation. The current key stops working immediately, and the service is
+rejected until it uses the new one.
+
+- Leave the field empty and ramzes generates a new key, which is shown once in the same card as after
+  creating a source.
+- If the sender generates its own secret, type it into the field. For a Sentry source this is required.
+
+## Deleting a source
+
+**Delete** asks for confirmation. The key stops working. Events the source already sent are kept; in
+the Feed and on event pages they are then shown as coming from "a deleted source".
+
+## The built-in source
+
+Once ramzes has reported an event of its own, such as a connection being paused, the list also holds a
+source named **ramzes**. It is where those events come from. Nothing outside can send to it, it has no
+actions, and it cannot be changed or deleted. Route its events with the topic `ramzes.*`.

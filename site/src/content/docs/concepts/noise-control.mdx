@@ -1,6 +1,258 @@
 ---
 title: "Noise control"
-description: "Noise control in ramzes."
+description: "Dedup, grouping, quiet hours, rate limits, notify_resolved and silences: what each does, the order in which they are applied to an event, and a worked example of each with the route JSON."
 ---
 
-This page is being written.
+A route without noise control sends every matching event at once. This page covers the five things a route can do instead, and silences, which work across routes. Each is decided per route target: the combination of route, connection and destination.
+
+The route settings live under `shaping` in the route's JSON. In the UI they are the checkboxes under **Noise control** in the route editor; see [Routes in the UI guide](/ramzes/guide/routes/).
+
+| Setting | Effect |
+| --- | --- |
+| [`dedup`](#dedup) | Repeats of the same thing are counted, not sent again. |
+| [`group`](#grouping) | Events are collected for a while and sent as one message. Optionally repeated as a reminder. |
+| [`quiet_hours`](#quiet-hours) | During a daily period messages are held and sent as one digest when it ends. |
+| [`rate_limit`](#rate-limit) | Only so many messages per window; the rest arrive as one summary. |
+| [`notify_resolved`](#notify_resolved) | Whether a target is told when something it was told about is resolved. |
+| [Silences](#silences) | Matching events are recorded and sent nowhere, for a period. Not part of a route. |
+
+## The order they are applied in
+
+For one event at one route target, the first step that applies decides:
+
+1. **Resolution.** A `resolved` event that has something open to close, closes it. This comes first, before silences. See [Resolution](/ramzes/concepts/notifications/#resolution).
+2. **Silence.** If an active silence covers the event, it is recorded as not sent.
+3. **Dedup.** If the route has a dedup policy and a notification with the same key was opened within the window, the event joins it as a duplicate. A resolved event that found nothing to close in step 1 is recorded as not sent here, when the route has a dedup policy.
+4. **Grouping.** If the route groups, the event joins the group that is collecting, or opens one. Quiet hours and the rate limit are not looked at now; they are checked when the group's wait ends.
+5. **Quiet hours.** If it is quiet hours and the event is not severe enough to bypass them, it is held.
+6. **Rate limit.** If the target has had its allowance for the window, the event is held.
+7. **Send.**
+
+The route tester shows these steps for an event with what each concluded. See [Trying a route](/ramzes/concepts/routes/#trying-a-route).
+
+## Dedup
+
+Dedup stops the same problem from being sent again while it is still open.
+
+```json
+{
+  "name": "Database alerts",
+  "match": { "topic": "db.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "dedup": { "window_s": 3600 }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `window_s` | Seconds after a notification is opened during which events with the same key are absorbed. 1 second to 30 days. |
+| `key` | Optional. An [expression](/ramzes/reference/expressions/) that gives the key. |
+
+**The key** of an event at this route is, in this order:
+
+1. The result of the `key` expression, if the route has one and it gives something. Text is trimmed and cut to 200 characters. If the expression fails or gives nothing, the next rule applies; the route tester shows the failure.
+2. The event's own `dedup_key`.
+3. A key derived from the topic and all the labels. Two events with the same topic and the same labels are the same thing; a different title does not matter.
+
+**The window** starts when the notification is opened and does not move. A duplicate does not extend it.
+
+With the route above:
+
+| Time | Event | What happens |
+| --- | --- | --- |
+| 10:00 | `db.replica.lag`, `dedup_key: "db-3"` | Opens a notification. Sent. |
+| 10:05 | the same key | Joins as a duplicate. Count is 2. Nothing is sent. |
+| 10:50 | the same key, now `critical` | Joins as a duplicate. The notification's severity becomes `critical`. Nothing is sent. |
+| 11:10 | the same key | The first notification is older than an hour. A new one is opened and sent. |
+| 11:20 | the same key, `status: "resolved"` | Both open notifications are resolved. The target is told once for each. |
+| 11:25 | the same key | Nothing is open for the key. A new notification is opened and sent. |
+
+A duplicate joins an open notification in any state: collecting, held, sent or acknowledged. A raised severity does not send anything; it changes what later messages and the UI show.
+
+To use something other than the event's own key, give an expression:
+
+```json
+"dedup": { "key": "labels.cluster ~ '/' ~ topic", "window_s": 3600 }
+```
+
+:::note
+A dedup policy also changes what a stray resolution does. On a route with dedup, a resolved event that finds nothing open is recorded and not sent. On a route without it, such an event is sent like any other.
+:::
+
+## Grouping
+
+Grouping collects events for a while and sends them as one message.
+
+```json
+{
+  "name": "Deploy results",
+  "match": { "topic": "deploy.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "group": { "by": ["service", "env"], "wait_s": 30, "repeat_s": 14400 }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `by` | Labels whose values define a group. Events with the same values for all of them are grouped together. A missing label counts as an empty value. Empty or absent means one group per target. |
+| `wait_s` | Seconds to wait after the first event before sending. 1 second to 1 day. |
+| `repeat_s` | Optional. Seconds after which a sent notification that is still open is sent again. 1 minute to 30 days. |
+
+The first event of a group opens a notification in the state `grouping` and starts the wait. Events that arrive during the wait join it. The wait is counted from the first event and is not extended by later ones. When it ends, one message goes out for all of them; how several events are worded is described under [What a message says](/ramzes/concepts/notifications/#what-a-message-says).
+
+After a group is sent it is closed to new members. The next event with the same label values opens a new group.
+
+With the route above, a deploy of `checkout` to `prod` that emits three events within ten seconds produces one message 30 seconds after the first. An event for `checkout` in `staging` in the same half minute is a different group and a different message.
+
+When the wait ends, the group is checked against quiet hours and the rate limit. If either applies it becomes `held`, using the highest severity among its events to decide whether it bypasses quiet hours.
+
+### Reminders
+
+With `repeat_s`, a notification that is `sent` is sent again every `repeat_s` seconds until someone acknowledges it or it is resolved. Each reminder covers the events that are still firing. A notification sends [at most 20 messages](/ramzes/concepts/notifications/#how-many-messages-a-notification-sends) in total.
+
+Reminders belong to `group`. To get reminders without collecting anything, use a group with a short wait:
+
+```json
+"group": { "wait_s": 1, "repeat_s": 1800 }
+```
+
+## Quiet hours
+
+Quiet hours hold messages during a daily period and send one digest when it ends.
+
+```json
+{
+  "name": "Batch job results",
+  "match": { "topic": "batch.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "quiet_hours": {
+      "tz": "Europe/Warsaw",
+      "start": "22:00",
+      "end": "07:00",
+      "days": ["mon", "tue", "wed", "thu", "fri"],
+      "bypass_severity": "critical"
+    }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `tz` | An IANA time zone name, such as `Europe/Warsaw` or `UTC`. |
+| `start`, `end` | Times of day as `HH:MM`. An `end` earlier than `start` means the next morning. They must differ. |
+| `days` | Days on which a quiet period **starts**: `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`. Empty or absent means every day. |
+| `bypass_severity` | Optional. Events at or above this severity are sent anyway. |
+
+A period belongs to the day it starts on. With the route above, the period that starts on Friday at 22:00 runs until Saturday 07:00. Nothing is quiet on Saturday night or Sunday night, because no period starts on those days; the next one starts on Monday at 22:00.
+
+The first event during a quiet period opens a notification in the state `held`, with the reason `quiet hours until 07:00 (Europe/Warsaw)`. Later events for the same target join it. At 07:00 one message goes out for all of them. A `critical` event at 03:00 is sent at 03:00.
+
+**Daylight saving time.** Start and end are wall-clock times in the zone. A night in which the clocks go back is an hour longer: in Warsaw, a period from 22:00 to 07:00 lasts ten hours on the night the clocks change in October, not nine. If the computed end has already passed while the wall clock still shows a quiet time, which can happen in the repeated hour, the hold is looked at again a minute later.
+
+## Rate limit
+
+A rate limit caps how many messages a target gets in a window. What is over the cap is not dropped; it arrives as one summary.
+
+```json
+{
+  "name": "Order problems",
+  "match": { "topic": "orders.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "rate_limit": { "max": 5, "window_s": 600 }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `max` | Notifications that may be sent to the target per window. At least 1. |
+| `window_s` | The window in seconds. 1 second to 1 day. |
+
+The window slides: what counts is how many notifications were sent to this target in the last `window_s` seconds. With the route above, during a burst that starts at 12:00:
+
+| Time | Event | What happens |
+| --- | --- | --- |
+| 12:00 to 12:02 | events 1 to 5 | Each is sent. |
+| 12:03 | event 6 | Five were sent in the last ten minutes. It opens a `held` notification, released at 12:10, when the oldest of the five leaves the window. |
+| 12:04 to 12:09 | events 7 to 40 | Each joins the held notification. |
+| 12:10 | | One message goes out that summarises the 35 held events. |
+
+The summary is not itself checked against the rate limit when it is released, only against quiet hours.
+
+The limit is per route target. Two routes that send to the same connection each have their own allowance.
+
+## notify_resolved
+
+By default, when something a target was told about is resolved, the target is told. Set `notify_resolved` to `false` to close notifications quietly.
+
+```json
+{
+  "name": "CI results",
+  "match": { "topic": "ci.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "dedup": { "window_s": 86400 },
+    "notify_resolved": false
+  }
+}
+```
+
+Suppose every event about a build carries the same `dedup_key`. With this route a failed build is sent, a second failure of the same build within a day is counted, and the `resolved` event of the green build that follows closes the notification without a message. Reminders and escalation stop either way.
+
+This setting is about the notice only. The resolved event still closes the notification.
+
+## Silences
+
+A silence says: for this period, events like this are sent nowhere. Use one for planned work, or for something known and being handled.
+
+A silence is not part of a route. It has the same conditions as a route's `match` (topic, minimum severity, source, labels, expression) and applies to every route.
+
+```sh
+curl -X POST http://localhost:7269/api/silences \
+  -H "Authorization: Bearer $RAMZES_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "match": {
+      "topic": "payments.*",
+      "labels": [{ "op": "equals", "key": "env", "value": "staging" }]
+    },
+    "duration_s": 7200,
+    "comment": "load test on staging"
+  }'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `match` | Which events. At least one condition is required. |
+| `starts_at` | Unix milliseconds. Defaults to now. A later time schedules the silence. |
+| `ends_at` or `duration_s` | When it ends: a time in Unix milliseconds, or seconds from its start. It must end in the future and can last at most 366 days. |
+| `comment` | Optional, up to 500 characters. Shown as the reason on what it silenced. |
+
+While the silence is active, an event that matches it and a route is still stored and still routed. At each route target it opens a notification in the state `suppressed` with the reason `silenced: load test on staging`. The feed shows the event as "not sent". Nothing is delivered, and nothing is delivered later when the silence ends.
+
+What a silence does **not** do:
+
+- It does not stop reminders or escalation of a notification that was already sent. Acknowledge the notification for that.
+- It does not block a resolution of something open. The notification is closed and whoever was told is told.
+- It does not affect events that match no route.
+
+End a silence early with `POST /api/silences/{id}/end` or from the Silences page. The **Silence for 1 hour** button under a Slack app message creates one for the event's topic and up to ten of its labels. See [Silences in the UI guide](/ramzes/guide/silences/).
+
+## What skips noise control
+
+Noise control is applied when an event is routed and when a waiting notification is released. Messages that come later for a notification that is already out are not checked again:
+
+| Message | Silences | Dedup | Quiet hours | Rate limit |
+| --- | --- | --- | --- | --- |
+| A reminder (`repeat_s`) | ignored | n/a | ignored | ignored |
+| An [escalation step](/ramzes/concepts/escalation/) | ignored | n/a | ignored | ignored |
+| The notice that it was resolved | ignored | n/a | ignored | ignored |
+| A [replay](/ramzes/concepts/delivery/#replay) of an event or a delivery | ignored | ignored | ignored | ignored |
+
+A reminder or an escalation step can therefore arrive during quiet hours. That is intended: both exist because nobody has acknowledged the problem.

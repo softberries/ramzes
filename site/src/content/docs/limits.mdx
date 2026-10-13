@@ -1,6 +1,163 @@
 ---
 title: "Limits and what is not built"
-description: "Limits and what is not built in ramzes."
+description: "Every fixed limit in ramzes (sizes, counts, rates, timeouts) and the list of things it does not do, collected in one place."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+
+This page collects every limit that is fixed in the code and everything ramzes does not do. Nothing
+here can be changed by configuration unless the row says so.
+
+<Aside type="caution" title="Status">
+Nothing has been released, and no connector or source adapter has been run against the live service
+it talks to. See [Verified claims](/ramzes/verified/).
+</Aside>
+
+## What is not built
+
+- **Several instances working together.** ramzes runs as one instance. There is no high
+  availability and no horizontal scaling. Noise-control decisions are made under a lock in one
+  process, and the ingest rate count and sign-in lockout are kept in that process's memory.
+- **Roles.** Every user and every API token can read and change everything.
+- **Single sign-on.** Sign-in is email and password. No OIDC, SAML or LDAP, and no second factor.
+- **An audit log.** The configuration history records who changed the configuration. Sign-ins,
+  reads, and changes to users and API tokens are not recorded.
+- **Password change or reset.** A password is replaced by removing the user and adding it again.
+- **Full-text search.** The feed filters by time, source, topic, minimum severity, one label,
+  outcome and a substring of the title, and sorts by arrival, severity, topic or title.
+- **A memory limit for templates and expressions.** They are stopped after a fixed amount of work,
+  but a signed-in user can still write one that builds a very large string.
+- **TLS.** ramzes serves plain HTTP. Put it behind a reverse proxy.
+- **CORS.** No cross-origin headers are sent, so a web page on another origin cannot call ramzes.
+- **Publish/subscribe.** Services cannot read events back or subscribe to topics. ramzes is a
+  router, not a broker.
+- **On-call schedules.** An escalation chain names connections and delays. There are no rotas or
+  calendars.
+- **End-user notifications.** No subscriber lists, preferences or unsubscribe handling.
+- **More than one workspace.** An instance has a single workspace; there are no tenants or teams.
+- **A hosted version, a published image, a chart repository or binary downloads.** You build from a
+  checkout.
+- **A backup command for Postgres.** `ramzes backup` covers SQLite. For Postgres use `pg_dump`.
+- **A "recovered" event from ramzes itself.** `ramzes.connection.paused` and
+  `ramzes.delivery.failed` are raised as firing only.
+
+## Events and ingest
+
+| Limit | Value |
+|---|---|
+| Request body | 1 MiB (1,048,576 bytes) |
+| Events in one request | 1000, both for a batch to `/v1/events` and for what a mapping produces from one request |
+| Events per source per minute | 6000; beyond that `429` with `Retry-After` |
+| `topic` | 1 to 200 characters: letters, digits and `. _ : / -` |
+| `title` | 1 to 500 characters, not blank |
+| `body` | up to 20,000 characters |
+| `labels` | up to 64 |
+| Label key | 1 to 100 characters: letters, digits and `. _ -` |
+| Label value | up to 1000 characters |
+| `dedup_key` | 1 to 200 characters |
+| `Idempotency-Key` header | 1 to 200 visible ASCII characters |
+| `severity` | one of `debug`, `info`, `warning`, `error`, `critical` |
+| `payload` | any JSON, within the size of the request |
+| Unknown fields | refused |
+| NUL characters | refused in `title`, `body`, label values and `dedup_key` |
+| Source name | 1 to 100 characters |
+| A source key you supply yourself | 16 to 200 characters |
+| Recorded requests per source | the newest 20, bodies cut to 10,000 characters (`/v1/events`) or 64,000 (per-source addresses) |
+| Age of a signed request (GitLab signing token) | 5 minutes |
+
+The ingest rate limit is counted per source and clock minute, in memory.
+
+## Routes, noise control and escalation
+
+| Limit | Value |
+|---|---|
+| Names of routes, templates, connections, connectors, sources and API tokens | 1 to 100 characters |
+| Targets of a route | at least 1 |
+| Dedup window | 1 second to 30 days |
+| Dedup key computed by an expression | cut to 200 characters |
+| Group wait | 1 second to 1 day |
+| "Send again while still open" interval | 1 minute to 30 days |
+| Times one notification is sent to its route's target | 20, counting the first message and every reminder; then the reminders stop. Escalation steps and the message that says it is resolved are separate. |
+| Rate limit | at least 1 notification per window; window 1 second to 1 day |
+| Quiet hours | one daily period per route; start and end must differ |
+| Titles listed in a digest of several events | 10, then "and N more" |
+| Escalation steps | up to 10 |
+| Delay of an escalation step | 1 second to 7 days |
+| Length of a silence | up to 366 days; it needs at least one condition |
+| Comment on a silence | 500 characters |
+| A silence made from a Slack button | 1 hour, on the topic and up to 10 labels of the first event |
+| Compiled size of a label regular expression | 100,000 bytes |
+
+## Templates and expressions
+
+| Limit | Value |
+|---|---|
+| Work per evaluation | 50,000 instructions |
+| Source text of one expression or template | 32 KiB |
+| Output of a template | 256 KiB |
+| Memory | no limit |
+
+## Delivery
+
+| Limit | Value |
+|---|---|
+| Time for one request to a channel | 10 seconds |
+| Redirects | never followed |
+| Answer read from a service | 64 KiB; 500 characters are kept as the error text |
+| Retry schedule | 5 seconds, doubling to at most 1 hour, each delay varied by up to 20 % either way |
+| Attempts per delivery | 8 |
+| Longest a delivery is retried | 24 hours from when it was queued |
+| Statuses that are retried | `408`, `425`, `429`, `5xx`, timeouts and network errors. Any other non-success is final. |
+| Deliveries sent at the same time | 16 in all, 4 per connection |
+| Failures before a connection is paused | 5 in a row |
+| Length of a pause | 1 minute, doubling to at most 15 minutes |
+| Guarantee | at-least-once: a message can arrive more than once |
+
+Each channel also cuts long messages to what its service accepts. See the
+[channel pages](/ramzes/channels/overview/).
+
+## Storage and retention
+
+| Limit | Value |
+|---|---|
+| Event retention | 30 days by default; 0 (forever) to 3650 days; set under **Settings** |
+| Per-topic retention | exact topic names only, no patterns |
+| Retention pass | at start and every hour |
+| Configuration history | the newest 200 entries |
+| Failures listed | the newest 200 |
+| Databases | SQLite (a file in the data directory) or Postgres |
+
+## Sign-in and the admin API
+
+| Limit | Value |
+|---|---|
+| Password | at least 10 characters |
+| Email address | up to 254 characters |
+| Session | 30 days from sign-in, not extended by use |
+| Sign-in lockout | 10 wrong passwords per email in 15 minutes; counted in memory for up to 10,000 addresses |
+| API tokens | no expiry; revoked by hand |
+| Page size of the feed and of notifications over the API | 1 to 200, default 50 |
+| Period of the overview | 1 to 744 hours (31 days) |
+| Connection health shown | the last 24 hours |
+| Other rate limits on the admin API | none |
+
+## Operating
+
+| Limit | Value |
+|---|---|
+| Instances | 1 |
+| `/metrics` | open unless a metrics token is set |
+| Metric labels | connector kind and outcome only |
+| Time given to deliveries in flight at shutdown | 20 seconds |
+| Secret key | 32 bytes; if it is lost, stored credentials cannot be recovered |
+| Acknowledgement links | no expiry; valid while the notification is kept and the secret key is unchanged |
+
+## Where each limit is explained
+
+- [The events API](/ramzes/sending/events-api/) for event fields and ingest.
+- [Noise control](/ramzes/concepts/noise-control/) and
+  [Escalation and acknowledgement](/ramzes/concepts/escalation/).
+- [Delivery and retries](/ramzes/concepts/delivery/).
+- [Expressions and templates](/ramzes/reference/expressions/).
+- [Security](/ramzes/operations/security/), [Retention](/ramzes/operations/retention/) and the
+  [Configuration reference](/ramzes/operations/configuration/).

@@ -1,6 +1,158 @@
 ---
 title: "Escalation and acknowledgement"
-description: "Escalation and acknowledgement in ramzes."
+description: "Escalation chains (steps, delays, targets), when the clock starts and what stops it, the four ways to acknowledge, how the signed acknowledgement link works, and what is passed on to PagerDuty, Opsgenie and Slack."
 ---
 
-This page is being written.
+An escalation chain tells more people, step by step, while nobody has acknowledged a notification. Acknowledging is how a person says "I am on it", which stops the chain and the reminders. This page covers both.
+
+## Chains
+
+A chain is a list of steps on a route. Each step has a delay and its own targets.
+
+```json
+{
+  "name": "Critical pages",
+  "match": { "topic": "pager.*", "min_severity": "critical" },
+  "targets": [
+    { "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d", "destination": "team" }
+  ],
+  "escalation": [
+    {
+      "after_s": 600,
+      "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d", "destination": "lead" }]
+    },
+    {
+      "after_s": 1200,
+      "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d", "destination": "cto" }]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `after_s` | Seconds after the previous step, or after the first message for the first step. 1 second to 7 days. |
+| `targets` | Who the step tells. At least one. Same shape as a route's targets: `connection_id`, optional `destination`, optional `template_id`. |
+
+A route can have at most 10 steps.
+
+With the route above, a critical event at 14:00 goes to `team`. Unacknowledged at 14:10, it goes to `lead`. Still unacknowledged at 14:30, twenty minutes after that, it goes to `cto`. Then the chain is at its end.
+
+A step's message is the notification's message with `Escalated: ` in front of the title. It covers the events that are firing at that moment and carries the same acknowledgement link. Each target of a step gets its own delivery, retried like any other.
+
+### When the clock starts
+
+The chain starts when the notification is first sent, that is when its first message is queued:
+
+- at once, for a notification that is sent at once;
+- when the wait ends, for a [group](/ramzes/concepts/noise-control/#grouping);
+- when the hold ends, for a notification held by quiet hours or a rate limit.
+
+Delays are counted from when the previous step fired, not from when it was due. The timer worker looks for due timers once a second.
+
+The chain does not look at whether earlier messages arrived. If the first message is still being retried, or failed, the first step fires all the same.
+
+Escalation steps are [not subject to noise control](/ramzes/concepts/noise-control/#what-skips-noise-control): a step fires during quiet hours and under a silence.
+
+### What stops a chain
+
+A step fires only while the notification is `sent`. The chain ends when:
+
+- someone **acknowledges** the notification;
+- the notification is **resolved**, by a resolved event or by hand;
+- the **route is deleted**;
+- the route's chain is edited and no longer has the step that was due. A chain follows the route as it is at the moment a step fires, so changing the delays or targets of later steps affects chains that are already running.
+
+Turning a route off does not stop chains that are running; it only stops new events from matching.
+
+No chain starts for a notification that is suppressed, for one acknowledged before it was sent, or for an event you [replay](/ramzes/concepts/delivery/#replay).
+
+When the notification is resolved by an event, every target that a fired step told is [told that it is over](/ramzes/concepts/notifications/#resolution). Steps that did not fire tell nobody.
+
+## Four ways to acknowledge
+
+All four do the same thing: the notification becomes `acknowledged`, its timers are removed, and who did it is recorded.
+
+| Way | How | Recorded as |
+| --- | --- | --- |
+| The UI | The **Acknowledge** button on the notification. | The user's email. |
+| The API | `POST /api/notifications/{id}/acknowledge` | The user's email with a session, or `API token` with a token. |
+| The signed link | The acknowledgement link in the message. No sign-in. | `link` |
+| The Slack button | **Acknowledge** under a message sent through a Slack app. | The Slack username followed by ` (Slack)`. |
+
+Acknowledging is allowed while a notification is `sent`, `grouping` or `held`. An acknowledgement waits for a routing decision or a timer that is in progress, so a reminder or step that was already decided cannot go out after it.
+
+## The acknowledgement link
+
+A message carries a link that lets its reader acknowledge without signing in to ramzes.
+
+```text
+https://ramzes.example.com/ack/01a136a5-46c1-7d22-9e0c-5a7d1f3b9a10?t=5b0c…e41a
+```
+
+**What it needs to exist.** Two things:
+
+1. The instance has a public URL: the `public_url` setting of the server (`RAMZES_PUBLIC_URL`), or the public URL in **Settings**. Without one, ramzes does not know its own address and messages carry no links at all. See [Configuration](/ramzes/operations/configuration/).
+2. The notification is unacknowledged and not resolved when the message is built. A resolution notice has no acknowledgement link.
+
+**Which channels show it.** Slack (incoming webhook), email, Microsoft Teams, Discord, ntfy, Telegram, PagerDuty and Opsgenie show it as a link or a button that opens it. The generic webhook sends it as the field `ack_link`. Slack app messages have the **Acknowledge** button instead. Pushover messages do not carry it.
+
+**Opening the link acknowledges nothing.** A `GET` shows a small page with the notification's title and an **Acknowledge** button. Only the `POST` that the button sends acknowledges. Link previews, mail scanners and anything else that fetches the address therefore change nothing.
+
+| Request | Answer |
+| --- | --- |
+| `GET`, notification unacknowledged | "Acknowledge this notification?" with the button. |
+| `GET`, already acknowledged | "Already acknowledged". |
+| `GET`, resolved | "This is over". |
+| `POST`, notification unacknowledged | Acknowledges. "Acknowledged". |
+| `POST`, already acknowledged or resolved | "Nothing to acknowledge". |
+| Wrong or missing token, or no such notification | `404`, "This link is not valid". The answer is the same in both cases, so the page says nothing about what exists. |
+
+**The token.** `t` is an HMAC-SHA256 signature of the notification's id, made with a key derived from the instance's secret key. It is not stored and it has no expiry: the link works for as long as the notification exists and the instance keeps its secret key. A notification is removed when [retention](/ramzes/operations/retention/) deletes its events.
+
+:::caution
+Whoever has the link can acknowledge that one notification. It grants nothing else. Treat a channel that receives these links as you would treat the right to acknowledge. Replacing the instance's secret key invalidates every link sent before.
+:::
+
+## The Slack button
+
+Messages sent through a **Slack app** connection carry **Acknowledge** and **Silence for 1 hour** buttons. Slack posts a button press to `/v1/slack/{connection_id}/interactions`. ramzes accepts it only when the connection has a signing secret, the request's signature matches it and its timestamp is within five minutes of now; anything else gets `401`.
+
+Setting up the app and the address is covered in [Slack](/ramzes/channels/slack/).
+
+## What is passed on to the channels
+
+Some services keep their own state for an alert. ramzes tells them when the state changes in ramzes.
+
+### On acknowledge
+
+| Channel | What ramzes does |
+| --- | --- |
+| Slack app | Rewrites each message it delivered for the notification (`chat.update`): the buttons are removed and a line says `Acknowledged by <who>`. |
+| PagerDuty | Sends an event with `event_action: "acknowledge"` and the notification's dedup key to the Events API v2. |
+| Opsgenie | Calls `POST /v2/alerts/{alias}/acknowledge?identifierType=alias`, where the alias is the notification's dedup key. |
+| A connector of your own | Makes the `acknowledge` request of its [definition](/ramzes/reference/connector-definitions/#the-acknowledge-request), if it has one. |
+| Everything else | Nothing. |
+
+This is done for every connection and destination to which a message of the notification was delivered, escalation targets included.
+
+### On resolve
+
+When a **resolved event** closes a notification, the notice goes out as ordinary deliveries, and each channel words it its own way:
+
+| Channel | What ramzes sends |
+| --- | --- |
+| Slack app | A reply in the thread of the first message, and the delivered messages are rewritten to end with `Resolved`. |
+| PagerDuty | An event with `event_action: "resolve"` and the same dedup key. |
+| Opsgenie | `POST /v2/alerts/{alias}/close?identifierType=alias`. |
+| Other channels | The same message marked as resolved. |
+
+When you **resolve by hand**, nothing is delivered. Slack app messages are rewritten to say `Resolved`. PagerDuty and Opsgenie are not told.
+
+The dedup key ramzes gives a service is the notification's dedup key, or the notification's id when it has none. It is the same on the first message, the acknowledgement and the resolution, which is how the service pairs them.
+
+:::note
+Rewriting a Slack message and passing an acknowledgement on are attempted once. A failure is written to the log of ramzes as a warning and is not retried or shown in the UI. The notification is acknowledged in ramzes either way.
+:::
+
+No connector has been run against its live service. The requests above are what ramzes sends, written from each service's documentation. See [Verified claims](/ramzes/verified/).

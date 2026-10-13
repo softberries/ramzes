@@ -1,6 +1,176 @@
 ---
 title: "Routes and the tester"
-description: "Routes and the tester in ramzes."
+description: "How to read and reorder the route list, fill in the route editor section by section, and use the tester to see what the routes would do with an event before saving."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+The Routes page holds the ordered list of routes, the editor for one route, and a tester that shows
+what the routes would do with an event. What a route is and how matching works is covered in
+[Routes](/ramzes/concepts/routes/); this page is about the screen.
+
+<Screenshot name="routes" caption="Five routes in evaluation order on the left; on the right the tester, showing that the chosen event matches only the last route and would not be sent because a silence covers it." />
+
+## The list
+
+Each event is checked against the routes from the top. Every route that matches sends it, unless an
+earlier matching route stops the evaluation. So the order of this list matters, and the number in the
+circle is a route's place in it.
+
+A row shows:
+
+- The route's name, an **on** or **off** badge, and a **stops here** tag when routes below it are
+  skipped once it matches.
+- Its conditions in words, for example "topic orders.\*, severity warning or higher", or "Every event"
+  for a route without conditions.
+- After "to", one tag per target: the connection, the destination in brackets when one is set, and
+  "worded by" a template name when the target uses one. A connection that no longer exists is shown in
+  red as "a deleted connection".
+- Tags that summarise the escalation chain ("then #ops (Slack) after 10 min") and the noise control
+  ("counts duplicates for 1 h", "groups by service for 1 h").
+- In red, "Expression failed" with how long ago and the reason, when the route's expression could not
+  be evaluated for an event. The note is cleared when the route is saved.
+
+### Ordering
+
+The up and down arrows move a route one place. The change is saved at once. A new route is added at the
+end of the list, so move it up if it has to be evaluated before others.
+
+### Search
+
+The search box ("Name, topic or connection") keeps the routes whose name, topic or connection names
+contain every word you type. It looks at the connections of a route's own targets and of its escalation
+steps. The numbers in the circles keep showing each route's real place in the order. While the list is
+searched the arrows are disabled, with the note "Routes cannot be moved while the list is searched."
+
+### Turn off, edit, delete
+
+- **Turn off** / **Turn on** switches a route without opening it. A route that is off matches nothing.
+- **Edit** opens the route in the editor below the list.
+- **Delete** asks first, and warns that events only this route matched will no longer be sent anywhere.
+
+## The editor
+
+<Screenshot name="route-editor" caption="The editor open on a route: its conditions, its target, an escalation step after 10 minutes, and duplicate counting for one hour. The tester marks the route as being edited." maxHeight="32rem" />
+
+**New route** in the top right, or **Edit** on a row, opens the editor under the list. Fill in the
+sections from top to bottom and press **Create route** or **Save route**. The server checks the route
+when you save; a problem is shown in red above the buttons and nothing is saved.
+
+### Name
+
+Required, up to 100 characters.
+
+### Which events
+
+The conditions an event must meet. All the ones you fill in must hold. Leave everything empty to match
+every event.
+
+| Field | Meaning |
+| --- | --- |
+| **Topic** | An exact topic, or a pattern in which `*` matches any run of characters, as in `orders.*`. |
+| **Minimum severity** | **Any severity**, or `info`, `warning`, `error` or `critical`. |
+| **Source** | **Any source**, or one source. |
+| **Add label condition** | Adds a row: a label key, then **equals** with a value, **matches** with a regular expression, or **is present**. A row without a key is ignored. |
+| **Expression** | Optional. A test the event must also pass. It can read `topic`, `severity`, `status`, `title`, `labels` and `payload`, for example `payload.amount > 100 and labels.env == 'prod'`. |
+
+The line "Matches:" under the fields repeats the conditions in words. The expression language is in
+[Expressions and templates](/ramzes/reference/expressions/).
+
+### Send to
+
+One row per target. A route needs at least one.
+
+| Column | Meaning |
+| --- | --- |
+| **Connection** | Where the message goes. Connections are made under [Connections](/ramzes/guide/connections/). |
+| **Destination** | Shown for connections whose channel takes one, labelled with what that channel calls it. It is optional and overrides the connection's own. For other connections the column reads "The connection's own". |
+| **Wording** | **The event's own wording**, or a template from [Templates](/ramzes/guide/templates/). |
+
+**Add another connection** adds a row. Each target gets its own notification.
+
+### If nobody acknowledges
+
+The escalation chain. **Add a step** adds a step with a delay of 15 minutes and one target to choose.
+For each step set "after" and a unit (seconds, minutes or hours), and under "tell" the targets, which
+work like the rows of **Send to**. The delay of a step counts from the step before it, and the first
+from the first message; beside the delay the editor shows the total, for example "10 min after the
+first message". **Remove step** deletes one.
+
+See [Escalation and acknowledgement](/ramzes/concepts/escalation/) for when steps go out and what stops
+them.
+
+### Noise control
+
+Without any of these, every matching event is sent at once. Each checkbox opens its own fields. The
+line "Now:" sums up what is switched on. What each one does is explained in
+[Noise control](/ramzes/concepts/noise-control/).
+
+| Checkbox | Fields | Starting values |
+| --- | --- | --- |
+| **Count repeats of the same event instead of sending them again** | **For this long after the first one**; **What makes two events the same** (optional, an expression such as `labels.order`; empty uses the event's dedup key, or its topic and labels) | 10 minutes |
+| **Collect events and send them as one message** | **Labels to group by** (separated by commas; empty makes one group per connection); **Wait before sending**; **Send again while still open, every** (empty sends once) | wait 30 seconds |
+| **Hold messages during quiet hours and send one digest after** | **Time zone** (a list of common zones is offered; any IANA name can be typed); **From** and **Until**; **On the nights starting** (no day chosen means every day); **Send anyway at or above** a severity | your browser's time zone, 22:00 to 07:00 |
+| **Limit how many messages are sent** | **At most this many**; **In every** | 5 in every 5 minutes |
+| **Tell the target when it is resolved** | none | ticked |
+
+### On, and stopping
+
+- **Route is on**: untick to keep the route without using it.
+- **Skip the routes below when this one matches**: makes this a stopping route.
+
+## The tester
+
+The **Try an event** card shows what the routes would do with one event. Nothing is stored and nothing
+is sent.
+
+<Steps>
+
+1. Choose the **Event**. The menu lists the 20 newest events by time and title, and starts on the
+   newest. Choose **An event I write here** to edit a sample as JSON under **Event as JSON**; it needs
+   at least a `topic` and a `title`.
+
+2. Read the result. It is recalculated shortly after you change the event, or anything in the editor.
+
+</Steps>
+
+The result has one entry per route, in evaluation order:
+
+| Shown | Meaning |
+| --- | --- |
+| **matched** | The route matches. Its targets follow. |
+| **not matched** | A condition does not hold. |
+| **off** | The route is turned off. |
+| "skipped, an earlier route stops here" | A stopping route above it matched. |
+| "too mild to match, but it resolves what this route opened" | A resolved event below the route's minimum severity, which closes a notification this route has open. |
+| "not matched: too mild, and nothing of this route is open" | The same kind of event, with nothing to close. |
+| "expression failed:" and a reason | The route's expression could not be evaluated. |
+
+For a matching route, each target shows what noise control would do with the message right now, who it
+goes to, and the message title after the template is applied:
+
+| Outcome | Meaning |
+| --- | --- |
+| **sent** | A message would go out now. |
+| **not sent** | It would be suppressed. |
+| **joins an open notification** | It would be counted into a notification that is already open. |
+| **opens a group** | It would start a group that is sent after the wait. |
+| **held** | It would be held, for quiet hours or a rate limit. |
+| **resolves an open notification** | It would close an open notification. |
+
+Under the outcome, the steps that led to it are named: **Silence**, **Resolved event**, **Duplicates**,
+**Grouping**, **Quiet hours**, **Rate limit**. In the first screenshot the last route shows "Silence:
+silenced: Disk migration on db-3".
+
+The tester uses the state of the instance at that moment: the active silences and the notifications
+that are open. The same event can therefore give a different answer a minute later.
+
+### Testing unsaved changes
+
+While the editor is open, the tester uses the route as it stands in the editor in place of the saved
+one, and tags it **being edited**. A new route is tried last, where it would be added, under the name
+"New route" until you name it. This lets you check a condition or a template before saving.
+
+If the draft is not valid yet, for example an expression that does not parse, the tester shows the
+server's message in red instead of a result.

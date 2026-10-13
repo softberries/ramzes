@@ -1,6 +1,236 @@
 ---
 title: "Slack"
-description: "Slack in ramzes."
+description: "Send to Slack with an incoming webhook or with your own Slack app: what to create in Slack, which values to paste, what the message contains, and the app's buttons, threads, message updates and signature check."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+ramzes has two Slack connectors. **Slack** posts to one channel through an incoming webhook and needs one value. **Slack app** posts through a bot token to any channel the app is in, and adds buttons, threads and message updates. This page covers both.
+
+:::note
+Neither connector has been sent to the live Slack. The requests were written from Slack's documentation and are pinned by snapshot tests. See [Verified claims](/ramzes/verified/).
+:::
+
+| | Slack | Slack app |
+| --- | --- | --- |
+| What you create in Slack | an incoming webhook | an app with a bot token |
+| Channel | fixed by the webhook | per route target, with a default on the connection |
+| Acknowledge | a link in the message | a button |
+| Silence | no | a button, for 1 hour |
+| Follow-ups | new messages | replies in the first message's thread |
+| When acknowledged or resolved | a new message for the resolution | the original message is rewritten |
+
+## The Slack connector
+
+### Set it up
+
+<Steps>
+
+1. In Slack, create an incoming webhook under **Apps**, **Incoming Webhooks**. The webhook decides which channel receives the messages. Copy its URL.
+
+2. In ramzes, open **Connections** and select **Slack** under **Chat**.
+
+3. Paste the URL into **Incoming webhook URL**, name the connection and select **Add connection**.
+
+4. Select **Send test message** on the new row.
+
+</Steps>
+
+The URL is the only setting, and it is a secret: it is stored encrypted and not shown again. To post to another channel, create another webhook and another connection.
+
+### What is sent
+
+A `POST` to the webhook URL with `Content-Type: application/json`. The body has a `text`, which Slack uses where blocks cannot be shown, and Block Kit `blocks`:
+
+```json
+{
+  "text": "🔴 Charge failed: card network timeout",
+  "blocks": [
+    {
+      "type": "header",
+      "text": { "type": "plain_text", "text": "🔴 Charge failed: card network timeout", "emoji": true }
+    },
+    {
+      "type": "section",
+      "text": { "type": "plain_text", "text": "14 charges failed in the last 30 s", "emoji": true }
+    },
+    {
+      "type": "section",
+      "fields": [
+        { "type": "mrkdwn", "text": "*env*\nprod" },
+        { "type": "mrkdwn", "text": "*service*\npayments" }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "`payments.charge.failed` · firing · critical · <https://ramzes.example.com/events/0199|Open in ramzes>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Block | Content | Limit |
+| --- | --- | --- |
+| `header` | A marker and the title. | 150 characters |
+| `section` | The body, as plain text. Left out when the message has no body. | 3,000 characters |
+| `section` with `fields` | One field per label: the key in bold, the value under it. Left out when there are no labels. | the first 10 labels, 2,000 characters each |
+| `context` | The topic, the status, the severity, an **Open in ramzes** link and an **Acknowledge** link. | 3,000 characters |
+
+Text over a limit is cut and ends in an ellipsis.
+
+The marker is an emoji chosen by status and severity: a green check mark for a resolved message; otherwise a red circle for `critical` and `error`, orange for `warning`, blue for `info` and white for `debug`.
+
+The two links appear only when ramzes knows its own address. Set the public URL in [Settings](/ramzes/guide/settings/) or with `RAMZES_PUBLIC_URL`. The **Acknowledge** link is present only while the notification can still be acknowledged. See [Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+Title and body are sent as plain text, so nothing in an event can produce a mention or a link. In the label fields, the context line and the fallback `text`, the characters `&`, `<` and `>` are escaped for the same reason.
+
+### Answers
+
+Any `2xx` answer means delivered. `429` and `5xx` are retried, and Slack's `Retry-After` header is honoured. Any other answer, such as a `404` for a webhook that was removed, is final, and what Slack said is kept as the reason on the [Failures](/ramzes/guide/failures/) page.
+
+## The Slack app connector
+
+Use this when you want people to act from Slack, or when one connection should serve several channels.
+
+### Set it up
+
+<Steps>
+
+1. In Slack, create an app with a bot that has the `chat:write` scope. Copy its bot token, which starts with `xoxb-`. Invite the app to every channel it should post to.
+
+2. From the app's **Basic Information** page, copy the **Signing Secret**. ramzes needs it to check that button presses come from Slack.
+
+3. In ramzes, open **Connections**, select **Slack app** under **Chat** and fill in the form:
+
+   | Field | Required | Value |
+   | --- | --- | --- |
+   | **Bot token** | yes | The `xoxb-` token. Stored encrypted. |
+   | **Signing secret** | for the buttons | The app's signing secret. Stored encrypted. |
+   | **Default channel** | no | A channel ID such as `C0123456789`. Used by routes that name no channel. |
+   | **API address** | no | Leave empty for `https://slack.com/api`. |
+
+4. Select **Add connection**. A card titled **One more step in Slack for** and the connection's name appears, with the address Slack must send button presses to:
+
+   ```txt
+   http://localhost:7269/v1/slack/<connection id>/interactions
+   ```
+
+5. In your Slack app's settings, open **Interactivity & Shortcuts**, turn **Interactivity** on and paste the address as the **Request URL**.
+
+</Steps>
+
+The address is built from the host name you opened the ramzes UI with. Slack calls it from the internet, so it has to be an address Slack can reach; replace the host if the public name differs. To see the address again later, select **Setup** on the connection's row.
+
+### Channels
+
+A route target that uses a Slack app connection has a **Channel ID** input. A message goes to that channel, or to the connection's **Default channel** when the target names none. If neither is set the delivery fails for good with `there is no channel: set one on the route or on the connection`. **Send test message** uses the default channel only.
+
+### What is sent
+
+A `POST` to `https://slack.com/api/chat.postMessage` with `Authorization: Bearer <bot token>` and `Content-Type: application/json; charset=utf-8`. The body has the `channel`, the same `text` and `blocks` as the webhook connector, and one more block with the buttons:
+
+```json
+{
+  "channel": "C0OPS",
+  "text": "🔴 Database down",
+  "blocks": [
+    { "type": "header", "text": { "type": "plain_text", "text": "🔴 Database down", "emoji": true } },
+    { "type": "section", "text": { "type": "plain_text", "text": "db-1 does not answer", "emoji": true } },
+    { "type": "section", "fields": [{ "type": "mrkdwn", "text": "*host*\ndb-1" }] },
+    {
+      "type": "context",
+      "elements": [
+        { "type": "mrkdwn", "text": "`infra.db` · firing · critical · <https://ramzes.example.com/events/1|Open in ramzes>" }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button", "action_id": "ramzes_ack", "value": "n1", "style": "primary",
+          "text": { "type": "plain_text", "text": "Acknowledge" }
+        },
+        {
+          "type": "button", "action_id": "ramzes_silence", "value": "n1",
+          "text": { "type": "plain_text", "text": "Silence for 1 hour" }
+        },
+        {
+          "type": "button", "action_id": "ramzes_open", "url": "https://ramzes.example.com/events/1",
+          "text": { "type": "plain_text", "text": "Open in ramzes" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The `value` of the first two buttons is the notification's id. Differences from the webhook connector:
+
+- The context line has no **Acknowledge** link; the button replaces it.
+- The **Open in ramzes** button is present only when ramzes has a public URL.
+- A resolved message has no buttons.
+
+### The buttons
+
+**Acknowledge** acknowledges the notification in ramzes, as `<Slack user name> (Slack)`. Reminders and escalation for it stop, and the message is rewritten as described below. Pressing it again, or pressing it on something already resolved, does nothing.
+
+**Silence for 1 hour** creates a [silence](/ramzes/concepts/noise-control/) that starts now and ends in one hour. It matches the exact topic of the notification's first event and up to 10 of that event's labels, each by equality. Its comment is `from a Slack button` and it is recorded as created by the Slack user. It does not acknowledge the notification and does not change the message. End it early on the [Silences](/ramzes/guide/silences/) page.
+
+**Open in ramzes** is a link. Slack does not need to reach ramzes for it; the person's browser does.
+
+### How button presses are verified
+
+Slack posts each press to `/v1/slack/<connection id>/interactions`. That address needs no sign-in, so every request has to prove it comes from Slack:
+
+1. The request must carry `X-Slack-Request-Timestamp` and `X-Slack-Signature`.
+2. The timestamp must be within 5 minutes of ramzes's clock.
+3. The connection in the address must be a Slack app connection with a signing secret.
+4. ramzes computes the HMAC-SHA256 of `v0:<timestamp>:<raw body>`, keyed with the signing secret. The signature header must equal `v0=` followed by the result in hexadecimal.
+
+A request that fails any of these is answered `401` and nothing happens. A body that passes the check but cannot be read is answered `400`.
+
+:::caution
+Without a **Signing secret** on the connection the buttons are still shown, and every press is refused. If presses do nothing, check the signing secret, the Request URL, and that the clock of the machine ramzes runs on is right.
+:::
+
+### Threads
+
+The first message ramzes delivers for a notification to a channel is a normal post. ramzes keeps Slack's reference to it. Every later message for the same notification through the same connection to the same channel, such as a reminder or the notice that it is resolved, is posted with that message's `thread_ts`, so it appears as a reply in its thread.
+
+A message for the same notification to a different channel starts its own thread there.
+
+### Message updates
+
+When a notification is acknowledged or resolved, by a button, in the UI, through the API or by a resolved event, ramzes rewrites each message it delivered for it with `chat.update`:
+
+- the blocks are built again from the notification's current events, without the buttons;
+- a line is added at the end: `Acknowledged by <who>`, or `Resolved`;
+- a resolved message gets the green check mark.
+
+An update is tried once. If Slack refuses it, ramzes logs a warning and the message stays as it was; the notification's state in ramzes is not affected.
+
+### Answers
+
+Slack answers `chat.postMessage` with HTTP 200 and says in the body whether it worked. ramzes reads that:
+
+| Slack's `error` | What ramzes does |
+| --- | --- |
+| `rate_limited`, `ratelimited`, `service_unavailable`, `internal_error`, `fatal_error`, `request_timeout` | Retries. |
+| `not_in_channel` | Final. The reason reads `Slack said not_in_channel: invite the app to the channel`. |
+| `channel_not_found` | Final: `check the channel ID, and invite the app if the channel is private`. |
+| `invalid_auth`, `not_authed`, `token_revoked`, `account_inactive` | Final: `check the bot token`. |
+| `missing_scope` | Final: `the app needs the chat:write scope`. |
+| anything else | Final. The reason is `Slack said` and the error. |
+
+An HTTP status other than 200 follows the [general rules](/ramzes/concepts/delivery/#what-is-retried-and-what-is-final). An answer that is not JSON is retried.
+
+## Related
+
+- [Channels overview](/ramzes/channels/overview/): testing, health, pausing, limits common to all connectors.
+- [Escalation and acknowledgement](/ramzes/concepts/escalation/): what acknowledging does.
+- [Connections](/ramzes/guide/connections/): the screen.

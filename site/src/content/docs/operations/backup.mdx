@@ -1,6 +1,243 @@
 ---
 title: "Backup, export and import"
-description: "Backup, export and import in ramzes."
+description: "Back up a ramzes database and its secret key, move the configuration between instances as YAML, and roll the configuration back from its history."
 ---
 
-This page is being written.
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+ramzes has two different things you can save. A **backup** is a copy of the whole database:
+events, deliveries, users, configuration, everything. An **export** is the configuration only, as a
+YAML file without secrets. This page covers both, and the configuration history that lets you undo
+a change.
+
+| | Backup | Export |
+|---|---|---|
+| Contains | Everything in the database | Routes, templates, connector definitions, connections without credentials, source names and mappings, settings |
+| Secrets | Encrypted credentials, hashed keys and passwords | None |
+| Use it to | Restore an instance after loss | Keep the configuration in version control, or copy it to another instance |
+| Made with | `ramzes backup` (SQLite) or `pg_dump` (Postgres) | `ramzes export`, or **Download ramzes.yaml** in the UI |
+
+## Back up SQLite
+
+```sh
+ramzes backup /backups/ramzes-2026-10-13.db
+```
+
+This writes a consistent copy of the database to a new file, using SQLite's `VACUUM INTO`. You can
+run it while the server is running. Give it the same `--data-dir` or `--database-url` as the
+server.
+
+- The file must not exist yet. If it does, the command fails with `<file> already exists` and
+  changes nothing. Use a new name each time.
+- The copy is one file. It does not need the `-wal` and `-shm` files that sit beside the live
+  database.
+- The command does not copy the secret key.
+
+<Aside type="caution">
+A backup is only useful together with the secret key. Copy `secret.key` from the data directory
+(or keep your `RAMZES_SECRET_KEY`) as well, and store it separately from the database copy: the
+database holds the encrypted credentials, the key decrypts them. The key does not change, so you
+need to save it once.
+</Aside>
+
+With Docker Compose, run the command in the container and copy the files out:
+
+```sh
+docker compose -f deploy/compose.yaml exec ramzes ramzes backup /data/backup.db
+docker compose -f deploy/compose.yaml cp ramzes:/data/backup.db ./backup.db
+docker compose -f deploy/compose.yaml cp ramzes:/data/secret.key ./secret.key
+```
+
+### Restore
+
+<Steps>
+
+1. Stop ramzes.
+2. Put the backup file in the data directory as `ramzes.db`. Remove any `ramzes.db-wal` and
+   `ramzes.db-shm` files left there from the database you are replacing.
+3. Put `secret.key` back in the data directory, or set `RAMZES_SECRET_KEY`.
+4. Start ramzes. A build newer than the one that made the backup migrates the database at start.
+   An older build refuses to open a database from a newer one.
+
+</Steps>
+
+## Back up Postgres
+
+`ramzes backup` covers SQLite only. Against Postgres it fails with "backup only covers SQLite; for
+Postgres use pg_dump". Use Postgres's own tools:
+
+```sh
+pg_dump --format=custom \
+  --dbname="postgres://ramzes:PASSWORD@db.internal:5432/ramzes" \
+  --file=ramzes.dump
+```
+
+Restore into an empty database with `pg_restore`:
+
+```sh
+pg_restore --dbname="postgres://ramzes:PASSWORD@db.internal:5432/ramzes" ramzes.dump
+```
+
+The secret key is not in the database. With Postgres it is in `secret.key` in the data directory
+unless you set `RAMZES_SECRET_KEY`. Back it up as above.
+
+## Export the configuration
+
+```sh
+ramzes export ramzes.yaml     # to a file
+ramzes export                 # to standard output
+```
+
+In the UI: **Settings**, **Export and import**, **Download ramzes.yaml**. Over the API:
+`GET /api/config/export` answers `{"yaml": "..."}`.
+
+An export looks like this:
+
+```yaml
+routes:
+- id: 01a136a3-0e63-7137-b689-9f73d93befb8
+  name: Failed payments in production
+  position: 1
+  enabled: true
+  stop: true
+  match:
+    topic: payments.*
+    min_severity: error
+    source_id: null
+    labels:
+    - op: equals
+      key: env
+      value: prod
+    expr: payload.amount > 100
+  targets:
+  - connection_id: 01a136a2-d225-76ac-9f89-6cb3fdbcb3e1
+    destination: null
+  shaping:
+    dedup:
+      window_s: 600
+    group:
+      by:
+      - service
+      wait_s: 30
+    notify_resolved: true
+  escalation: []
+templates: []
+definitions: []
+connections:
+- id: 01a136a2-d225-76ac-9f89-6cb3fdbcb3e1
+  kind: webhook
+  name: Inspector
+  settings:
+    url: https://hooks.example.com/ramzes
+sources:
+- id: 01a136a2-b040-74cb-90a6-2a857db236fd
+  name: my-service
+  kind: native
+settings: {}
+```
+
+### What an export contains
+
+| Section | Contents |
+|---|---|
+| `routes` | Every route in evaluation order: conditions, targets, noise control, escalation |
+| `templates` | Every template |
+| `definitions` | The connectors you defined yourself |
+| `connections` | Id, kind, name and settings of every connection |
+| `sources` | Id, name and kind of every source, and the mapping of any-JSON sources |
+| `settings` | `retention_days`, `retention_overrides` and `public_url`, for those that have been saved |
+
+### What it leaves out
+
+- **Credentials.** The secret fields of connections (webhook URLs of Slack, Discord and Teams,
+  passwords, API keys, tokens) are not in the file.
+- **Source keys.**
+- Users, sessions and API tokens.
+- Silences.
+- Events, notifications, deliveries and the configuration history.
+- Start-up settings such as the listen address or the database URL.
+
+A connection's non-secret settings are exported as they are. That includes the **URL** of a Webhook
+connection. If that URL carries a token, the token is in the file.
+
+## Import a configuration
+
+```sh
+ramzes import ramzes.yaml
+```
+
+In the UI: **Settings**, **Export and import**, choose a file or paste the YAML, then **Import
+configuration** and confirm. Over the API: `POST /api/config/import` with `{"yaml": "..."}`.
+
+An import **replaces** the configuration; it does not merge. The whole file is checked first: every
+route must name connections and templates that are in the file, every connection must be of a known
+kind, and every expression, template and mapping must be valid. If anything is wrong, nothing is
+changed and the reason is reported.
+
+What an import does to each part:
+
+| Part | Effect |
+|---|---|
+| Routes, templates, connector definitions | Replaced by those in the file. Anything not in the file is deleted. Routes get their order from the order in the file. |
+| Connections | Replaced by those in the file. A connection whose id already exists keeps its stored credentials. A connection that is new starts without credentials. A connection not in the file is deleted, with its credentials. |
+| Sources | A source in the file whose id exists gets the name and mapping from the file. Sources are never created or deleted by an import, and keys are never touched. |
+| Settings | The settings in the file are set. Settings not in the file stay as they are. |
+| Everything else | Untouched: events, users, API tokens, silences. |
+
+The import is recorded in the configuration history, so it can be rolled back. From the command
+line its author is "ramzes import".
+
+### Moving to another instance
+
+An export carries ids, so routes keep pointing at the right connections after an import. Two things
+do not travel:
+
+- **Credentials.** After importing into a fresh instance, open each connection under
+  **Connections**, press **Edit** and enter its secrets. Until then its deliveries fail.
+- **Sources.** Create the sources on the new instance yourself; each gets a new id and a new key.
+  A route that matches on a specific source has to be pointed at the new one.
+
+### Importing while the server runs
+
+`ramzes import` writes to the database directly. A running server reads routes, templates and
+connections from the database, so those take effect at once. Connectors you defined yourself are
+loaded into the running server at start and when they are changed through the UI or API, so after a
+command-line import that changes them, restart the server. Importing through the UI or the API has
+no such gap.
+
+## Configuration history and rollback
+
+Every change to routes, templates, connections, connector definitions, sources and settings is
+recorded with who made it and a one-line summary, for example "changed route Billing". Each entry
+stores the whole configuration as it was after the change. The newest 200 entries are kept.
+
+<Screenshot name="settings" caption="Settings: instance settings, export and import, users, API tokens, and the configuration history at the bottom." maxHeight="32rem" />
+
+Under **Settings**, **Configuration history**:
+
+- **Show changes** shows what an entry changed, as a line-by-line difference of the YAML.
+- **Roll back to this** makes the configuration what it was after that entry. The newest entry is
+  the current configuration, so it has no such button.
+
+Over the API: `GET /api/config/revisions`, `GET /api/config/revisions/{id}` and
+`POST /api/config/revisions/{id}/rollback`.
+
+### What a rollback does
+
+A rollback applies the stored configuration the way an import does: routes, templates, connector
+definitions and connections are replaced, and the saved settings are restored. It is itself
+recorded as "rolled back to: ...", so it can be undone by rolling back again.
+
+Credentials and keys are handled like this:
+
+| | After a rollback |
+|---|---|
+| A connection that exists now and existed then | Keeps the credentials it has **now**. They may have been replaced since, and the old ones revoked. |
+| A connection that was deleted since | Comes back with the credentials it had at that entry |
+| A connection that was created since | Is deleted, with its credentials |
+| Sources | Names and mappings go back. A source deleted since is not brought back. Keys are not touched. |
+| Users, API tokens, silences, events | Untouched |
+
+The history holds credentials only in encrypted form. A connection that is brought back can be used
+only while the secret key is the one its credentials were encrypted with.

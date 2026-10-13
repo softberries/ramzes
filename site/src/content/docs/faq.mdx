@@ -1,6 +1,143 @@
 ---
 title: "FAQ"
-description: "FAQ in ramzes."
+description: "Short answers to what newcomers ask about ramzes: how it relates to Alertmanager, whether it needs a database server, what happens when it is down, and more."
 ---
 
-This page is being written.
+Short answers to common questions, each with a link to the page that has the detail. Every answer
+describes what the code does today.
+
+## Is it ready to use?
+
+All four milestones of the design are built and covered by automated tests. Nothing has been
+released: there is no version to install, no published image and no binary download. No connector
+has been sent to the live service it talks to, and no source adapter has received from the live
+tool; their formats are written from each service's documentation and pinned by tests.
+[Verified claims](/ramzes/verified/) lists what was checked and how. Decide with that in mind.
+
+## How is it different from Alertmanager?
+
+This describes ramzes's side only.
+
+- ramzes takes any event from any service: a failed order, a finished build, a new sign-up, as well
+  as alerts. A sender posts JSON with a topic and a title; it does not need to be a monitoring
+  system.
+- It can sit behind Alertmanager. Alertmanager's webhook is one of the built-in source kinds, so
+  alerts can arrive in ramzes next to everything else. See
+  [Alertmanager](/ramzes/sending/alertmanager/).
+- It stores every event it accepts and shows what happened to each one: the routes it matched, what
+  noise control did, each delivery attempt and the service's answer.
+- Routes, templates and connections are edited in a web UI or through an API, with a history of
+  changes and rollback. Routing is not kept in a configuration file.
+- It has acknowledgement and escalation chains built in.
+- It runs as one instance and does not cluster.
+
+## Does it need a database server?
+
+No. By default ramzes keeps everything in a SQLite file in its data directory, and SQLite is
+compiled into the binary. You can point it at a Postgres database instead with
+`RAMZES_DATABASE_URL`. See the [Configuration reference](/ramzes/operations/configuration/).
+
+## Can I run several instances?
+
+No. ramzes runs as one instance and does not coordinate several. Dedup, grouping, holds and
+acknowledgements are decided under a lock inside one process, so two instances on the same database
+would each decide on their own. The Helm chart fixes the replica count at 1. See
+[Helm and Kubernetes](/ramzes/install/helm/).
+
+## What happens when ramzes is down?
+
+- **Senders get connection errors.** ramzes cannot accept events while it is not running, and
+  nothing queues them on its behalf. A sender that must not lose events has to retry. Sending an
+  `Idempotency-Key` header makes a retry safe: the same key from the same source stores nothing
+  twice.
+- **Accepted events are safe.** ramzes answers `202` only after the events are written to the
+  database. Events accepted before it stopped are routed and delivered after it starts.
+- **Deliveries resume.** Deliveries that were waiting or being retried continue. One that was in
+  flight when ramzes stopped may be sent again, so a message can arrive twice.
+- **Timers fire late.** A group that was collecting, a held digest or an escalation step that
+  became due during the outage is handled after the start.
+- **Long outages end waiting deliveries.** A delivery is given up on 24 hours after it was queued.
+
+See [Upgrading](/ramzes/install/upgrading/).
+
+## Does it guarantee delivery?
+
+It guarantees an attempt and a record. A delivery is tried up to 8 times over at most 24 hours.
+If the service keeps failing or rejects the message, the delivery ends as failed, appears under
+**Failures** with the reason, raises an event on the topic `ramzes.delivery.failed`, and can be
+sent again by hand. Delivery is at-least-once, not exactly-once. See
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+## What happens to an event no route matches?
+
+It is stored and shown in the feed with the outcome "no route". Nothing is sent. After you add or
+widen a route, you can run the event through the routes again from its page.
+
+## Can I send events from the browser?
+
+Not directly, and you should not. ramzes sends no CORS headers, so a page on another origin cannot
+call `/v1/events` with an `Authorization` header. More importantly, a source key embedded in a web
+page is readable by everyone who loads the page, and anyone holding it can send events as that
+source. Send from your backend.
+
+## Is there a hosted version?
+
+No. ramzes is self-hosted only, and today that means building it from a checkout. See the
+[Quickstart](/ramzes/getting-started/quickstart/).
+
+## Which channels can it send to?
+
+Slack (an incoming webhook, or your own Slack app), Microsoft Teams, Discord, email over SMTP,
+ntfy, Telegram, Pushover, PagerDuty, Opsgenie, and a webhook to any URL. A channel that is one HTTP
+request can be added as a YAML definition in the UI. None of them has been run against the live
+service. See [Channels](/ramzes/channels/overview/).
+
+## What can send to it?
+
+Anything that can make an HTTP request. Your own services post events in ramzes's format. Webhooks
+from Alertmanager, Grafana, GitHub, GitLab and Sentry are understood as they are. For any other
+tool that posts JSON, you write a mapping from its payload to an event. See
+[The events API](/ramzes/sending/events-api/) and [Any JSON webhook](/ramzes/sending/any-json/).
+
+## Can users have different permissions?
+
+No. Every user who can sign in, and every API token, can read and change everything. There are no
+roles, no single sign-on and no audit log. See [Security](/ramzes/operations/security/).
+
+## Where are my Slack and SMTP credentials kept?
+
+In the database, encrypted with the instance's secret key. The API never returns them, and an
+export does not contain them. If the secret key is lost, they cannot be recovered and have to be
+entered again. See [Security](/ramzes/operations/security/).
+
+## Can I keep the configuration in version control?
+
+Yes. `ramzes export` writes routes, templates, connector definitions, connections without
+credentials, source names and mappings, and settings as one YAML file. `ramzes import` applies such
+a file. An import replaces the configuration; it does not merge. See
+[Backup, export and import](/ramzes/operations/backup/).
+
+## How much traffic can it handle?
+
+There are no benchmarks, so there is no number to give. The fixed limits are known: a source may
+send 6000 events per minute, a request may carry 1000 events in 1 MiB, and ramzes sends at most 16
+deliveries at the same time, 4 per connection. See [Limits](/ramzes/limits/).
+
+## How long are events kept?
+
+30 days by default. You can change that, set a different period for single topics, or keep events
+forever, under **Settings**. See [Retention](/ramzes/operations/retention/).
+
+## Does it terminate TLS?
+
+No. It serves plain HTTP. Put a reverse proxy in front of it; see
+[Docker Compose](/ramzes/install/docker-compose/).
+
+## Does it contact anything on its own?
+
+The only outbound connections ramzes makes are to the channels you configure, and to Postgres if
+you use it.
+
+## What is the license?
+
+The core is `AGPL-3.0-only`. A commercial edition is planned. See [License](/ramzes/license/).

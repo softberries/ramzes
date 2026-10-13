@@ -1,6 +1,132 @@
 ---
 title: "Events"
-description: "Events in ramzes."
+description: "The event model field by field, with its limits: topics, severity, status, labels, payload, dedup key, timestamps, idempotency keys, batches, and how an event's outcome is derived."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+An event is one thing that happened, as a sender reports it. Everything ramzes does starts from an event: routes match it, notifications collect it, messages are worded from it. This page defines the fields and their limits. For the HTTP details of sending one, see [The events API](/ramzes/sending/events-api/).
+
+## An event
+
+```json
+{
+  "topic": "payments.charge.failed",
+  "title": "Payment failed for order 1042",
+  "severity": "error",
+  "status": "firing",
+  "body": "The card network timed out after 3 attempts.",
+  "labels": { "env": "prod", "service": "checkout", "region": "eu-west" },
+  "payload": { "order_id": 1042, "amount": 129.5, "currency": "EUR" },
+  "dedup_key": "order-1042",
+  "ts": "2026-10-13T09:41:07Z"
+}
+```
+
+Only `topic` and `title` are required. A field that is not in the table below is refused, so a misspelt name is an error and not a silent loss.
+
+| Field | Type | Default | Limits |
+| --- | --- | --- | --- |
+| `topic` | string | required | 1 to 200 characters; letters, digits and `. _ : / -` only |
+| `title` | string | required | 1 to 500 characters; not blank |
+| `severity` | string | `info` | `debug`, `info`, `warning`, `error` or `critical` |
+| `status` | string | `firing` | `firing` or `resolved` |
+| `body` | string | none | at most 20,000 characters |
+| `labels` | object of strings | `{}` | at most 64 labels; keys 1 to 100 characters of letters, digits and `. _ -`; values at most 1,000 characters |
+| `payload` | any JSON | `null` | bounded only by the size of the request |
+| `dedup_key` | string | none | 1 to 200 characters |
+| `ts` | string | time of receipt | an RFC 3339 timestamp such as `2026-10-13T09:41:07Z` |
+
+Lengths are counted in characters, not bytes. "Letters" means ASCII letters. A NUL character in `title`, `body`, `dedup_key` or a label value is refused.
+
+ramzes adds four fields when it stores the event: `id` (a UUIDv7, so ids sort by arrival), `source_id` (the source whose key was used), `received_at` and `occurred_at`. Both times are Unix milliseconds. `occurred_at` is `ts` when you sent one and the time of receipt otherwise.
+
+### Topic
+
+The topic says what kind of event this is. Routes select events by a glob over the whole topic, so name topics from general to specific and use a separator: `payments.charge.failed`, `ci/build`, `infra:disk:full`. The separator has no meaning to ramzes; `*` in a route matches any run of characters, including separators. See [Routes](/ramzes/concepts/routes/).
+
+Topics that start with `ramzes.` are used by the events [ramzes raises about itself](/ramzes/concepts/delivery/#events-ramzes-raises-about-itself). Do not use that prefix for your own.
+
+### Severity
+
+The five severities have an order:
+
+```text
+debug < info < warning < error < critical
+```
+
+A route's minimum severity uses this order. In an [expression](/ramzes/reference/expressions/) severity is a string, so compare it with `==` or `in`, not with `>`.
+
+### Status
+
+`firing` means the thing is happening. `resolved` means it is over. A resolved event closes the open notifications that carry the same dedup key, and whoever was told is told that it ended. An event that has no natural end, such as "deploy finished", is `firing` and nothing more needs to follow it. See [Notifications](/ramzes/concepts/notifications/#resolution).
+
+### Labels
+
+Labels are short strings for matching and grouping: environment, service, region, team. Routes test them with equals, a regular expression, or presence. Grouping collects events by label values. Channels show them as fields next to the message.
+
+### Payload
+
+The payload is any JSON you want to keep with the event. It is stored as sent and shown on the event's page. Route expressions and templates can read it (`payload.amount > 100`, `{{ payload.order_id }}`). Structured conditions on a route cannot; they see labels only.
+
+### Dedup key
+
+The dedup key names the thing the event is about, across repeats and across firing and resolved. Two uses depend on it:
+
+- A `resolved` event finds what to close by its dedup key.
+- A route with a dedup policy counts repeats with the same key instead of sending them again.
+
+Without your own key, a route with a dedup policy derives one from the topic and all labels. A route without a dedup policy uses only the key the event carries. See [Noise control](/ramzes/concepts/noise-control/#dedup).
+
+## Idempotency keys
+
+An idempotency key protects against a request being stored twice, for example when a sender retries after a timeout. It belongs to the request, not to the event: send it as the `Idempotency-Key` header, 1 to 200 characters.
+
+When a source repeats a key it has used before, nothing is stored. The answer carries the ids from the first request and `"duplicate": true`. The body of the repeated request is not compared with the first.
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer $RAMZES_KEY" \
+  -H "Idempotency-Key: order-1042-failed" \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "payments.charge.failed", "title": "Payment failed for order 1042", "severity": "error"}'
+```
+
+```json
+{ "ids": ["01a136a4-65fb-760c-9615-17aa0c5f6082"], "duplicate": false }
+```
+
+Keys are per source: two sources may use the same key. A key is remembered for as long as the events it stored are kept.
+
+Do not confuse the two keys. The idempotency key stops one request from being stored twice. The dedup key is about two different events that describe the same thing.
+
+## Batches
+
+The body of `POST /v1/events` is one event object or an array of them. A request may carry at most 1,000 events and at most 1 MiB. A batch is stored whole or not at all: if one event is invalid, the request is refused with `422` and the message names the event by its position, for example `event 1: title must be 1 to 500 characters`. An empty array is refused.
+
+Each source may send 6,000 events per minute. Over that, the request is refused with `429` and a `Retry-After` header. These three limits are fixed in this version.
+
+## What became of an event
+
+An event has no status field of its own. Its outcome is derived from its notifications and their deliveries. The feed shows one of six, decided in this order:
+
+| Outcome | Shown as | When |
+| --- | --- | --- |
+| Pending | pending | The event has not been routed yet. |
+| Failed | failed | At least one delivery failed for good (rejected, or retries ran out). |
+| No route | no route | It was routed and no route matched. |
+| Waiting | waiting | It belongs to a notification that is still collecting a group or is held. |
+| Not sent | not sent | It has no deliveries and at least one notification was suppressed: silenced, or a resolution of nothing open. |
+| Delivered | delivered | Every delivery arrived. |
+
+An event with deliveries that are neither all delivered nor failed is pending: something is still being sent or retried. An event that only joined existing notifications, as a duplicate for instance, shows the deliveries of those notifications.
+
+A failure outranks everything after it in the table: an event delivered to Slack and rejected by a webhook is failed.
+
+<Screenshot name="event" caption="An event's page: where it came from, each route that matched, the message each target received and every delivery attempt." />
+
+The event's page shows the detail behind the one word. See [Feed](/ramzes/guide/feed/).
+
+## How long events are kept
+
+Events are deleted after 30 days by default, together with their notifications and deliveries. An event that still has something waiting to be sent is kept until that is done. See [Retention](/ramzes/operations/retention/).

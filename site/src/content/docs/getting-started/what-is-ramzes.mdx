@@ -1,6 +1,100 @@
 ---
 title: "What is ramzes"
-description: "What is ramzes in ramzes."
+description: "What ramzes does, the problem it solves, what it deliberately is not, and the parts it is made of."
 ---
 
-This page is being written.
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+ramzes is a self-hosted notification router for internal and operational events. Your services send
+events to it over HTTP. It stores every event, matches it against routes, delivers it to the channels
+those routes name, and shows in a web UI what happened to each one and why.
+
+It is one binary with an embedded web UI. It keeps its data in a SQLite file next to it, or in
+Postgres if you point it at one.
+
+<Aside type="caution" title="Status">
+All four milestones of the design are built and covered by automated tests. Nothing has been
+released, and no connector has been run against the live service it talks to. See
+[Verified claims](/ramzes/verified/) for what was checked and how.
+</Aside>
+
+## The problem
+
+In a system of several services, each one that needs to tell a person something ends up with its own
+Slack webhook call, its own SMTP settings and its own idea of when to stay quiet. That leaves you
+with:
+
+- credentials for chat and email spread over many services;
+- no one place that shows what was sent, to whom, and whether it arrived;
+- no way to quiet a noisy sender without deploying it again;
+- nothing that notices a message went unanswered and tells someone else.
+
+With ramzes a service only says what happened: a topic, a title, a severity, some labels. Who is
+told, on which channel, how often and in what words is configuration in ramzes, changed in one place
+and recorded when it changes.
+
+## What it is not
+
+- **Not a product-notification platform.** It is for messages to the people who run a system. It
+  has no end-user accounts, subscriber preferences, unsubscribe links or per-recipient inboxes.
+- **Not a message broker.** There is no publish/subscribe and no consumer protocol. Events come in
+  over HTTP and leave as messages to channels; services do not read events back from ramzes.
+- **Not an on-call scheduler.** An escalation chain tells other connections after a delay. There
+  are no rotas, shifts or calendars; a route names connections, not people on duty. For paging,
+  ramzes can send to PagerDuty or Opsgenie.
+- **Not highly available.** It runs as one instance and does not coordinate several.
+
+## Who it is for
+
+Teams that run their own services and want operational messages (failed jobs, build results,
+alerts, payment errors) to go through one place they control. Everyone who can sign in is an
+administrator, so it fits a team that trusts its members with the whole configuration. See
+[Limits and what is not built](/ramzes/limits/).
+
+## The parts
+
+**Sources.** A source is a sender with its own key. Your services post events in ramzes's format to
+`/v1/events`. Alertmanager, Grafana, GitHub, GitLab and Sentry post their own webhook formats to a
+per-source address, and a source of the kind "Any JSON" carries a mapping you write. See
+[The events API](/ramzes/sending/events-api/) and [Sources](/ramzes/guide/sources/).
+
+**Events.** An event has a topic, a title, a severity, a status (`firing` or `resolved`), an
+optional body, labels, a payload of any JSON and an optional dedup key. Every accepted event is
+stored before the sender gets its answer. See [Events](/ramzes/concepts/events/).
+
+**Routes.** Routes are an ordered list. Each one matches events by topic pattern, minimum severity,
+source, labels and an optional expression, and names the connections to send to. A route can stop
+the ones below it from being evaluated. See [Routes](/ramzes/concepts/routes/).
+
+**Notifications.** When a route matches, ramzes opens a notification for each of the route's
+targets. A notification collects the events that belong together, and it is what gets sent,
+acknowledged and resolved. See [Notifications](/ramzes/concepts/notifications/).
+
+**Noise control.** A route can count duplicates instead of sending them again, collect events into
+one message, hold messages during quiet hours and limit how many go out in a window. Silences
+suppress matching events on every route for a period. See
+[Noise control](/ramzes/concepts/noise-control/).
+
+**Escalation and acknowledgement.** A route can tell someone else when nobody acknowledges within a
+delay. People acknowledge from the UI, the API, a link in the message, or a button in Slack. See
+[Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+**Connections.** A connection is one configured channel: a Slack webhook or app, a Teams or Discord
+webhook, an SMTP account, ntfy, Telegram, Pushover, PagerDuty, Opsgenie, a webhook to any URL, or a
+connector you define in YAML. Deliveries are retried, and a connection that keeps failing is
+paused. See [Channels](/ramzes/channels/overview/) and
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+**Templates.** A template words the title and body of a message for one route target. Without one,
+the event's own title and body are sent. See [Templates](/ramzes/concepts/templates/).
+
+**The web UI.** The feed lists every event with what became of it, and each event has a page that
+shows the routes it matched and every delivery attempt with the service's answer. The same UI holds
+the configuration and its history. See [Tour of the app](/ramzes/guide/tour/).
+
+## Next
+
+<CardGrid>
+	<LinkCard title="Quickstart" href="/ramzes/getting-started/quickstart/" description="Start ramzes and get one event into a channel." />
+	<LinkCard title="Architecture" href="/ramzes/concepts/architecture/" description="How an event moves from the HTTP request to a delivered message." />
+</CardGrid>

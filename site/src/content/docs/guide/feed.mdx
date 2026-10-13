@@ -1,6 +1,160 @@
 ---
 title: "Feed and event journey"
-description: "Feed and event journey in ramzes."
+description: "How to filter, sort and page the feed of received events, and how to read one event's journey: the routes it matched, the messages sent and every delivery attempt."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+The Feed lists every event ramzes received and what became of it. A row opens the event's own page,
+which shows its journey from receipt to the answer of each service it was sent to.
+
+## The feed
+
+<Screenshot name="feed" caption="The feed: one row per event, with its severity, topic, source, where it was sent and the outcome." />
+
+The feed is the page the app opens on. Its columns:
+
+| Column | What it shows |
+| --- | --- |
+| **Received** | Local time with seconds. An event from another day also carries its date. |
+| **Severity** | `debug`, `info`, `warning`, `error` or `critical`. |
+| **Event** | The event's title. It is greyed for an event with the status `resolved`. |
+| **Topic** | The event's topic. |
+| **Source** | The name of the source that sent it. |
+| **Sent to** | The targets it was sent to, separated by commas. |
+| **Outcome** | One word for what became of it; see below. |
+
+On narrower screens the table drops columns, in this order: **Sent to**, **Source**, then **Topic** and
+**Severity**.
+
+### Outcomes
+
+| Outcome | Meaning |
+| --- | --- |
+| **pending** | The event has not been routed yet, or a message for it is still being sent or retried. |
+| **waiting** | A notification for it is collecting events or being held, so something is still to be sent. |
+| **delivered** | Every delivery for it arrived. |
+| **not sent** | A route matched, and the message was deliberately not sent, for example because a silence covers the event. |
+| **failed** | At least one delivery failed for good. This wins over everything else. |
+| **no route** | The event was routed and no route matched. |
+
+Why a message waits or is not sent is covered in [Noise control](/ramzes/concepts/noise-control/).
+
+### Filters
+
+The bar above the table filters the list. Filters combine: an event must pass all of them.
+
+| Filter | What it matches |
+| --- | --- |
+| **Find in title** | Events whose title contains the text, in any letter case. |
+| **Topic** | The exact topic, or a pattern in which `*` stands for any run of characters, as in `orders.*`. |
+| **Label** | One label, written `key=value`, as in `env=prod`. The value must match exactly. |
+| **Any source** | Events from one source. |
+| **Any severity** | A minimum severity: "info and above" up to "critical and above". |
+| **Any outcome** | **Pending**, **Waiting**, **Delivered**, **Not sent**, **Failed** or **No route**. |
+| **Any time** | **Last 15 minutes**, **Last hour**, **Last 24 hours** or **Last 7 days**. |
+
+The three text fields apply when you press `Enter` or leave the field. The time range is counted back
+from the moment you choose it; it does not move forward while the page stays open.
+
+Filters live in the page address, so a filtered feed can be bookmarked or shared. A change of filter
+returns to the first page. When nothing matches, the table says "No event matches these filters." with
+a **Clear filters** link.
+
+### Sorting and paging
+
+Click **Received**, **Severity**, **Event** or **Topic** to sort by it; click again to reverse. Received
+and Severity start with the newest and the most severe first, Event and Topic with A first. Events that
+are equal in the sorted column are ordered by arrival. **Source**, **Sent to** and **Outcome** cannot be
+sorted.
+
+Under the table are the range shown ("1–50 of 341"), **Per page** (25, 50 or 100; 50 by default) and
+buttons for the first, previous, next and last page. Sorting is done by the server over all matching
+events, not only the page in view.
+
+### Live updates and pause
+
+The feed reloads when an event is routed or a delivery finishes. On the first page of the default order,
+a row that just arrived is lit for a moment.
+
+**Pause** in the top right freezes the list so that rows stop moving while you read. While paused, a
+button **Show N new events** appears when more events match than when you paused. That button or
+**Resume** brings the list up to date.
+
+### Keyboard
+
+| Key | What it does |
+| --- | --- |
+| `j` | Selects the next row. With nothing selected, the first one. |
+| `k` | Selects the previous row. |
+| `Enter` | Opens the selected event. |
+
+The keys do nothing while the cursor is in a filter field or menu. A click anywhere on a row opens the
+event too.
+
+## The event's journey
+
+<Screenshot name="event" caption="An event's page: it matched two routes, and each sent one message that was delivered at the first attempt." maxHeight="32rem" />
+
+The header shows the title, severity, topic, a "resolved" tag when the event has that status, and the
+time it was received.
+
+### What happened
+
+The **What happened** card is a path read from top to bottom.
+
+1. **Received from** names the source and the time.
+2. Then one of:
+   - **Waiting to be routed**, for an event the router has not reached yet.
+   - **No route matched**, with a link to [Routes](/ramzes/guide/routes/).
+   - One **Matched route** entry for each route and target it matched: the route's name, then the
+     connection and destination it went to.
+
+Each **Matched route** entry can carry:
+
+- A note when the message was not sent straight away: **Not sent**, **Held until** a time, or **Collecting
+  events to send as one message**, followed by the reason where there is one.
+- The event's part in the notification, when it did not open it: "Counted as a duplicate of an earlier
+  event.", "Joined a group of N events." or "Resolved this notification."
+- A "replayed" tag when the entry comes from running the event through the routes again.
+- **Open the notification**, a link to the [notification's page](/ramzes/guide/notifications/).
+- The message as it would be worded and sent now: its title and body, and behind **Request** the
+  HTTP request the connector makes, with secrets masked. If the route's template failed, a warning says
+  so. If the request cannot be shown, the reason is given, for example that the connection was deleted.
+
+Under each entry come its deliveries. A delivery shows its state (**pending**, **sending**,
+**delivered**, **failed** or **gave up**), the number of attempts, and one line per attempt: the time,
+the HTTP status or "no answer", how long it took, and the error detail. A delivery that is waiting for
+a retry shows "Next attempt in" and a countdown. A delivery sent by an escalation step is labelled
+"Step N to" and the connection. See [Delivery and retries](/ramzes/concepts/delivery/) for the retry
+schedule and [Escalation and acknowledgement](/ramzes/concepts/escalation/) for steps.
+
+### Sending again
+
+There are two different buttons.
+
+- **Send again**, on a delivery that has finished, queues a new delivery of the same notification to
+  the same connection and destination. The earlier delivery and its attempts stay in the path.
+- **Run through routes again**, in the header, evaluates the event against the routes as they are now
+  and queues a delivery for every target that matches. It skips noise control: the message is sent
+  whatever deduplication, grouping, quiet hours, rate limits and silences would say. Afterwards the page
+  reports "Queued N deliveries." or "No route matches this event."
+
+Use the second after adding or widening a route for an event that had no route.
+
+### Event content
+
+Below the path:
+
+- **Details**: the event id, when it occurred, and its dedup key if it has one.
+- **Body**, when the event has one.
+- **Labels**, as a table of keys and values, or "This event has no labels."
+- **Payload**, the event's JSON payload, or "This event was sent without a payload."
+
+The fields themselves are described in [Events](/ramzes/concepts/events/).
+
+### An event that is gone
+
+For an id that does not exist the page says "This event does not exist" and that it may have been
+removed after its retention period. Retention is set under [Settings](/ramzes/guide/settings/); see
+[Retention](/ramzes/operations/retention/).

@@ -1,6 +1,145 @@
 ---
 title: "Alertmanager"
-description: "Alertmanager in ramzes."
+description: "Receive Prometheus Alertmanager alerts in ramzes: create the source, add the webhook receiver, and see exactly how each alert becomes an event and what resolves it."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+An Alertmanager source gives Alertmanager an address to post to and turns each alert in a request into one event. This page covers the setup on both sides and the exact mapping.
+
+:::note
+ramzes has not received requests from a live Alertmanager. The mapping was written from Alertmanager's documented webhook payload and is tested against sample payloads in the repository. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+<Steps>
+
+1. In ramzes, open **Sources**. Under **Add a source**, choose **Alertmanager** in **What sends the events**, give the source a name and select **Create source**.
+
+2. A card titled **_name_ is ready to receive** appears. Copy the key now: it cannot be shown again. The card also shows the address to give the sender, which has the form `http://localhost:7269/v1/in/<source id>`, and the receiver snippet with both values filled in.
+
+3. Add the receiver to `alertmanager.yml` and send alerts to it from a route:
+
+   ```yaml
+   receivers:
+     - name: ramzes
+       webhook_configs:
+         - url: http://localhost:7269/v1/in/<source id>
+           http_config:
+             authorization:
+               credentials: <the source key>
+   ```
+
+4. Reload Alertmanager. When the first request arrives, select **Recent requests** on the source's row to see it.
+
+</Steps>
+
+The address in the card uses the host name you opened the ramzes UI with. If Alertmanager reaches ramzes under another name, for example a service name inside a cluster, replace the host and keep the path.
+
+## How requests are verified
+
+Alertmanager must send the source key as `Authorization: Bearer <key>`, which is what `http_config.authorization.credentials` does. The key has to be the key of this source: another source's key is refused. A request without a valid key gets `401` and is not recorded.
+
+## How a request becomes events
+
+ramzes reads the `alerts` array of the request and makes one event per alert. Fields outside the alert, such as `groupLabels` or `externalURL`, are not used.
+
+| Event field | Taken from | If absent |
+| --- | --- | --- |
+| `topic` | `alertmanager.` followed by the `alertname` label | `alertmanager.alert` |
+| `title` | the `summary` annotation | the `alertname` label, then `Alert` |
+| `severity` | the `severity` label, translated as below | `warning` |
+| `status` | the alert's `status` | `firing` |
+| `body` | the `description` annotation, then the `message` annotation | no body |
+| `labels` | all the alert's labels | none |
+| `dedup_key` | the alert's `fingerprint` | none |
+| `ts` | the alert's `startsAt` | the time of receipt |
+| `payload` | the whole alert object | |
+
+The `severity` label is matched without regard to case:
+
+| Label value | Event severity |
+| --- | --- |
+| `debug`, `trace` | `debug` |
+| `warning`, `warn` | `warning` |
+| `error`, `err`, `high` | `error` |
+| `critical`, `crit`, `fatal`, `emergency`, `page` | `critical` |
+| anything else | `info` |
+
+An alert with no `severity` label is a `warning`. An alert whose label holds a word ramzes does not know, such as `P1`, is `info`.
+
+Values are cleaned so that an unusual alert is not lost:
+
+- A character a topic cannot hold becomes `_`. An alert named `High memory usage` gets the topic `alertmanager.High_memory_usage`.
+- The same happens to label names. At most 64 labels are kept, each value cut to 1,000 characters.
+- Title, body and dedup key are cut to their [limits](/ramzes/concepts/events/).
+- A `startsAt` that is not an RFC 3339 timestamp is dropped and the event is stamped on receipt.
+
+## Example
+
+This request:
+
+```json
+{
+  "version": "4",
+  "status": "firing",
+  "receiver": "ramzes",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": { "alertname": "HighErrorRate", "severity": "critical", "service": "checkout" },
+      "annotations": {
+        "summary": "Error rate above 5%",
+        "description": "checkout is failing 7% of requests"
+      },
+      "startsAt": "2026-10-13T09:41:07.123Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=x",
+      "fingerprint": "a1b2c3d4e5f60708"
+    }
+  ]
+}
+```
+
+becomes this event:
+
+```json
+{
+  "topic": "alertmanager.HighErrorRate",
+  "title": "Error rate above 5%",
+  "severity": "critical",
+  "status": "firing",
+  "body": "checkout is failing 7% of requests",
+  "labels": { "alertname": "HighErrorRate", "service": "checkout", "severity": "critical" },
+  "dedup_key": "a1b2c3d4e5f60708",
+  "ts": "2026-10-13T09:41:07.123Z",
+  "payload": { "status": "firing", "labels": { "…": "…" }, "generatorURL": "http://prometheus:9090/graph?g0.expr=x", "…": "…" }
+}
+```
+
+A route that matches the topic `alertmanager.*` receives it. Because the payload is the alert, a template can read `payload.generatorURL` or `payload.annotations.runbook_url`. See [Templates](/ramzes/concepts/templates/).
+
+You can send the same request by hand to try a route:
+
+```sh
+curl -X POST http://localhost:7269/v1/in/<source id> \
+  -H 'Authorization: Bearer <the source key>' \
+  -H 'Content-Type: application/json' \
+  -d '{"alerts": [{"status": "firing", "labels": {"alertname": "HighErrorRate", "severity": "critical"}, "annotations": {"summary": "Error rate above 5%"}, "fingerprint": "a1b2c3d4e5f60708"}]}'
+```
+
+## What resolves what
+
+An alert with `"status": "resolved"` becomes a resolved event. It carries the same fingerprint as the firing alert, so it has the same dedup key, and it closes the notifications the firing event opened. Who is told is described in [Notifications](/ramzes/concepts/notifications/).
+
+Every request Alertmanager sends for an alert that is still firing produces another firing event with the same dedup key. Whether that sends another message is up to the route's dedup policy: see [Noise control](/ramzes/concepts/noise-control/).
+
+## Answers and limits
+
+- A stored request is answered `202` with `{"ids": [...], "duplicate": false}`, one id per alert.
+- A request with no `alerts` is answered `202` with an empty `ids` list and makes no event.
+- More than 1,000 alerts in one request is refused with `422`.
+- The body may be at most 1 MiB, and the source may send 6,000 events per minute. Past that the answer is `429` with a `Retry-After` header.
+
+The other answers, and how repeated requests are handled, are the same for every per-source address: see [Source mappings](/ramzes/reference/mappings/#answers).

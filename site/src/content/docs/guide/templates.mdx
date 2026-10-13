@@ -1,6 +1,100 @@
 ---
 title: "Templates"
-description: "Templates in ramzes."
+description: "How to create, preview, edit and delete message templates on the Templates page, and how to attach one to a route."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+A template words the message for an event. The Templates page lists them and has an editor with a
+live preview. The template language itself is described in [Templates](/ramzes/concepts/templates/)
+and [Expressions and templates](/ramzes/reference/expressions/).
+
+<Screenshot name="templates" caption="The template list: each template's name, its title and its body." />
+
+## The list
+
+| Column | What it shows |
+| --- | --- |
+| **Name** | The name you chose. It is what the route editor lists. |
+| **Title** | The template for the message title. |
+| **Body** | The template for the message body, or "the title alone" when it is empty. |
+| **Actions** | **Edit** and **Delete**. |
+
+The search box looks in the name, title and body. Headings sort the list; it starts sorted by name.
+With no templates the page says "No templates yet, so every message uses the event's own title and
+body."
+
+## Creating a template
+
+<Steps>
+
+1. Press **New template**. The editor opens under the list with a starting title of
+   `[{{ severity }}] {{ title }}` and a body of `{{ body }}`.
+
+2. Give it a **Name**, up to 100 characters.
+
+3. Write the **Title** and the **Body**. Values go between double braces. Leave the body empty to send
+   the title alone.
+
+4. Check the **Preview** beside the form. It updates shortly after you stop typing.
+
+5. Press **Create template**.
+
+</Steps>
+
+Under the form, **What a template can use** opens a short reference:
+
+| Name | Meaning |
+| --- | --- |
+| `title`, `body` | The text the event was sent with. |
+| `topic`, `severity`, `status` | For example `orders.failed`, `error`, `firing`. |
+| `labels.<key>` | One label, as in `labels.env`. |
+| `payload.<field>` | A field of the JSON payload, as in `payload.order.id`. |
+| `count`, `events` | How many events the message covers, and the list of them. |
+| `\| cut(n)` | Shortens text to n characters. |
+| `\| default(...)` | Used when the value is missing. |
+| `\| tojson` | Writes a value as JSON. |
+
+For example: `[{{ labels.env | default('dev') }}] {{ title | cut(80) }}`.
+
+The server checks a template when you save it. A template with neither a title nor a body is refused,
+and so is one that does not parse; the reason is shown above the buttons.
+
+## The preview
+
+The preview shows the message as its reader would get it: the title, and the body under it.
+
+| Control | What it does |
+| --- | --- |
+| **With the event** | Chooses the event to word. The menu lists the 20 newest events. |
+| **As sent to** | Chooses a connection. The preview then also shows **The request this connection sends**: method, URL, headers and body, with secrets masked. With **No connection** only the wording is shown. |
+| Destination | Appears for connections whose channel takes a destination, labelled with what that channel calls it. Leave it empty to use the connection's own. |
+
+:::note
+With **A sample event** chosen, the server words the newest event it has. It falls back to a built-in
+sample (a failed payment on the topic `orders.payment.failed`) only when the instance has no events at
+all. To be sure which event is used, choose one from the menu.
+:::
+
+When the template fails on the chosen event, the preview shows the error in red, followed by "Until
+this is fixed, the event's own title and body are sent:" and that default wording. The same happens at
+delivery: a template that fails does not stop the message.
+
+The preview words one event. To see what a template does with a real route, including noise control,
+use the tester on [Routes](/ramzes/guide/routes/).
+
+## Using a template
+
+A template does nothing until a route's target uses it. In the route editor, under **Send to**, choose
+it in the **Wording** column of a target. Escalation steps have the same menu. See
+[Routes and the tester](/ramzes/guide/routes/).
+
+## Editing and deleting
+
+**Edit** opens the template in the same editor; **Save template** stores it. The change applies to
+messages composed from then on.
+
+**Delete** asks for confirmation. The server refuses while a route's target or one of its escalation
+steps uses the template, and names the routes: "this template is used by: … Change those routes first."
+Change those targets back to **The event's own wording**, or to another template, then delete.

@@ -18,9 +18,9 @@ use crate::{IngestState, Rejection, commit, to_event};
 
 /// Characters of a request body kept for the mapping editor.
 const KEPT_BODY_CHARS: usize = 64_000;
-/// Headers that identify a delivery; the first one present makes a repeated request harmless.
 /// How far a signed request's timestamp may be from now, in seconds.
 const SIGNATURE_AGE_S: i64 = 300;
+/// Headers that identify a delivery; the first one present makes a repeated request harmless.
 const DELIVERY_HEADERS: [&str; 3] = ["idempotency-key", "x-github-delivery", "webhook-id"];
 
 fn unauthorized(message: &str) -> Rejection {

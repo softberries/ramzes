@@ -1,6 +1,146 @@
 ---
 title: "Quickstart"
-description: "Quickstart in ramzes."
+description: "Start ramzes from a checkout, walk through the five setup steps, send an event with curl and see it arrive in a channel."
 ---
 
-This page is being written.
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+This page takes you from nothing to one event delivered to a channel. You need a checkout of the
+repository, because nothing is released yet: there is no image to pull and no binary to download.
+
+## 1. Start ramzes
+
+<Tabs syncKey="install">
+<TabItem label="Docker Compose">
+
+You need Docker with the Compose plugin.
+
+```sh
+git clone https://github.com/softberries/ramzes.git
+cd ramzes
+docker compose -f deploy/compose.yaml up --build
+```
+
+The first run builds the image from source, which takes a while. The container listens on port
+7269 and keeps its database and secret key in a named volume.
+
+</TabItem>
+<TabItem label="From source">
+
+You need Rust 1.98 and Node 24.
+
+```sh
+git clone https://github.com/softberries/ramzes.git
+cd ramzes
+make build
+./target/release/ramzes
+```
+
+This creates `./data/ramzes.db` and `./data/secret.key` and listens on `127.0.0.1:7269`.
+
+</TabItem>
+</Tabs>
+
+Open `http://localhost:7269`. While no user exists, every page sends you to
+the setup screen.
+
+## 2. Go through the setup screen
+
+The setup screen has five steps. Each one unlocks the next.
+
+<Steps>
+
+1. **Create your account.** Enter an email address and a password of at least 10 characters, then
+   press **Create account**. This is the first user, and you are signed in at once.
+
+2. **Name a source.** A source is a sender with its own key. The field is filled in with
+   `my-service`; keep it or type the name of the service that will send events, then press
+   **Create source**.
+
+3. **Send a test event.** The page shows a `curl` command that already contains the new source's
+   key. The key is shown only now, so copy it somewhere safe. Run the command in a terminal:
+
+   ```sh
+   curl -X POST http://localhost:7269/v1/events \
+     -H "Authorization: Bearer <source key>" \
+     -H "Content-Type: application/json" \
+     -d '{"topic": "ramzes.hello", "title": "Hello from my service", "severity": "info"}'
+   ```
+
+   The answer is `202 Accepted` with the id of the stored event:
+
+   ```json
+   {"ids":["01a136a2-d213-70ed-a91f-79e973799bd8"],"duplicate":false}
+   ```
+
+   The step changes from "Waiting for your event" to "Event received."
+
+4. **Connect a channel.** Choose where messages go and fill in what that channel needs, then press
+   **Save connection**. Two channels need no account of your own:
+
+   - **Webhook**: ramzes posts each message as JSON to a URL. Open a request inspector that gives
+     you a URL and shows what arrives at it, and paste that URL into the **URL** field. Leave
+     **Signing secret** empty.
+   - **ntfy**: set **Server** to `https://ntfy.sh` and **Default topic** to a long random name,
+     then subscribe to that topic in the ntfy app or web page. Leave **Access token** empty.
+
+   After saving, press **Send test message**. ramzes sends a message titled "Test message from
+   ramzes" and shows either "Test message delivered." or what the service answered.
+
+5. **Route events to it.** Press **Create route and deliver the test event**. This creates a route
+   named "Everything" that matches every event and sends it to the connection you made, then runs
+   your test event through it. When the delivery is done the step shows its state, with two
+   buttons: **Open the feed** and **See what happened to it**.
+
+</Steps>
+
+<Aside type="note">
+With Docker, a webhook URL that points at `localhost` reaches the container, not your machine.
+Use an address the container can reach.
+</Aside>
+
+<Aside type="caution">
+ramzes has not been run against ntfy.sh or any other live third-party service. The request formats
+are written from each service's documentation and pinned by tests. See
+[Verified claims](/ramzes/verified/).
+</Aside>
+
+If you leave the setup screen after creating the account, open `/setup` again to continue from the
+second step. You can also do the same things on the **Sources**, **Connections** and **Routes**
+pages.
+
+## 3. Send another event
+
+The route now exists, so new events are delivered as they arrive. Send one with a few more fields:
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer <source key>" \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "orders.failed", "title": "Order 7 failed", "severity": "error",
+       "labels": {"env": "prod"}, "payload": {"order": 7}}'
+```
+
+Only `topic` and `title` are required. [The events API](/ramzes/sending/events-api/) lists every
+field, batches and idempotency keys.
+
+## 4. See it in the feed
+
+Open the **Feed**. Every event ramzes received is listed there, newest first, with where it was
+sent and what became of it. The list updates while you watch.
+
+<Screenshot name="feed" caption="The feed: every event received, with where it was sent and its outcome." />
+
+Click an event to open its journey: the routes it matched, the message as it was worded, the
+request ramzes made, and each delivery attempt with the status the service answered. See
+[Feed and event journey](/ramzes/guide/feed/).
+
+## What to do next
+
+- [Your first route](/ramzes/getting-started/first-route/): a route with conditions, dedup and
+  grouping, a resolved event and an acknowledgement.
+- [Docker Compose](/ramzes/install/docker-compose/): volumes, the secret key, Postgres and running
+  behind a reverse proxy.
+- [Security](/ramzes/operations/security/): read this before the instance is reachable by anyone
+  else.

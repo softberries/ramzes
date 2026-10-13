@@ -25,8 +25,8 @@ Run on 13 October 2026 on the commit this page was written for.
 
 | What | How |
 |---|---|
-| Behaviour described under Concepts, Sending events, Operations and Reference | 526 Rust tests, run on SQLite and on Postgres 18. 13 of them start the real binary and talk to it over HTTP |
-| What the web UI does | 294 unit and component tests that run in a real browser, and 22 browser tests that drive the real binary with the built UI |
+| Behaviour described under Concepts, Sending events, Operations and Reference | 527 Rust tests, run on SQLite and on Postgres 18. 13 of them start the real binary and talk to it over HTTP |
+| What the web UI does | 295 unit and component tests that run in a real browser, and 22 browser tests that drive the real binary with the built UI |
 | Formatting and lints | `cargo fmt --check`, `cargo clippy` with warnings as errors, ESLint and `svelte-check` are clean |
 | A resolved event milder than a route's minimum severity closes what the route opened | Unit tests of the matcher and an engine test |
 | Two user deletions at once cannot remove the last users | A concurrency test that failed on Postgres before the fix and passes after |
@@ -38,9 +38,16 @@ Run on 13 October 2026 on the commit this page was written for.
 |---|---|
 | Quickstart with Docker | Both compose files were built and started on 13 October 2026. The health and readiness checks and the UI answered; with the Postgres file the first user was created and found in Postgres |
 | Quickstart from source | `make build` was run on 13 October 2026. The binary started, served the UI and exited with status 0 on SIGTERM |
+| The tutorial in [Your first route](/ramzes/getting-started/first-route/) | Every step was run as written against a local instance, with a local webhook receiver as the channel |
+| Examples under Concepts and Reference | Run against a local instance: the route, shaping and escalation examples, the expressions, and the admin API calls |
+| The webhook signature examples | The Python, Node.js and shell snippets were run against a signature computed separately with OpenSSL |
+| The mapping and connector examples | The worked source mapping was run through the mapping preview; the worked connector definition was parsed and previewed by the connector code |
+| Health, readiness and metrics endpoints, `ramzes backup`, `export` and `import`, the sign-in lockout | Run against a local instance |
 | The screenshots in this documentation | Taken by `site/scripts/capture.mjs` from an instance filled by `site/scripts/seed.mjs`. They show the real UI with made-up data |
 | The Opsgenie shutdown date, 5 April 2027 | Atlassian's migration page, read on 13 October 2026 |
 
 ## How the documentation was written
 
 The pages were written from the code, not from memory: each default, limit, field name, header and error message was read from the file that implements it. Where something could not be confirmed it was left out.
+
+Things that rest on other tools' behaviour rather than on ramzes's code were not run: the reverse-proxy and Prometheus configuration examples, the `pg_dump` and `pg_restore` commands, and the navigation paths inside third-party products, which are given as each product's own documentation described them.

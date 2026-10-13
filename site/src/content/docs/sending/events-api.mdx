@@ -1,6 +1,298 @@
 ---
 title: "The events API"
-description: "The events API in ramzes."
+description: "POST /v1/events in full: the source key, the body and every field's limits, the 202 answer, each error code, Idempotency-Key, the size and rate limits, and examples in curl, Python and JavaScript."
 ---
 
-This page is being written.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`POST /v1/events` is how your own services send events to ramzes. This page covers the request, every answer it can give, and the limits. For what the fields mean, see [Events](/ramzes/concepts/events/). Tools that send their own format (Alertmanager, GitHub and so on) use a different address: see the other pages in this section.
+
+## A first request
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H 'Authorization: Bearer rz_src_…' \
+  -H 'Content-Type: application/json' \
+  -d '{"topic": "orders.failed", "title": "Order 17 failed", "severity": "error"}'
+```
+
+```json
+{ "ids": ["0199dd5c-6f0a-7c41-9d0e-3b1a52f0c8aa"], "duplicate": false }
+```
+
+The status is `202 Accepted`. ramzes answers only after the events are stored, in one database transaction. Routing and delivery happen afterwards, so a 202 means "kept", not "delivered". Use the returned id to find the event in the [feed](/ramzes/guide/feed/).
+
+## Authentication
+
+Every request carries a source key:
+
+```
+Authorization: Bearer <source key>
+```
+
+You get the key when you create a source of the kind **ramzes API** on the [Sources](/ramzes/guide/sources/) page. A key ramzes generates starts with `rz_src_`. It is shown once, when it is made; ramzes stores only its SHA-256 hash. If you lose it, use **Replace key** and switch the service to the new one.
+
+The key decides which source the events belong to. A missing header, a header that is not `Bearer <key>`, and an unknown key all get the same `401`.
+
+## The body
+
+The body is JSON: one event object, or an array of event objects.
+
+```json
+{
+  "topic": "payments.charge.failed",
+  "title": "Payment failed for order 1042",
+  "severity": "error",
+  "status": "firing",
+  "body": "The card network timed out after 3 attempts.",
+  "labels": { "env": "prod", "service": "checkout" },
+  "payload": { "order_id": 1042, "amount": 129.5 },
+  "dedup_key": "order-1042",
+  "ts": "2026-10-13T09:41:07Z"
+}
+```
+
+| Field | Type | Default | Limits |
+| --- | --- | --- | --- |
+| `topic` | string | required | 1 to 200 characters; letters, digits and `. _ : / -` only |
+| `title` | string | required | 1 to 500 characters; not only whitespace |
+| `severity` | string | `info` | one of `debug`, `info`, `warning`, `error`, `critical`, in lower case |
+| `status` | string | `firing` | `firing` or `resolved` |
+| `body` | string | none | at most 20,000 characters |
+| `labels` | object of strings | `{}` | at most 64 labels; key 1 to 100 characters of letters, digits and `. _ -`; value at most 1,000 characters |
+| `payload` | any JSON | `null` | limited only by the size of the request |
+| `dedup_key` | string | none | 1 to 200 characters |
+| `ts` | string | time of receipt | an RFC 3339 timestamp, for example `2026-10-13T09:41:07Z` |
+
+Things that are refused:
+
+- A field that is not in the table. A misspelt name is an error, not a silent loss.
+- A label value that is not a string, such as `{"attempt": 3}`. Write `"3"`.
+- A NUL character (`\u0000`) in `title`, `body`, a label value or `dedup_key`.
+
+ramzes reads the body as JSON whatever the `Content-Type` header says.
+
+### Batches
+
+Send an array to store several events in one request:
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H 'Authorization: Bearer rz_src_…' \
+  -H 'Content-Type: application/json' \
+  -d '[
+    {"topic": "orders.failed", "title": "Order 17 failed", "severity": "error"},
+    {"topic": "orders.failed", "title": "Order 18 failed", "severity": "error"}
+  ]'
+```
+
+A batch holds 1 to 1,000 events. It is all or nothing: if one event is invalid, none is stored, and the message names its position counting from zero (`event 1: …`). The `ids` in the answer are in the order of the request.
+
+## Answers
+
+Every answer is JSON. An error has the same two fields each time:
+
+```json
+{ "error": "invalid_event", "message": "event 1: topic may only contain letters, digits and . _ : / -" }
+```
+
+| Status | `error` | When | Message |
+| --- | --- | --- | --- |
+| `202` | none | The events are stored. | The body is `{"ids": [...], "duplicate": false}`. |
+| `400` | `invalid_json` | The body is not JSON. | `the body is not valid JSON: ` followed by the parser's error |
+| `400` | `invalid_json` | The body is JSON but neither an object nor an array. | `the JSON body must be an event object or an array of event objects` |
+| `401` | `unauthorized` | The key is missing, malformed or unknown. | `send the source key as: Authorization: Bearer <key>` |
+| `413` | `too_large` | The body is over the size limit. | `the body is larger than 1048576 bytes` |
+| `422` | `invalid_event` | A field is missing, unknown, of the wrong type or over a limit. | Names the field and the rule. In a batch it starts with `event N: `. |
+| `422` | `invalid_event` | The body is an empty array. | `the batch is empty` |
+| `422` | `batch_too_large` | The array has more than 1,000 events. | `a request may carry at most 1000 events; this one has N` |
+| `422` | `invalid_idempotency_key` | The `Idempotency-Key` header is empty, too long or not ASCII. | `Idempotency-Key must be 1 to 200 visible ASCII characters` |
+| `429` | `rate_limited` | The source has used its allowance for this minute. | `this source may send 6000 events per minute`, with a `Retry-After` header |
+| `503` | `unavailable` | The database could not be read or written. | `ramzes cannot store events right now; retry shortly` |
+
+The messages for a field over its limit are fixed:
+
+| Problem | Message |
+| --- | --- |
+| Topic length | `topic must be 1 to 200 characters` |
+| Topic characters | `topic may only contain letters, digits and . _ : / -` |
+| Title | `title must be 1 to 500 characters` |
+| Body | `body must be at most 20000 characters` |
+| Too many labels | `at most 64 labels are allowed` |
+| Label key | `label key "…" must be 1 to 100 characters of letters, digits and . _ -` |
+| Label value | `value of label "…" must be at most 1000 characters` |
+| Dedup key | `dedup_key must be 1 to 200 characters` |
+| NUL character | `title must not contain a NUL character` (or `body`, `labels`, `dedup_key`) |
+| Timestamp | `ts must be an RFC 3339 timestamp, for example 2026-10-13T09:41:07Z` |
+
+A missing or unknown field, or a value of the wrong type, gets the JSON parser's own wording with the field's path in front.
+
+The checks run in this order: key, body size, `Idempotency-Key`, JSON, batch size, each event, rate limit, storage. The first failure is the one you see.
+
+What to do with each:
+
+- **`400`, `413`, `422`**: the request is wrong. Sending it again will fail the same way.
+- **`401`**: check the key. A key stops working the moment it is replaced or its source is deleted.
+- **`429`**: wait the number of seconds in `Retry-After`, then send again.
+- **`503`**: send again after a short wait. With an `Idempotency-Key` a repeat is safe.
+
+### Rejected requests are kept for you to read
+
+When a request with a valid key is refused with `400` or `422`, ramzes keeps the first 10,000 characters of its body together with the message. Open the source on the [Sources](/ramzes/guide/sources/) page and select **Rejected requests**. The latest 20 per source are kept.
+
+## Idempotency-Key
+
+Send an `Idempotency-Key` header to make a request safe to repeat:
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H 'Authorization: Bearer rz_src_…' \
+  -H 'Idempotency-Key: order-1042-charge-failed' \
+  -H 'Content-Type: application/json' \
+  -d '{"topic": "payments.charge.failed", "title": "Payment failed for order 1042"}'
+```
+
+The first request with a key stores its events. A later request from the same source with the same key stores nothing and answers `202` with the ids of the first request and `"duplicate": true`:
+
+```json
+{ "ids": ["0199dd5c-6f0a-7c41-9d0e-3b1a52f0c8aa"], "duplicate": true }
+```
+
+- The key is 1 to 200 visible ASCII characters and is compared exactly, including case.
+- Keys are per source. Two sources may use the same key without colliding.
+- The body of the repeat is not compared with the original. Only the key counts, so use a new key for a new request.
+- A key is remembered for as long as the events it stored are kept. See [Retention](/ramzes/operations/retention/).
+- A repeat still counts against the rate limit.
+
+An idempotency key is about one HTTP request arriving twice. To have ramzes treat two different events as the same occurrence, use `dedup_key`: see [Noise control](/ramzes/concepts/noise-control/).
+
+## Limits
+
+| Limit | Value |
+| --- | --- |
+| Body size | 1,048,576 bytes (1 MiB) |
+| Events per request | 1,000 |
+| Events per source per minute | 6,000 |
+
+These three values are fixed in the code. There is no setting for them.
+
+The rate limit counts events, not requests, per source, in clock minutes. A request that would take the source past 6,000 in the current minute is refused whole with `429`; nothing from it is stored. `Retry-After` is the number of seconds until the next minute starts, from 1 to 60. The counters live in memory, so a restart clears them.
+
+## Examples
+
+<Tabs>
+<TabItem label="curl">
+
+```sh
+curl -sS -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer $RAMZES_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: deploy-4812-finished' \
+  -d '{
+    "topic": "deploy.finished",
+    "title": "checkout 2.14.0 deployed to prod",
+    "severity": "info",
+    "labels": {"env": "prod", "service": "checkout"},
+    "payload": {"version": "2.14.0", "duration_s": 212}
+  }'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+Standard library only:
+
+```python
+import json
+import os
+import urllib.error
+import urllib.request
+
+def send_event(event, idempotency_key=None):
+    headers = {
+        "Authorization": f"Bearer {os.environ['RAMZES_KEY']}",
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    request = urllib.request.Request(
+        "http://localhost:7269/v1/events",
+        data=json.dumps(event).encode(),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)["ids"]
+    except urllib.error.HTTPError as error:
+        problem = json.load(error)
+        if error.code == 429:
+            wait = int(error.headers["Retry-After"])
+            raise RuntimeError(f"rate limited, retry in {wait} s") from error
+        raise RuntimeError(f"{problem['error']}: {problem['message']}") from error
+
+ids = send_event(
+    {
+        "topic": "orders.failed",
+        "title": "Order 17 failed",
+        "severity": "error",
+        "labels": {"env": "prod"},
+    },
+    idempotency_key="order-17-failed",
+)
+```
+
+</TabItem>
+<TabItem label="JavaScript">
+
+`fetch` is built into Node.js 18 and later:
+
+```js
+async function sendEvent(event, idempotencyKey) {
+  const response = await fetch('http://localhost:7269/v1/events', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RAMZES_KEY}`,
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
+    body: JSON.stringify(event),
+  });
+  const answer = await response.json();
+  if (response.status === 429) {
+    throw new Error(`rate limited, retry in ${response.headers.get('Retry-After')} s`);
+  }
+  if (!response.ok) {
+    throw new Error(`${answer.error}: ${answer.message}`);
+  }
+  return answer.ids;
+}
+
+const ids = await sendEvent(
+  { topic: 'orders.failed', title: 'Order 17 failed', severity: 'error', labels: { env: 'prod' } },
+  'order-17-failed',
+);
+```
+
+</TabItem>
+</Tabs>
+
+## Resolving what you reported
+
+To say that something is over, send an event with `"status": "resolved"` and the same `dedup_key` as the event that reported it:
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer $RAMZES_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"topic": "payments.charge.failed", "title": "Payments recovered", "status": "resolved", "dedup_key": "order-1042"}'
+```
+
+What that closes, and who is told, is described in [Notifications](/ramzes/concepts/notifications/).
+
+## Related
+
+- [Events](/ramzes/concepts/events/): what each field is for.
+- [Sources](/ramzes/guide/sources/): creating a source and replacing its key.
+- [Any JSON webhook](/ramzes/sending/any-json/): for a service that cannot send this format.
+- [Admin API](/ramzes/reference/api/): reading events back and managing configuration.

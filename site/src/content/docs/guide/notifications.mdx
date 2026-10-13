@@ -1,6 +1,135 @@
 ---
 title: "Notifications"
-description: "Notifications in ramzes."
+description: "How to use the Notifications page: the six views, the table, Acknowledge, Resolve and Silence, and a notification's own page with its deliveries, events and escalation chain."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+A notification is what one route tells one connection about: a single event, or several counted or
+collected into one message. The Notifications page lists them by state and is where you acknowledge and
+resolve them. What the states mean is covered in [Notifications](/ramzes/concepts/notifications/).
+
+<Screenshot name="notifications" caption="The Sent view: notifications that went out and that nobody has acknowledged yet, each with its three actions." />
+
+## Views
+
+The tabs above the table choose which notifications are listed.
+
+| Tab | Lists notifications that are |
+| --- | --- |
+| **Waiting** | Collecting events into a group, or held for quiet hours or a rate limit. This is the view the page opens on. |
+| **Sent** | Sent, and neither acknowledged nor resolved. |
+| **Acknowledged** | Acknowledged and still open. |
+| **Resolved** | Resolved, by an event with the status `resolved` or by hand. |
+| **Not sent** | Suppressed, for example because a silence covered the event. |
+| **All** | In any state. |
+
+**Waiting** and **Sent** carry a count when it is above zero. Those counts are for the whole instance,
+not only the rows loaded. The view is kept in the page address as `?view=sent` and so on.
+
+## The table
+
+| Column | What it shows |
+| --- | --- |
+| **Notification** | The severity mark and the title, which links to the notification's page. |
+| **State** | The state with the time that matters for it, and the reason where there is one. See below. |
+| **Route** | The route that produced it. |
+| **Connection** | The connection, and the destination in brackets when the target names one. "a deleted connection" in red when it no longer exists. |
+| **Events** | How many events it covers. |
+| **Opened** | When it was created. |
+| **Actions** | **Acknowledge**, **Resolve** and **Silence**, as far as the state allows. |
+
+The **State** column reads as a phrase:
+
+| State shown | With |
+| --- | --- |
+| **collecting** | "sends in" and the time left until the group goes out. |
+| **held** | "until" and the time the hold ends, and the reason underneath. |
+| **sent** | How long ago. After repeats: "3 times, last 2 min ago". When a repeat or an escalation step is pending: "next step in" and the time left. |
+| **acknowledged** | "by" the person, with the email's domain cut, and how long ago. |
+| **resolved** | How long ago. |
+| **not sent** | How long ago, and the reason underneath, for example "silenced: Disk migration on db-3". |
+
+Each view loads its newest 200 notifications. The search box ("Search title, route, connection or
+state"), the sorting by column heading and the paging (25 per page by default) all work on those 200
+in the browser. When a view holds more, a note under the table says so: older ones are not listed, and
+the search does not look in them. Every view starts sorted by **Opened**, newest first.
+
+The list reloads when a notification changes, and the countdowns tick every second.
+
+## Actions
+
+| Button | Offered when the notification is | What it does |
+| --- | --- | --- |
+| **Acknowledge** | collecting, held or sent | Marks it acknowledged and records who did it. Reminders and escalation steps that were still to come are cancelled, and a notification that was still waiting is not sent. |
+| **Resolve** | anything but resolved or not sent | Closes it by hand. Pending reminders and steps are cancelled. No message announcing the resolution is sent. |
+| **Silence** | always | Opens the new-silence form on [Silences](/ramzes/guide/silences/), filled in with the topic and every label of the event that opened the notification. Nothing is created until you submit that form. |
+
+After an acknowledgement or a resolution, ramzes asks for the messages already delivered to be updated,
+on channels that can update a message. See the [channels overview](/ramzes/channels/overview/).
+
+If someone else got there first, the server refuses with "this notification is already acknowledged or
+over" or "this notification is already over", and the row reloads to show what it is now.
+
+Acknowledging from the UI records your email address. An acknowledgement made with an API token is
+recorded as "API token". People can also acknowledge from the link in a message; see
+[Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+:::note
+Messages carry an acknowledgement link only when the instance knows its own address. Until it is set
+under [Settings](/ramzes/guide/settings/), this page shows a reminder. **Dismiss** hides it in that
+browser.
+:::
+
+## A notification's page
+
+<Screenshot name="notification" caption="A notification that was not sent because a silence covered its event: the state and its reason, no deliveries, and the one event it holds." />
+
+The header shows the title, the severity, and "route to connection". The same three actions sit on the
+right. Under it, a row of facts: **State**, **Opened**, **Events**, **Messages sent** and, once
+acknowledged, **Acknowledged by** with the full email address.
+
+### Deliveries
+
+The **Deliveries** card lists every delivery made for the notification. Each shows its state, the number
+of attempts, and one line per attempt with the time, the HTTP status or "no answer", the duration and
+the error detail. A delivery that an escalation step sent is labelled "Step N to" and the connection.
+
+A finished delivery has a **Send again** button, which queues a new delivery of the same notification to
+the same connection and destination.
+
+With no deliveries, the card says why: "Nothing has been sent yet. A delivery appears here when the wait
+is over." for one that is collecting or held, "Nothing was sent, and nothing will be." for one that was
+not sent.
+
+### If nobody acknowledges
+
+This card appears when the notification's route has an escalation chain. It shows the chain as the
+route is set up now, as a path:
+
+- **First message**, to the notification's own connection: "sent at" a time, "not sent yet" while it is
+  waiting, or "not sent".
+- **Step 1**, **Step 2** and so on, each with who it tells and when it goes out counted from the first
+  message, for example "to #ops (Slack), 10 min after the first message". Its state is "sent at" a
+  time, "due in" with a countdown, "due now" or "not reached".
+- Where the chain stopped: "stopped: acknowledged by" the person and the time, or "stopped: resolved at"
+  a time. It is placed after the last step that went out.
+
+A step goes out only while the notification is sent and not acknowledged. See
+[Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+### Events
+
+The **Events** table lists the events the notification covers: **Received**, **Event** (linking to the
+[event's page](/ramzes/guide/feed/)), **Topic** and **Role**. The role says how the event relates to the
+notification, for example `first` for the one that opened it. Columns sort by their heading. A search
+box appears when there are more than 10 events. The list holds at most the first 1,000 events of a
+notification.
+
+When the events have been removed by retention, the table says "Its events have been removed after
+their retention period."
+
+### A notification that is gone
+
+For an id that does not exist the page says "This notification does not exist" and that it may have been
+removed after its retention period. See [Retention](/ramzes/operations/retention/).

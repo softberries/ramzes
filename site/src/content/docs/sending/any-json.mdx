@@ -1,6 +1,180 @@
 ---
 title: "Any JSON webhook"
-description: "Any JSON webhook in ramzes."
+description: "Receive webhooks from any service that can POST JSON: create an Any JSON source, write the mapping in the editor, try it on kept requests with the live preview, with a worked example."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+An **Any JSON** source accepts whatever JSON a service posts and turns it into events with a mapping you write. Use it for a tool ramzes has no bundled source for and whose payload you cannot change. This page walks through the source, the mapping editor and a worked example. The mapping format itself is in the [Source mappings](/ramzes/reference/mappings/) reference.
+
+If you control the sender, post ramzes's own format to [the events API](/ramzes/sending/events-api/) instead: no mapping is needed.
+
+## Create the source
+
+<Steps>
+
+1. In ramzes, open **Sources**. Under **Add a source**, choose **Any JSON** in **What sends the events**, give the source a name and select **Create source**.
+
+2. A card titled **_name_ is ready to receive** appears. Copy the key now: it cannot be shown again. The card also shows the address to give the sender, of the form `http://localhost:7269/v1/in/<source id>`.
+
+3. Point the service at that address. With the starter mapping it must send the header `Authorization: Bearer <the source key>`. The mapping can instead accept the key in another header or as a URL parameter; see the example below.
+
+</Steps>
+
+The source's row now has a **Mapping** button, next to **Setup**, **Recent requests**, **Replace key** and **Delete**.
+
+## The starter mapping
+
+A new Any JSON source starts with a mapping that accepts any JSON object, so the first request is not lost while you work on the real one:
+
+| Key | Expression | Effect |
+| --- | --- | --- |
+| `verify` | `method: bearer` | The key arrives as `Authorization: Bearer <key>`. |
+| `fields.topic` | `'webhook.received'` | Every event has the topic `webhook.received`. |
+| `fields.title` | `payload.title or payload.message or 'Webhook received'` | The body's `title`, or its `message`, or a fixed text. |
+| `fields.severity` | `payload.severity or payload.level` | Translated to a ramzes severity; `info` when neither is present or the word is not known. |
+| `fields.body` | `payload.description or payload.text` | No body when neither is present. |
+
+It sets no status, labels, dedup key or time: each request is one `firing` event stamped on receipt, and its `payload` is the whole request body.
+
+## The mapping editor
+
+Select **Mapping** on the source's row. A panel opens under the table with two halves.
+
+**On the left** is the mapping as YAML and a **Save mapping** button. Each field is an expression over the request: `payload` is its JSON body and `headers` its headers by lower-case name. Text goes in quotes inside the expression, as in `'shop.' ~ payload.kind`.
+
+**On the right** is the preview:
+
+- **Try it on** chooses the request the mapping is tried against. It lists the source's kept requests, newest first, as **Request at** and a time, with **rejected** added for one that was refused. The last entry is **A body I paste here**, which shows a **Request body** field to type or paste JSON into.
+- Below it is the result, recomputed shortly after you stop typing in either half. It is one of:
+  - **The event it makes** (or **The N events it makes**): title, topic, severity, status, body and labels of each event.
+  - **This request would be accepted without making an event.** The `events` list was empty, or `when` was false.
+  - An error in red: the YAML does not parse, an expression is malformed or failed on this request, or the event it produced is not valid.
+
+The preview saves nothing and sends nothing. Nothing changes for incoming requests until you select **Save mapping**; from then on the next request uses the new mapping. A mapping that does not parse is not saved, and the error is shown under the editor.
+
+:::note
+A kept request is tried with the headers that were kept with it. A pasted body is tried with no headers at all, so an expression such as `headers['x-event']` gives nothing in that case.
+:::
+
+### The kept requests
+
+ramzes keeps the latest 20 requests per source that passed verification, accepted or refused, each with up to 64,000 characters of its body and its headers. Headers that could carry a credential are not kept: `Authorization`, `Proxy-Authorization`, `Cookie`, the header the mapping verifies with, and any header whose name contains `signature` or `token`.
+
+**Recent requests** on the source's row lists them with the time, **accepted** or **rejected**, the reason for a rejection, the headers and the body.
+
+A request that fails verification is not kept. If nothing shows up, the sender is not presenting the key the way the mapping's `verify` expects.
+
+This makes a practical way of working:
+
+<Steps>
+
+1. Create the source and point the service at it with the starter mapping.
+2. Make the service send one real request. It is stored as a `webhook.received` event and kept.
+3. Open **Mapping**. The kept request is already selected under **Try it on**.
+4. Edit the mapping until the preview shows the event you want, then select **Save mapping**.
+
+</Steps>
+
+## A worked example
+
+A backup tool posts this when a job ends. It cannot set request headers, only a URL:
+
+```json
+{
+  "event": "job.finished",
+  "job": {
+    "id": "bk-2291",
+    "name": "postgres-main",
+    "result": "failed",
+    "error": "upload to bucket timed out after 600 s",
+    "target": null,
+    "duration_s": 3712
+  },
+  "host": "db-1.internal",
+  "finished_at": "2026-10-13T02:14:55Z"
+}
+```
+
+It also posts `"event": "job.started"` when a job begins, which is of no interest, and a successful job has `"result": "ok"` and no `error`.
+
+The mapping:
+
+```yaml
+verify:
+  method: query
+  param: token
+when: "payload.event == 'job.finished'"
+fields:
+  topic: "'backup.' ~ payload.job.result"
+  title: "'Backup of ' ~ payload.job.name ~ ' ' ~ payload.job.result"
+  severity: "'error' if payload.job.result == 'failed' else 'info'"
+  status: "'resolved' if payload.job.result == 'ok' else 'firing'"
+  body: payload.job.error
+  labels: "{'job': payload.job.name, 'host': payload.host, 'target': payload.job.target}"
+  dedup_key: "'backup/' ~ payload.job.name"
+  ts: payload.finished_at
+```
+
+What each part does:
+
+- **`verify`** takes the source key from the URL, so the address you give the tool is `http://localhost:7269/v1/in/<source id>?token=<the source key>`.
+- **`when`** drops `job.started`. Those requests are answered `202` and make no event.
+- **`topic`** is `backup.failed` or `backup.ok`, so a route can match `backup.failed` alone or `backup.*`.
+- **`severity`** and **`status`** are computed from the result. A successful backup is a `resolved` event.
+- **`labels`** builds an object. A label whose value is `null` or absent is left out, so there is no `target` label here.
+- **`dedup_key`** is the same for every run of one job. That is what lets tonight's success resolve last night's failure.
+- **`ts`** is used because the tool writes RFC 3339. A time in another format is dropped and the event is stamped on receipt.
+
+The failed job above becomes:
+
+```json
+{
+  "topic": "backup.failed",
+  "title": "Backup of postgres-main failed",
+  "severity": "error",
+  "status": "firing",
+  "body": "upload to bucket timed out after 600 s",
+  "labels": { "host": "db-1.internal", "job": "postgres-main" },
+  "dedup_key": "backup/postgres-main",
+  "ts": "2026-10-13T02:14:55Z",
+  "payload": { "event": "job.finished", "job": { "…": "…" }, "host": "db-1.internal", "finished_at": "2026-10-13T02:14:55Z" }
+}
+```
+
+The next night's successful run becomes an event with the topic `backup.ok`, the title `Backup of postgres-main ok`, severity `info`, status `resolved` and the same dedup key. It closes the notification the failure opened. See [Notifications](/ramzes/concepts/notifications/).
+
+Send the sample yourself to check the whole path:
+
+```sh
+curl -X POST 'http://localhost:7269/v1/in/<source id>?token=<the source key>' \
+  -H 'Content-Type: application/json' \
+  -d '{"event":"job.finished","job":{"name":"postgres-main","result":"failed","error":"upload to bucket timed out after 600 s"},"host":"db-1.internal","finished_at":"2026-10-13T02:14:55Z"}'
+```
+
+:::caution
+A key in the URL ends up wherever URLs are written down, such as the access logs of a proxy in front of ramzes. Prefer `bearer` or `header` when the sender can set a header.
+:::
+
+## Things that go wrong
+
+| What you see | Why |
+| --- | --- |
+| `401`, and nothing under **Recent requests** | The key did not arrive the way `verify` says. With `query`, the value is compared exactly as it appears in the URL. |
+| `422` with `title: the expression gave nothing` | The title expression found no value in this request. Add a fallback: `payload.name or 'Backup'`. The request is kept, so you can try the fix on it. |
+| `422` with `events: the expression must give a list` | `events` points at something that is not an array. |
+| An event with an odd topic such as `backup.` | A value the topic is built from was missing. Guard it: `'backup.' ~ (payload.job.result or 'unknown')`. |
+| Severity is always `info` | The sender's word is not one ramzes knows. Map it yourself with `'error' if … else 'info'`. The known words are in the [reference](/ramzes/reference/mappings/). |
+
+## Limits
+
+- One request makes at most 1,000 events.
+- The body may be at most 1 MiB, and the source may send 6,000 events per minute.
+- Only JSON bodies are understood. A form-encoded or XML request is refused with `400 invalid_json`.
+- Expressions have a work limit: one that loops too long is stopped and the request refused. See [Expressions and templates](/ramzes/reference/expressions/).
+
+## Related
+
+- [Source mappings](/ramzes/reference/mappings/): every key, the `verify` methods, how values are cleaned, all answers.
+- [Expressions and templates](/ramzes/reference/expressions/): the language the fields are written in.
+- [Sources](/ramzes/guide/sources/): the screen itself.

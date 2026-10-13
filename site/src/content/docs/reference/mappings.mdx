@@ -1,6 +1,236 @@
 ---
 title: "Source mappings"
-description: "Source mappings in ramzes."
+description: "The YAML schema that turns a third party's webhook into ramzes events: the verify methods, events, when and fields, how values are cleaned and clamped, which headers a mapping can see, and a complete example."
 ---
 
-This page is being written.
+A mapping describes how a request from a service that does not speak the ramzes format becomes events. It says how the request proves where it comes from, which part of the body is a list of events, and one expression per event field.
+
+You write a mapping for a source of the kind **Any JSON**. The bundled sources (Alertmanager, Grafana, GitHub, GitLab, Sentry) are mappings in this same format, compiled into the binary; read them in `crates/ramzes-core/src/adapters/` for longer examples. For the steps in the UI, see [Any JSON webhook](/ramzes/sending/any-json/).
+
+## A complete example
+
+An uptime monitor posts this when checks change state, with its secret in the header `X-Monitor-Token`:
+
+```json
+{
+  "checks": [
+    { "id": 17, "kind": "http", "name": "checkout API", "state": "down", "region": "eu-west",
+      "message": "3 probes failed: HTTP 503", "changed_at": "2026-10-13T09:41:07Z" },
+    { "id": 18, "kind": "tcp", "name": "orders db", "state": "up", "region": null,
+      "changed_at": "13/10/2026 09:41" },
+    { "id": 19, "kind": "http", "name": "legacy", "state": "unknown" }
+  ]
+}
+```
+
+The mapping:
+
+```yaml
+verify:
+  method: header
+  header: X-Monitor-Token
+events: payload.checks
+when: "item.state != 'unknown'"
+fields:
+  topic: "'uptime.' ~ (item.kind or 'check')"
+  title: "item.name ~ ' is ' ~ item.state"
+  severity: "'critical' if item.state == 'down' else 'info'"
+  status: "'resolved' if item.state == 'up' else 'firing'"
+  body: item.message
+  labels: "{'check': item.name, 'region': item.region, 'monitor': headers['x-monitor-name']}"
+  dedup_key: "'uptime/' ~ item.id"
+  ts: item.changed_at
+```
+
+The request produces two events:
+
+| | First | Second |
+| --- | --- | --- |
+| `topic` | `uptime.http` | `uptime.tcp` |
+| `title` | `checkout API is down` | `orders db is up` |
+| `severity` | `critical` | `info` |
+| `status` | `firing` | `resolved` |
+| `body` | `3 probes failed: HTTP 503` | none |
+| `labels` | `check`, `region`, `monitor` | `check`, `monitor` |
+| `dedup_key` | `uptime/17` | `uptime/18` |
+| `ts` | `2026-10-13T09:41:07Z` | none: the time of receipt is used |
+
+The third check is skipped by `when`. The second event has no `region` label because its value was `null`, and no `ts` because the monitor's date is not RFC 3339. The `payload` of each event is its element of `checks`. Because both events carry the same `dedup_key` scheme, the `up` event resolves what the `down` event for the same check opened.
+
+Sending it:
+
+```sh
+curl -X POST http://localhost:7269/v1/in/01a136a4-657e-7446-b6a7-52e964b3c919 \
+  -H "X-Monitor-Token: $SOURCE_KEY" \
+  -H "X-Monitor-Name: probe-1" \
+  -H "Content-Type: application/json" \
+  -d @checks.json
+```
+
+```json
+{ "ids": ["01a136a4-65a2-7091-aa12-965705645c40", "01a136a4-65a2-7091-aa12-9658d9ebecfd"], "duplicate": false }
+```
+
+## The schema
+
+A key that is not listed here is refused.
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `verify` | no | How a request proves it comes from the sender. Default: `method: bearer`. |
+| `events` | no | An expression that gives the list to make events from. Without it the whole request is one event. |
+| `when` | no | An expression evaluated for each item. When it is false the item produces no event. |
+| `fields` | yes | One expression per event field. |
+
+Every value under `events`, `when` and `fields` is an [expression](/ramzes/reference/expressions/), not a template: no braces. A constant is a quoted string inside the YAML string, as in `"'uptime.check'"`.
+
+## `verify`
+
+A source has a key. A request to `/v1/in/{source_id}` must prove it knows that key, in the way the mapping says.
+
+| `method` | Other keys | The request must carry |
+| --- | --- | --- |
+| `bearer` | | `Authorization: Bearer <source key>` |
+| `header` | `header` | The source key as the value of the named header. |
+| `query` | `param` | The source key as the named query parameter of the URL, for senders that can set no header. The value is compared as it appears in the URL, without decoding. |
+| `hmac_sha256` | `header`, `prefix` (default empty) | In the named header: `prefix` followed by the hexadecimal HMAC-SHA256 of the raw body, keyed with the source key. |
+| `standard_webhooks` | `fallback_header` (optional) | A [Standard Webhooks](https://www.standardwebhooks.com/) signature, described below. |
+
+Header and parameter names may contain letters, digits, `-` and `_`.
+
+```yaml
+verify: { method: hmac_sha256, header: X-Hub-Signature-256, prefix: "sha256=" }
+```
+
+**`standard_webhooks`.** The header `webhook-signature` holds one or more signatures of the form `v1,<base64>`, separated by spaces. One of them must be the base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, and `webhook-timestamp` must be within five minutes of now. The signing key is the source key with a leading `whsec_` removed, decoded from base64. When the request has no `webhook-signature` header and the mapping names a `fallback_header`, that header must hold the source key as it is.
+
+**Senders that make their own secret.** Some services generate the signing secret and show it to you. Give that secret to ramzes as the source's key: when creating the source, or by replacing its key. A key you supply must be 16 to 200 characters.
+
+A request that fails verification gets `401` and is not recorded.
+
+## `events` and `when`
+
+`events` is evaluated once per request. Its result decides how many events there can be:
+
+| Result | Effect |
+| --- | --- |
+| a list | One item per element. |
+| nothing (a missing field or `null`) | No events. The request is accepted with an empty `ids`. |
+| anything else | The request is refused: `events: the expression must give a list`. |
+| a list of more than 1,000 elements | The request is refused: `events: a request may carry at most 1000 events`. |
+
+Then, for each item, `when` is evaluated if there is one, and the `fields` if it was true.
+
+Use `when` to ignore what you do not want: a ping, a state you do not care about.
+
+```yaml
+when: "headers['x-github-event'] != 'ping'"
+```
+
+A request that produces no events is answered `202` with `{"ids": [], "duplicate": false}`.
+
+## What the expressions can read
+
+| Name | Value |
+| --- | --- |
+| `payload` | The request body, parsed as JSON. |
+| `headers` | The request's headers. Names are lower-case: `headers['x-github-event']`. |
+| `item` | The current element of the `events` list. Without `events`, the payload. |
+
+`item` is not available in `events` itself.
+
+### The headers a mapping can see
+
+A mapping sees every header of the request except those that authenticate it:
+
+- `authorization`, `proxy-authorization` and `cookie`;
+- any header whose name contains `signature` or `token`;
+- the header named in `verify` (`header`, or `fallback_header`).
+
+The same headers are left out of the record ramzes keeps of recent requests, so a secret sent in a header does not end up stored or shown.
+
+## `fields`
+
+| Key | Required | Result when absent or empty |
+| --- | --- | --- |
+| `topic` | yes | The request is refused: `topic: the expression gave nothing`. |
+| `title` | yes | The request is refused: `title: the expression gave nothing`. |
+| `severity` | no | `info` |
+| `status` | no | `firing` |
+| `body` | no | No body. |
+| `labels` | no | No labels. |
+| `dedup_key` | no | No dedup key. |
+| `ts` | no | The time of receipt. |
+
+The event's `payload` is always the item.
+
+## How values are cleaned
+
+A sender's quirks should not lose an event. So where the events API would refuse a value, a mapping repairs it.
+
+**Any value becomes text.** Text is used as it is, and trimmed. A number, a boolean, a list or an object becomes its JSON text. `null` and a missing value are nothing; so is text that is empty after trimming.
+
+| Field | Cleaning |
+| --- | --- |
+| `topic` | Each character that a topic may not contain is replaced with `_`. Cut to 200 characters. |
+| `title` | Cut to 500 characters. NUL characters are removed. |
+| `severity` | Matched without regard to case: `debug`, `trace` → `debug`; `warning`, `warn` → `warning`; `error`, `err`, `high` → `error`; `critical`, `crit`, `fatal`, `emergency`, `page` → `critical`. Anything else is `info`. |
+| `status` | Matched without regard to case: `resolved`, `ok`, `closed`, `recovered`, `normal`, `success` → `resolved`. Anything else is `firing`. |
+| `body` | NUL characters are removed. Cut to 20,000 characters. |
+| `labels` | The expression must give an object, or nothing. In each key, characters a label key may not contain are replaced with `_`, and the key is cut to 100 characters. A value that is `null` drops the label. Other values become text, cut to 1,000 characters. At most 64 labels are kept. |
+| `dedup_key` | NUL characters are removed. Cut to 200 characters. |
+| `ts` | Kept only if it is an RFC 3339 timestamp. Any other format is dropped and the event is stamped on receipt. |
+
+After cleaning, each event is checked like one sent to the events API. See [Events](/ramzes/concepts/events/) for the rules.
+
+If an expression fails on any item, the whole request is refused with `422` and the message names the field, for example `title: invalid operation: …`. No event of that request is stored.
+
+## Repeated requests
+
+Services redeliver webhooks. When the request carries one of the headers `Idempotency-Key`, `X-GitHub-Delivery` or `webhook-id`, in that order of preference, its value is used as the [idempotency key](/ramzes/concepts/events/#idempotency-keys). A second request with the same value stores nothing and is answered with the ids from the first and `"duplicate": true`.
+
+## Answers
+
+| Status | `error` | When |
+| --- | --- | --- |
+| `202` | | Accepted. `ids` lists the events stored, possibly none. |
+| `400` | `wrong_endpoint` | The source is of the kind that posts ramzes's own format; post to `/v1/events`. |
+| `400` | `invalid_json` | The body is not JSON. |
+| `401` | `unauthorized` | Verification failed. |
+| `404` | `not_found` | There is no source with this id. |
+| `413` | `too_large` | The body is larger than 1 MiB. |
+| `422` | `invalid_event` | An expression failed, or an event is not valid after cleaning. |
+| `422` | `invalid_mapping` | The stored mapping cannot be used. |
+| `429` | `rate_limited` | The source sent more than 6,000 events in the minute. The answer has a `Retry-After` header. |
+| `503` | `unavailable` | ramzes could not store the events. Send again. |
+
+## Trying a mapping
+
+ramzes keeps the last 20 requests each source received, with the visible headers, up to 64,000 characters of the body, and the error if the request was refused. The mapping editor on the Sources page uses them; they are also at `GET /api/sources/{id}/requests`.
+
+To try a mapping on a body without saving anything or sending a real request:
+
+```sh
+jq -n --rawfile mapping mapping.yaml --rawfile body checks.json \
+  '{mapping: $mapping, body: $body, headers: {"x-monitor-name": "probe-1"}}' |
+  curl -X POST http://localhost:7269/api/sources/preview-mapping \
+    -H "Authorization: Bearer $RAMZES_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @-
+```
+
+The answer has the `events` the request would produce, or an `error` that says which part failed. The preview does not check `verify`.
+
+Save a mapping with `PUT /api/sources/{id}/mapping`, or give it when creating the source. A new Any JSON source without one starts with a mapping equivalent to this:
+
+```yaml
+verify:
+  method: bearer
+fields:
+  topic: "'webhook.received'"
+  title: "payload.title or payload.message or 'Webhook received'"
+  severity: "payload.severity or payload.level"
+  body: "payload.description or payload.text"
+```
+
+No bundled mapping has received requests from its live service. They were written from each service's documentation. See [Verified claims](/ramzes/verified/).

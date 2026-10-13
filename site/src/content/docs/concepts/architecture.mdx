@@ -1,6 +1,108 @@
 ---
 title: "Architecture"
-description: "Architecture in ramzes."
+description: "How ramzes is built: its crates, the path of an event from the HTTP request to a delivered message, what happens after a crash, and why it runs as one instance."
 ---
 
-This page is being written.
+ramzes is one process with one database. This page describes the parts inside that process, the path an event takes through them, and the limits that follow from the design.
+
+## The path of an event
+
+```text
+ sender ── POST /v1/events ──────┐
+ third party ── POST /v1/in/{id} ┤
+                                 ▼
+                        ┌─────────────────┐   stored in one transaction,
+                        │     ingest      │   then answered with 202
+                        └────────┬────────┘
+                                 ▼
+                           [ database ]  events waiting to be routed
+                                 │
+                        ┌────────▼────────┐   match routes, shape per target,
+                        │  route worker   │   under the shaping lock
+                        └───┬─────────┬───┘
+              deliveries ◄──┘         └──► notifications, timers
+                   │                               │
+          ┌────────▼────────┐             ┌────────▼────────┐
+          │ delivery worker │◄────────────│  timer worker   │
+          └────────┬────────┘  new        └─────────────────┘
+                   │           deliveries   group ready, hold over,
+                   ▼                        reminder due, escalation due
+        Slack, email, webhook, …
+```
+
+1. **The request is stored first.** `POST /v1/events` checks the source key, validates every event in the request and writes them in one transaction. Only then does it answer `202 Accepted` with the ids. Nothing is matched or sent while the sender waits. Requests from third parties arrive at `POST /v1/in/{source_id}`, where a [mapping](/ramzes/reference/mappings/) turns the body into events before the same step.
+2. **The route worker routes it.** It takes events that have not been routed, oldest first, up to 100 per pass. For each event it evaluates the [routes](/ramzes/concepts/routes/) in order, and for every target of every matching route it decides what the event does there: open a notification and send it, join one that exists, wait in a group, be held, resolve something, or be recorded and not sent. That decision is [shaping](/ramzes/concepts/noise-control/). The result for one event is written in one transaction, which also marks the event as routed.
+3. **The delivery worker sends.** It takes deliveries that are due, up to 32 per pass, and attempts up to 16 at a time, with at most 4 in flight per connection. For each it words the message, hands it to the connector and records the attempt. A failed attempt is rescheduled or given up according to the [retry schedule](/ramzes/concepts/delivery/).
+4. **The timer worker acts later.** A [notification](/ramzes/concepts/notifications/) that waits has a timer: a group whose wait is over, a hold that ends, a reminder, an escalation step. The timer worker takes due timers, up to 50 per pass, and queues the deliveries they call for.
+
+The route and delivery workers start a pass when there is new work or every second. The timer worker looks every second. A fourth task deletes events past their [retention](/ramzes/operations/retention/) once an hour.
+
+## The crates
+
+The binary is built from seven crates in `crates/`.
+
+| Crate | What it does |
+| --- | --- |
+| `ramzes-core` | Pure logic with no input or output: the event model and its validation, route matching, shaping decisions, the expression and template language, source mappings, the retry schedule. Every function that depends on the time takes it as an argument. |
+| `ramzes-store` | Storage. One interface over SQLite and Postgres, the migrations, and the queries that claim work with a lease. |
+| `ramzes-connectors` | How a message reaches a channel: Slack, Slack app, email and webhook in Rust; the other channels and your own as [YAML definitions](/ramzes/reference/connector-definitions/); the shared HTTP client. |
+| `ramzes-engine` | The route, delivery and timer workers, replay, retention, and the events ramzes raises about itself. |
+| `ramzes-ingest` | `POST /v1/events` and `POST /v1/in/{source_id}`: authentication, limits, signature checks. |
+| `ramzes-api` | The [admin API](/ramzes/reference/api/) under `/api`, sign-in, encryption of stored credentials, the acknowledgement page and the Slack button endpoint. |
+| `ramzes-server` | The `ramzes` command: configuration, `/healthz`, `/readyz`, `/metrics`, and the web UI, which is compiled into the binary. |
+
+## Leases, and what happens after a crash
+
+All state is in the database. A worker does not hold work in memory between passes; it claims rows with a lease, does the work and writes the result.
+
+A lease is a time written on the row (`claimed_until`). While it is in the future no other pass takes the row. It lasts 60 seconds by default. When a worker writes its result the lease is cleared. When the process dies first, the lease runs out and the next pass takes the row again. This applies to unrouted events, due deliveries and due timers alike.
+
+What this means in practice:
+
+- **An accepted event is not lost by a crash.** It was committed before the `202`. After a restart it is routed if it had not been.
+- **Routing is all or nothing per event.** The notifications, deliveries and timers an event produces are written in the same transaction that marks it routed. A crash before the commit leaves nothing behind, and the event is routed again.
+- **A message can be sent twice.** If the process dies after a service accepted a message and before the attempt was recorded, the delivery is attempted again when its lease expires. Delivery is at least once, not exactly once.
+- **Work resumes up to a lease later.** A row claimed by the process that died waits for its lease to run out.
+
+On `SIGTERM` or Ctrl-C the workers finish the pass they are in. They get 20 seconds; deliveries still in flight after that are abandoned and retried on the next start.
+
+## The database
+
+ramzes uses SQLite by default, in `ramzes.db` in the data directory (`./data` unless you change it), opened in WAL mode. Set a `postgres://` database URL to use Postgres instead. See [Configuration](/ramzes/operations/configuration/).
+
+Both databases get the same schema from one set of migrations. The schema uses only `TEXT` and `BIGINT` columns: booleans are 0 or 1, times are Unix milliseconds, ids are UUIDv7 strings, JSON is text. Every query is written once and runs on both.
+
+Migrations run at start. A binary that finds a schema newer than it knows refuses to start and says so; see [Upgrading](/ramzes/install/upgrading/).
+
+An instance has one workspace. There are no tenants to separate.
+
+## Why one instance
+
+Shaping decisions depend on what earlier events did: whether a notification with this key is open, whether a group is still collecting, how many messages went to this target in the last ten minutes. Two events decided at the same moment could each conclude "nothing is open" and both send.
+
+ramzes prevents that with one lock inside the process. The route worker holds it while it decides and writes the result for one event. The timer worker holds it for each timer. Acknowledging or resolving a notification takes it too, so an acknowledgement is never overtaken by a send that was decided before it.
+
+The lock is in memory. A second ramzes process pointed at the same database has its own lock and does not see the first one's. Leases keep two processes from taking the same row, but not from making two decisions about the same notification at once.
+
+:::caution
+Run exactly one ramzes instance per database. There is no leader election and no clustering. Several other things are also kept in the memory of the one process: the per-source ingest allowance, the sign-in lockout, the limit of 4 sends per connection, and the single test delivery after a connection's pause.
+:::
+
+## The live stream to the UI
+
+The UI does not poll. The workers announce each change on an in-process channel, and `GET /api/stream` relays those announcements to the browser as server-sent events:
+
+| Event | Data | Sent when |
+| --- | --- | --- |
+| `event` | `{"event_id"}` | An event has been routed. |
+| `notification` | `{"notification_id"}` | A notification was opened, joined, sent, held, acknowledged or resolved. |
+| `delivery` | `{"event_ids", "delivery_id", "state"}` | A delivery attempt finished. |
+| `resync` | `{}` | The client fell behind and missed changes; it should reload what it shows. |
+
+The stream carries ids, not content; the UI fetches what changed. Announcements are not stored, so a client that connects later does not receive earlier ones. A keep-alive comment is sent every 15 seconds.
+
+## Related
+
+- [Events](/ramzes/concepts/events/): what is stored in step 1.
+- [Delivery and retries](/ramzes/concepts/delivery/): step 3 in detail.
+- [Limits](/ramzes/limits/): every known limit in one place.

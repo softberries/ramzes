@@ -1,6 +1,121 @@
 ---
 title: "Microsoft Teams"
-description: "Microsoft Teams in ramzes."
+description: "Send to a Microsoft Teams channel through a Workflows webhook: the one value to paste, the Adaptive Card ramzes posts field by field, its limits and colours."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+The Microsoft Teams connector posts an Adaptive Card to one channel through a Workflows webhook. This page covers the setup and the exact request.
+
+:::note
+This connector has not been sent to the live Microsoft Teams. The request was written from Microsoft's documentation and is pinned by snapshot tests. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+<Steps>
+
+1. In Teams, open the channel's menu, choose **Workflows** and the workflow **Send webhook alerts to a channel**. Choose that anyone can trigger the flow, then copy the URL.
+
+2. In ramzes, open **Connections** and select **Microsoft Teams** under **Chat**.
+
+3. Paste the URL into **Workflow webhook URL**, name the connection and select **Add connection**.
+
+4. Select **Send test message** on the new row.
+
+</Steps>
+
+The URL is the only setting. It is a secret: it is stored encrypted and not shown again. The webhook decides the channel, so a second channel needs a second workflow and a second connection.
+
+:::caution
+Use a Workflows webhook URL. The connector's own help text says it plainly: Office 365 connector URLs no longer work.
+:::
+
+## What is sent
+
+A `POST` to the webhook URL with `Content-Type: application/json`. The body is a message with one Adaptive Card, version 1.2:
+
+```json
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "contentUrl": null,
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.2",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "Charge failed: card network timeout",
+            "weight": "Bolder",
+            "size": "Medium",
+            "wrap": true,
+            "color": "Attention"
+          },
+          { "type": "TextBlock", "text": "14 charges failed in the last 30 s", "wrap": true },
+          {
+            "type": "FactSet",
+            "facts": [
+              { "title": "env", "value": "prod" },
+              { "title": "service", "value": "payments" }
+            ]
+          },
+          {
+            "type": "TextBlock",
+            "text": "payments.charge.failed · firing · critical",
+            "isSubtle": true,
+            "size": "Small",
+            "wrap": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "Acknowledge",
+            "url": "https://ramzes.example.com/ack/n1?t=abc"
+          },
+          {
+            "type": "Action.OpenUrl",
+            "title": "Open in ramzes",
+            "url": "https://ramzes.example.com/events/0199"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+| Part of the card | Content | Limit |
+| --- | --- | --- |
+| First `TextBlock` | The title, bold, coloured by status and severity. | 300 characters |
+| Second `TextBlock` | The body. Left out when the message has none. | 6,000 characters |
+| `FactSet` | One fact per label. Left out when there are no labels. | the first 20 labels; key 100, value 300 characters |
+| Last `TextBlock` | Topic, status and severity, in small subtle text. | 300 characters |
+| `actions` | **Acknowledge** and **Open in ramzes**, each opening a URL. | |
+
+Text over a limit is cut and ends in an ellipsis.
+
+The title's `color`:
+
+| Message | `color` |
+| --- | --- |
+| resolved | `Good` |
+| `critical` or `error` | `Attention` |
+| `warning` | `Warning` |
+| `info` or `debug` | `Default` |
+
+The `actions` are present only when ramzes has a public URL, set in [Settings](/ramzes/guide/settings/) or with `RAMZES_PUBLIC_URL`. **Acknowledge** is there only while the notification can still be acknowledged; it opens a confirmation page in the browser. See [Escalation and acknowledgement](/ramzes/concepts/escalation/#the-acknowledgement-link).
+
+## What it cannot do
+
+Each message is a new card. A card already posted is not changed when the notification is acknowledged or resolved; the resolution arrives as another card with the title in the `Good` colour. There are no threads and no buttons that act without opening the browser.
+
+## Answers
+
+Any `2xx` answer means delivered. `408`, `425`, `429` and `5xx` are retried; any other status is final and its text is kept as the reason. See [Delivery and retries](/ramzes/concepts/delivery/).
+
+This connector is a YAML definition compiled into the binary: `crates/ramzes-connectors/src/definitions/teams.yaml`. To change the card, copy it under another kind as [your own connector](/ramzes/channels/custom/).

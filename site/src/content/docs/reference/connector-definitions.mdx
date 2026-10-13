@@ -1,6 +1,226 @@
 ---
 title: "Connector definitions"
-description: "Connector definitions in ramzes."
+description: "The YAML schema for a connector of your own: every field, the validation rules and reserved kinds, what the templates can read, body formats, success statuses, the retry header, the acknowledge request, secret masking, and a complete example."
 ---
 
-This page is being written.
+A connector definition describes a channel as data: the settings a connection needs and the one HTTP request that delivers a message. A service that takes a message in a single request needs no code in ramzes. Discord, Teams, ntfy, Telegram, Pushover, PagerDuty and Opsgenie ship as definitions of exactly this kind; they are in `crates/ramzes-connectors/src/definitions/` and make good starting points.
+
+This page is the reference for the format. For adding one in the UI, see [Your own connector](/ramzes/channels/custom/).
+
+## A complete example
+
+A connector for an imaginary internal status board that takes incidents as JSON:
+
+```yaml
+kind: statusboard
+name: Statusboard
+description: Post incidents to an internal status board.
+destination_label: Board
+fields:
+  - key: base_url
+    label: Base URL
+    help: "For example https://status.example.com"
+    required: true
+    kind: url
+  - key: board
+    label: Default board
+    help: Used by routes that name no board.
+  - key: api_token
+    label: API token
+    secret: true
+    required: true
+request:
+  method: POST
+  url: "{{ settings.base_url }}/api/boards/{{ destination | default(settings.board) | urlpath }}/incidents"
+  headers:
+    Authorization: "Bearer {{ credentials.api_token }}"
+    X-Ramzes-Severity: "{{ message.severity }}"
+  body: |
+    {
+      "id": {{ message.dedup_key | default('ramzes-test') | tojson }},
+      "state": {{ ('closed' if message.status == 'resolved' else 'open') | tojson }},
+      "title": {{ message.title | cut(120) | tojson }},
+      "text": {{ message.body | default('') | cut(2000) | tojson }},
+      "severity": {{ message.severity | tojson }},
+      "labels": {{ message.labels | tojson }},
+      "events": {{ message.count }}
+      {% if message.link %},"url": {{ message.link | tojson }}{% endif %}
+      {% if message.ack_link %},"ack_url": {{ message.ack_link | tojson }}{% endif %}
+    }
+acknowledge:
+  method: PUT
+  url: "{{ settings.base_url }}/api/incidents/{{ message.dedup_key | urlpath }}/acknowledge"
+  headers:
+    Authorization: "Bearer {{ credentials.api_token }}"
+  body: |
+    {"by": "ramzes"}
+success: [200, 201]
+retry_after_header: X-Retry-In
+max_len: 2000
+```
+
+For a connection with the base URL `https://status.example.com`, sent to the destination `payments team`, the [preview](#previews-and-secret-masking) of this definition shows this request, laid out here for reading:
+
+```text
+POST https://status.example.com/api/boards/payments%20team/incidents
+Content-Type: application/json
+Authorization: Bearer ••••
+X-Ramzes-Severity: error
+
+{
+  "id": "ramzes-test",
+  "state": "open",
+  "title": "Payment failed for order 1042",
+  "text": "The card network timed out after 3 attempts.",
+  "severity": "error",
+  "labels": { "env": "prod", "service": "checkout" },
+  "events": 1,
+  "url": "https://ramzes.example.com/events/sample"
+}
+```
+
+## Top-level fields
+
+A field that is not listed here is refused.
+
+| Field | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `kind` | yes | | The connector's identifier. 2 to 40 characters: lowercase letters, digits, `-` and `_`, starting with a letter. Connections refer to it. |
+| `name` | yes | | Shown in the UI. 1 to 100 characters. |
+| `description` | no | empty | Shown when choosing a connector. |
+| `destination_label` | no | none | What a route's destination means for this connector, for example `Board` or `Chat ID`. Set it when your templates use `destination`. |
+| `fields` | no | none | The settings a connection of this kind has. |
+| `request` | yes | | The request that delivers a message. |
+| `acknowledge` | no | none | A request that tells the service a notification was acknowledged in ramzes. |
+| `success` | no | any 2xx | The statuses that mean delivered. |
+| `retry_after_header` | no | `retry-after` | The response header that holds the seconds to wait before a retry. |
+| `max_len` | no | `4000` | The longest message body the service accepts. This is information for the UI. ramzes does not shorten anything for you; use `cut` in the templates. |
+
+### Reserved kinds
+
+A definition of your own may not use the kind of a connector that ships with ramzes:
+
+`slack`, `slack_app`, `webhook`, `email`, `discord`, `teams`, `ntfy`, `telegram`, `pushover`, `pagerduty`, `opsgenie`
+
+To change one of those, copy its definition under another kind.
+
+## `fields`
+
+Each entry is one input on the connection form.
+
+| Field | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `key` | yes | | The name the templates use. Must be unique within the definition. |
+| `label` | yes | | Shown next to the input. |
+| `help` | no | empty | Shown under the input. |
+| `secret` | no | `false` | A secret field is stored encrypted, is never returned by the API, and is read as `credentials.<key>`. A field that is not secret is read as `settings.<key>`. |
+| `required` | no | `false` | A connection cannot be saved without a value. |
+| `kind` | no | `text` | `text` or `url`. A `url` field with a value must hold an absolute `http` or `https` URL. |
+
+## `request` and `acknowledge`
+
+Both have the same shape.
+
+| Field | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `method` | no | `POST` | `POST`, `PUT`, `PATCH` or `GET`. |
+| `url` | yes | | Template for the address. Must not be empty. |
+| `headers` | no | none | A map from header name to a template for its value. |
+| `body` | no | empty | Template for the body. |
+| `format` | no | `json` | `json` or `text`. |
+
+How the templates become a request:
+
+- **`url`** is rendered and trimmed. The result must be an `http` or `https` URL.
+- **`headers`**: each value is rendered and trimmed. A header whose value comes out empty is left out, which is how a header is made optional: `"{% if credentials.token %}Bearer {{ credentials.token }}{% endif %}"`. A value that would contain a line break fails the delivery, so text from an event cannot add headers.
+- **`body`** with `format: json` must render to valid JSON. ramzes parses it and sends it compact, so the whitespace and blank lines your template logic leaves behind do not matter. With `format: text` the body is sent exactly as rendered.
+- **`Content-Type`** is added when the body template is not empty and you set none yourself: `application/json` for `json`, `text/plain; charset=utf-8` for `text`.
+
+If any template fails, or a JSON body does not parse, nothing is sent and the delivery fails for good with a detail such as `the connector's body is not valid JSON: …`. That failure is not retried.
+
+Requests are made with the limits every connector has: 10 seconds per request, no redirects followed, and the instance's [private-address block](/ramzes/operations/security/) when it is on.
+
+## What the templates can read
+
+The templates are [MiniJinja](/ramzes/reference/expressions/) templates. They see:
+
+| Name | Value |
+| --- | --- |
+| `message.title` | The title, already worded by the route's template if there is one. An escalation step's title starts with `Escalated: `. |
+| `message.body` | The body. Absent when the message has none. |
+| `message.severity` | `debug`, `info`, `warning`, `error` or `critical`. The highest among the events of the message. |
+| `message.status` | `firing` or `resolved`. |
+| `message.topic` | The topic, or `several topics` for a summary of events on different topics. |
+| `message.labels` | The labels as an object. For a summary, the labels all events share. |
+| `message.fields` | The same labels as a list of `{key, value}` in key order, for looping and slicing: `message.fields[:8]`. |
+| `message.count` | How many events the message covers. |
+| `message.event_ids` | Their ids. |
+| `message.link` | A link to the event or notification in ramzes. Absent without a public URL. |
+| `message.ack_link` | The [acknowledgement link](/ramzes/concepts/escalation/#the-acknowledgement-link). Absent without a public URL, and once the notification is acknowledged or resolved. |
+| `message.dedup_key` | What the message is about, the same on the first message, the acknowledgement and the resolution. The notification's dedup key, or its id when it has none. |
+| `message.notification_id` | The notification's id. |
+| `settings` | The connection's fields that are not secret. |
+| `credentials` | The connection's secret fields. |
+| `destination` | The route target's destination. Absent when the route names none. |
+| `now_ms` | The time of the attempt, Unix milliseconds. |
+
+A value marked "absent" is left out, not `null`, so `default` applies to it: `{{ destination | default(settings.board) }}`.
+
+:::caution
+A **connection test** and a **preview** build a message that belongs to no notification. It has no `dedup_key`, no `ack_link` and no `notification_id`, and the test message has no labels and no link. Give every one of these a default, as the example does with `default('ramzes-test')`, or the test fails where a real delivery would work.
+:::
+
+The event's payload is not available here. A connector formats a message; to put a payload value into a message, word it in a [template](/ramzes/concepts/templates/).
+
+## Success statuses
+
+Without `success`, any 2xx status means delivered and other statuses follow the [general rules](/ramzes/concepts/delivery/#what-is-retried-and-what-is-final): 408, 425, 429 and 5xx are retried, the rest are final.
+
+With `success`, exactly the listed statuses mean delivered. A 2xx status that is not listed is a final failure with the detail `HTTP 204, which this connector does not count as delivered`. Statuses outside 2xx that are not listed follow the general rules.
+
+## The retry header
+
+When the service answers a retryable status and the header named by `retry_after_header` holds a number of seconds, ramzes waits at least that long before the next attempt. See [Retry-After](/ramzes/concepts/delivery/#retry-after).
+
+## The `acknowledge` request
+
+Some services track acknowledgement themselves. With an `acknowledge` request, ramzes tells the service when a notification is acknowledged in ramzes, by any of the [four ways](/ramzes/concepts/escalation/#four-ways-to-acknowledge).
+
+- It is made once for each connection and destination to which a message of the notification was delivered.
+- It sees what `request` sees. `message.dedup_key` is the same value the first message carried, which is what lets the service find the alert.
+- The same `success` list decides whether it worked.
+- It is attempted once. A failure is logged by ramzes as a warning and not retried.
+
+A resolution needs no request of its own: it is delivered through `request` with `message.status` set to `resolved`. Branch on it, as the example does for `state`.
+
+A connector defined this way cannot rewrite a message it sent, thread follow-ups under it, or receive button presses.
+
+## Previews and secret masking
+
+ramzes shows the request a connector would send in three places: the template preview, the event's page, and `GET /api/events/{id}/preview`. The request is built exactly as for a delivery and then masked.
+
+Every credential of the connection that appears in the address, a header value or the body is replaced with `••••`. A credential is recognised in four spellings: as it is, as it appears inside a JSON string, as the `tojson` filter writes it, and percent-encoded by `urlpath`.
+
+Two things are not masked: settings, which are not secret by definition, and a credential that a template has changed in some other way, for example with `upper`. Keep secrets in `secret: true` fields and pass them through unchanged.
+
+## Managing definitions
+
+Definitions are part of the configuration. They are stored in the database, included in the [configuration export](/ramzes/guide/settings/), and take effect as soon as they are saved.
+
+```sh
+jq -n --rawfile yaml statusboard.yaml '{definition: $yaml}' |
+  curl -X POST http://localhost:7269/api/connector-definitions \
+    -H "Authorization: Bearer $RAMZES_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @-
+```
+
+| Rule | Answer when broken |
+| --- | --- |
+| The YAML must parse and pass the checks above. | `422` with the field and the reason, for example `request.method: must be one of POST, PUT, PATCH, GET`. |
+| The kind must not be reserved. | `422`: `kind: "slack" is the name of a connector that ships with ramzes; choose another`. |
+| The kind must not be taken by another definition. | `409`: `there is already a connector of kind "statusboard"`. |
+| A definition's kind can change only while no connection uses it. | `409` naming the connections. |
+| A definition can be deleted only when no connection uses it. | `409` naming the connections. |
+
+No connector, shipped or your own, has been run by the project against a live service. See [Verified claims](/ramzes/verified/).

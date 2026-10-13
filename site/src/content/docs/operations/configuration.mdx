@@ -1,6 +1,208 @@
 ---
 title: "Configuration reference"
-description: "Configuration reference in ramzes."
+description: "Every flag, environment variable and config-file key ramzes reads, with defaults, the command-line subcommands, and the settings that live in the database."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+
+ramzes reads a small set of settings at start, from flags, environment variables or a TOML file.
+A few more settings live in the database and are changed in the UI while it runs. This page lists
+all of them.
+
+## How settings are resolved
+
+Each start-up setting can be given in three ways. The first one found wins:
+
+1. a command-line flag;
+2. an environment variable;
+3. a key in the TOML file named with `--config`;
+4. the default.
+
+```sh
+ramzes --listen 0.0.0.0:7269 --data-dir /var/lib/ramzes
+RAMZES_LISTEN=0.0.0.0:7269 RAMZES_DATA_DIR=/var/lib/ramzes ramzes
+ramzes --config /etc/ramzes.toml
+```
+
+Flags can be written before or after the subcommand.
+
+## Start-up settings
+
+| Flag | Environment variable | File key | Default |
+|---|---|---|---|
+| `--config <file>` | none | none | none |
+| `--listen <addr>` | `RAMZES_LISTEN` | `listen` | `127.0.0.1:7269` |
+| `--data-dir <dir>` | `RAMZES_DATA_DIR` | `data_dir` | `./data` |
+| `--database-url <url>` | `RAMZES_DATABASE_URL` | `database_url` | `sqlite://<data-dir>/ramzes.db` |
+| `--secret-key <base64>` | `RAMZES_SECRET_KEY` | `secret_key` | generated into `<data-dir>/secret.key` |
+| `--public-url <url>` | `RAMZES_PUBLIC_URL` | `public_url` | none |
+| `--secure-cookies <true\|false>` | `RAMZES_SECURE_COOKIES` | `secure_cookies` | `false` |
+| `--block-private-addresses <true\|false>` | `RAMZES_BLOCK_PRIVATE_ADDRESSES` | `block_private_addresses` | `false` |
+| `--metrics-token <token>` | `RAMZES_METRICS_TOKEN` | `metrics_token` | none |
+| `--lease-ms <ms>` | `RAMZES_LEASE_MS` | `lease_ms` | `60000` |
+
+### `listen`
+
+The address and port to listen on, as `host:port`. The default accepts connections from the same
+machine only. Use `0.0.0.0:7269` to accept them from elsewhere; the container image sets this. A
+value that is not `host:port` stops the start with `listen address "..." is not host:port`.
+
+ramzes serves plain HTTP. It does not terminate TLS.
+
+### `data_dir`
+
+The directory for the SQLite database (`ramzes.db`) and the generated secret key (`secret.key`). It
+is created if it does not exist. With Postgres and a secret key given explicitly, nothing is written
+to it.
+
+### `database_url`
+
+Where the data is stored. The URL must start with `sqlite:`, `postgres:` or `postgresql:`.
+
+- `sqlite://path/to/file.db`: the file is created when missing and opened in WAL mode.
+- `postgres://user:password@host:5432/dbname`: ramzes creates its tables in that database.
+
+When this is not set, ramzes uses `ramzes.db` in the data directory.
+
+### `secret_key`
+
+Base64 of exactly 32 bytes, for example from `openssl rand -base64 32`. It encrypts stored
+connection credentials and source keys, and signs acknowledgement links.
+
+When it is not set, ramzes reads `secret.key` from the data directory, and creates that file with a
+random key on first start (readable only by its owner). When it is set, the file is neither read
+nor created.
+
+Keep this key with your backups. [Security](/ramzes/operations/security/) explains what stops
+working without it.
+
+### `public_url`
+
+The address people reach this instance at, for example `https://ramzes.example.com`. A trailing
+slash is removed. ramzes uses it to build the link from a message back to the event and the link
+that acknowledges a notification. Without a public address, messages carry neither link.
+
+The same setting exists in the database (see below). When both are set, the flag, environment
+variable or file value is used, and the **Settings** page still shows the stored one.
+
+### `secure_cookies`
+
+Marks the session cookie `Secure`, so the browser sends it only over HTTPS. Set it to `true` when
+ramzes is served over HTTPS through a reverse proxy. With it on, signing in over plain HTTP does
+not work in browsers that enforce the attribute.
+
+The flag takes a value: `--secure-cookies true`.
+
+### `block_private_addresses`
+
+When `true`, ramzes refuses to deliver to loopback, private and link-local addresses, whether they
+are written in a connection or are what a host name resolves to. The delivery fails with "not sent:
+the address is private, and this instance blocks requests to private addresses". See
+[Security](/ramzes/operations/security/).
+
+Leave it off if your channels are on your own network, for example an internal webhook or SMTP
+server.
+
+### `metrics_token`
+
+When set and not empty, `GET /metrics` answers only requests that carry
+`Authorization: Bearer <token>`. Without it, `/metrics` is open to anyone who can reach the port.
+See [Metrics and health](/ramzes/operations/metrics/).
+
+### `lease_ms`
+
+How many milliseconds a worker may hold an event, delivery or timer it has claimed before another
+pass may take it. It must be positive. It decides how soon work is picked up again after ramzes
+stopped in the middle of it. The flag is hidden from `--help`; there is normally no reason to
+change it.
+
+## The config file
+
+A TOML file with the same settings, under the names in the "File key" column:
+
+```toml
+listen = "0.0.0.0:7269"
+data_dir = "/var/lib/ramzes"
+database_url = "postgres://ramzes:PASSWORD@db.internal:5432/ramzes"
+public_url = "https://ramzes.example.com"
+secure_cookies = true
+block_private_addresses = false
+metrics_token = "a-long-random-string"
+```
+
+An unknown key is an error, so a misspelt setting does not go unnoticed. The file is read only when
+`--config` names it; there is no default location and no environment variable for its path.
+
+## Logging
+
+Logging is set by two environment variables. They have no flag and no file key.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RAMZES_LOG` | `info` | The level: `error`, `warn`, `info`, `debug` or `trace`. It also accepts per-module filters in the syntax of the `tracing` crate's `EnvFilter`, such as `info,ramzes_engine=debug`. |
+| `RAMZES_LOG_FORMAT` | text | Set to `json` for one JSON object per line. |
+
+Logs go to standard error.
+
+## Subcommands
+
+```txt
+ramzes [OPTIONS] [COMMAND]
+```
+
+| Command | What it does |
+|---|---|
+| `serve` | Runs the server. This is the default when no command is given. |
+| `backup <file>` | Writes a consistent copy of the SQLite database to a new file. Refuses to overwrite an existing file. SQLite only. |
+| `export [file]` | Writes the configuration as YAML to the file, or to standard output. Credentials and keys are left out. |
+| `import <file>` | Replaces the configuration with an exported one. Stored credentials and source keys are kept. |
+| `openapi` | Prints the OpenAPI description of the admin API as JSON. |
+| `help` | Prints help. `ramzes --help` and `ramzes --version` work too. |
+
+`backup`, `export` and `import` open the same database as the server, so give them the same
+`--data-dir`, `--database-url` and, for `import`, the same secret key. See
+[Backup, export and import](/ramzes/operations/backup/).
+
+## Settings in the database
+
+These are changed under **Settings**, **Instance**, or with `PUT /api/settings`, and take effect
+without a restart. A change is recorded in the configuration history.
+
+| Setting | Default | Range | Meaning |
+|---|---|---|---|
+| Address of this ramzes instance (`public_url`) | none | must start with `http://` or `https://` | The same as the `public_url` start-up setting. Used when that one is not set. |
+| Keep events for (days) (`retention_days`) | `30` | 0 to 3650 | How long events are kept. `0` keeps them forever. |
+| Different retention for some topics (`retention_overrides`) | none | 0 to 3650 per topic | Days for one exact topic, instead of the general number. `0` keeps that topic forever. |
+
+`PUT /api/settings` replaces all three at once:
+
+```sh
+curl -X PUT http://localhost:7269/api/settings \
+  -H "Authorization: Bearer <API token>" \
+  -H "Content-Type: application/json" \
+  -d '{"retention_days": 30, "retention_overrides": {"debug.noise": 1},
+       "public_url": "https://ramzes.example.com"}'
+```
+
+See [Retention](/ramzes/operations/retention/) for what deleting an event removes.
+
+Users and API tokens are also managed under **Settings**; see
+[Security](/ramzes/operations/security/) and [Settings and history](/ramzes/guide/settings/).
+
+## What cannot be configured
+
+These are fixed in the code:
+
+| | Value |
+|---|---|
+| Timeout of one request to a channel | 10 seconds |
+| Retry schedule | 5 seconds doubling to 1 hour, at most 8 attempts within 24 hours |
+| Ingest limits | 1 MiB per request, 1000 events per request, 6000 events per source per minute |
+| Retention pass | at start and then every hour |
+| Session lifetime | 30 days |
+
+[Limits and what is not built](/ramzes/limits/) has the full list.
+
+<Aside type="note">
+Tests use one more variable, `RAMZES_TEST_POSTGRES_URL`. The server does not read it.
+</Aside>

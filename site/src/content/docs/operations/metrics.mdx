@@ -1,6 +1,206 @@
 ---
 title: "Metrics and health"
-description: "Metrics and health in ramzes."
+description: "The health and readiness endpoints, every Prometheus metric ramzes emits with its labels, a scrape configuration with the bearer token, and the events ramzes raises about itself."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+
+ramzes has three endpoints for operating it, on the same port as everything else, and it raises
+events about its own failures that you can route like any other event.
+
+| Endpoint | Answers | Authentication |
+|---|---|---|
+| `GET /healthz` | `200` with the body `ok` while the process is up | none |
+| `GET /readyz` | `200` with `ready` when the database answers; `503` with `the database is not reachable` when it does not | none |
+| `GET /metrics` | Prometheus metrics | a bearer token, if one is set |
+
+## Health and readiness
+
+`/healthz` does nothing but answer. Use it as a liveness check.
+
+`/readyz` runs `SELECT 1` against the database. Use it as a readiness check. The Helm chart does
+both: readiness on `/readyz` every 5 seconds, liveness on `/healthz` every 10. The container
+image's health check calls `/healthz` every 10 seconds.
+
+```sh
+curl -i http://localhost:7269/readyz
+```
+
+## Metrics
+
+`GET /metrics` answers in the Prometheus text format.
+
+### Authentication
+
+`/metrics` is open unless a metrics token is set. Set one with `--metrics-token`,
+`RAMZES_METRICS_TOKEN` or `metrics_token` in the config file. Then a request must carry it:
+
+```sh
+curl http://localhost:7269/metrics -H "Authorization: Bearer <metrics token>"
+```
+
+Without the right token the answer is `401` with the header `WWW-Authenticate: Bearer` and the
+body:
+
+```txt
+send the metrics token as: Authorization: Bearer <token>
+```
+
+The metrics token is separate from API tokens and source keys. An API token does not open
+`/metrics`.
+
+### What is emitted
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `ramzes_events_ingested_total` | counter | none | Events accepted by `/v1/events` and the per-source addresses since the process started. A request repeated with a known idempotency key adds nothing. Events ramzes raises about itself are not counted. |
+| `ramzes_deliveries_total` | counter | `connector`, `outcome` | Delivery attempts since the process started, by connector kind and by the state the delivery was in after the attempt. |
+| `ramzes_delivery_duration_seconds` | histogram | none | How long delivery attempts took. Buckets from 0.01 s doubling to 20.48 s. |
+| `ramzes_queue_unrouted` | gauge | none | Events stored and not yet routed. |
+| `ramzes_queue_pending_deliveries` | gauge | none | Deliveries waiting to be sent or being sent, including those waiting for a retry or for a paused connection. |
+
+The `outcome` label of `ramzes_deliveries_total` is one of:
+
+| `outcome` | The attempt |
+|---|---|
+| `delivered` | succeeded |
+| `pending` | failed and will be retried |
+| `failed` | was rejected for good; it is not retried |
+| `dead` | failed and was the last one: the retries are used up, or the delivery was older than 24 hours |
+
+The `connector` label is the kind of the connection: `slack`, `slack_app`, `webhook`, `email`,
+`discord`, `teams`, `ntfy`, `telegram`, `pushover`, `pagerduty`, `opsgenie`, or the kind of a
+connector you defined. Two more values exist: `unknown` when the connection was deleted before the
+attempt, and `none` for a delivery that expired without being sent.
+
+A scrape looks like this:
+
+```txt
+# HELP ramzes_events_ingested Events accepted by the ingest API.
+# TYPE ramzes_events_ingested counter
+ramzes_events_ingested_total 5
+# HELP ramzes_deliveries Delivery attempts by connector and resulting state.
+# TYPE ramzes_deliveries counter
+ramzes_deliveries_total{connector="webhook",outcome="delivered"} 4
+# HELP ramzes_delivery_duration_seconds Duration of delivery attempts.
+# TYPE ramzes_delivery_duration_seconds histogram
+ramzes_delivery_duration_seconds_sum 0.009000000000000001
+ramzes_delivery_duration_seconds_count 4
+ramzes_delivery_duration_seconds_bucket{le="0.01"} 4
+...
+ramzes_delivery_duration_seconds_bucket{le="+Inf"} 4
+# HELP ramzes_queue_unrouted Events waiting to be routed.
+# TYPE ramzes_queue_unrouted gauge
+ramzes_queue_unrouted 0
+# HELP ramzes_queue_pending_deliveries Deliveries waiting to be sent.
+# TYPE ramzes_queue_pending_deliveries gauge
+ramzes_queue_pending_deliveries 0
+# EOF
+```
+
+### Things to know
+
+- **Counters and the histogram start at zero when ramzes starts.** They are kept in memory.
+  Prometheus's `rate()` and `increase()` handle the reset.
+- **The gauges are read from the database at each scrape,** so they are right after a restart too.
+- **A series appears after its first attempt.** `ramzes_deliveries_total` has no series for a
+  connector and outcome that has not happened since the start.
+- **Test messages are not counted.** **Send test message** on a connection, and updates to messages
+  that were already delivered, do not go through the delivery queue.
+- **There are no per-route, per-topic or per-source labels.** For those, use the **Overview** page
+  and the feed's filters.
+- If the process is so busy that the metrics fall more than 1024 changes behind, some attempts are
+  not counted and the log says "metrics fell behind; some delivery attempts were not counted".
+
+### Scrape configuration
+
+```yaml
+scrape_configs:
+  - job_name: ramzes
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials: "<metrics token>"
+    static_configs:
+      - targets: ["ramzes.internal:7269"]
+```
+
+To keep the token out of the file, use `credentials_file` with the path of a file that contains
+only the token. Leave the `authorization` block out when no metrics token is set.
+
+### Queries to start from
+
+Deliveries that failed for good or were given up on, per connector:
+
+```txt
+sum by (connector) (increase(ramzes_deliveries_total{outcome=~"failed|dead"}[15m]))
+```
+
+Share of attempts that had to be retried:
+
+```txt
+sum(rate(ramzes_deliveries_total{outcome="pending"}[5m]))
+  / sum(rate(ramzes_deliveries_total[5m]))
+```
+
+Events waiting to be routed. This is normally zero or close to it; a number that keeps growing
+means routing is not keeping up or is failing:
+
+```txt
+ramzes_queue_unrouted
+```
+
+## Events ramzes raises about itself
+
+ramzes reports two kinds of trouble as events, from a built-in source named "ramzes". They are
+stored, shown in the feed and matched against your routes like any other event. Route them with the
+topic pattern `ramzes.*`, preferably to a channel that does not depend on the connection that is
+failing.
+
+### `ramzes.delivery.failed`
+
+Raised when a delivery ends without arriving: it was rejected for good, the retries were used up,
+or it expired.
+
+| Field | Value |
+|---|---|
+| Topic | `ramzes.delivery.failed` |
+| Severity | `warning` |
+| Title | `A message to <connection name> could not be delivered` |
+| Body | What the service answered, or why the delivery was not sent |
+| Labels | `connection`, `connection_id`, `delivery_id`, and `outcome`: `rejected` or `gave up` |
+| Dedup key | `delivery-failed:<connection id>` |
+
+### `ramzes.connection.paused`
+
+Raised when a connection is paused after five failed attempts in a row. It is raised once when the
+pause begins, not each time the pause is extended.
+
+| Field | Value |
+|---|---|
+| Topic | `ramzes.connection.paused` |
+| Severity | `error` |
+| Title | `Connection <connection name> is paused after 5 failed attempts` |
+| Body | `ramzes will try it again from time to time and resume when it answers. Last error: ...` |
+| Labels | `connection`, `connection_id` |
+| Dedup key | `connection-paused:<connection id>` |
+
+### How they behave
+
+- Both carry a dedup key per connection. A route with dedup turned on therefore sends one message
+  per failing connection in the dedup window instead of one per failed delivery.
+- They are raised with the status `firing` only. ramzes does not send a `resolved` event when a
+  connection recovers.
+- A delivery that carries one of these events does not raise another when it fails. A report that
+  cannot be delivered is not reported again.
+- Nothing routes them specially. A route that matches every event sends them too. If no route
+  matches, they are only visible in the feed, with the outcome "no route".
+- The built-in source cannot be deleted or have its key replaced, and nothing outside ramzes can
+  send as it.
+
+<Aside type="note">
+Delivery failures are also listed under **Failures**, and a paused connection shows "Paused until"
+on the **Connections** page. See [Failures](/ramzes/guide/failures/) and
+[Delivery and retries](/ramzes/concepts/delivery/).
+</Aside>

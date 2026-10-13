@@ -1,6 +1,293 @@
 ---
 title: "Your first route"
-description: "Your first route in ramzes."
+description: "A worked example after the quickstart: a route with conditions, dedup and grouping, then a resolved event and an acknowledgement."
 ---
 
-This page is being written.
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+The quickstart left you with one route, "Everything", that sends every event to one connection.
+This page adds a second route that matches only some events, counts repeats instead of sending them
+again, collects events into one message, and is closed by a resolved event.
+
+You need the instance from the [Quickstart](/ramzes/getting-started/quickstart/): a source key, a
+connection and the "Everything" route. The example uses a Webhook connection, so the messages shown
+below are the JSON bodies ramzes posts to it.
+
+Each step can be done in the web UI or with the admin API. For the API, create a token under
+**Settings**, **API tokens**, and set three variables in your shell:
+
+```sh
+KEY='<source key>'      # from the quickstart, starts with rz_src_
+TOKEN='<API token>'     # starts with rz_tok_
+CONN='<connection id>'  # see below
+```
+
+List the connections to find the id:
+
+```sh
+curl -s http://localhost:7269/api/connections -H "Authorization: Bearer $TOKEN"
+```
+
+## The route
+
+The route should match failed payments in production above a certain amount:
+
+| Condition | Value | Meaning |
+|---|---|---|
+| Topic | `payments.*` | `*` matches any run of characters |
+| Minimum severity | `error` | `error` and `critical` |
+| Label | `env` equals `prod` | The event must carry this label with this value |
+| Expression | `payload.amount > 100` | The event must also pass this test |
+
+Every condition that is set must hold. And it should make less noise than one message per event:
+
+| Noise control | Value | Effect |
+|---|---|---|
+| Dedup | 10 minutes | An event with the same key as a notification opened in the last 10 minutes is counted, not sent again |
+| Grouping | by label `service`, wait 30 seconds | Events with the same `service` are collected for 30 seconds and sent as one message |
+
+## 1. Create the route
+
+<Tabs syncKey="how">
+<TabItem label="Web UI">
+
+<Steps>
+
+1. Open **Routes** and press **New route**.
+2. **Name**: `Failed payments in production`.
+3. Under **Which events**: set **Topic** to `payments.*` and **Minimum severity** to `error`. Press
+   **Add label condition**, type `env` as the label key, keep **equals**, and type `prod` as the
+   value. Type `payload.amount > 100` into **Expression**.
+4. Under **Send to**: choose your connection.
+5. Under **Noise control**: tick **Count repeats of the same event instead of sending them again**
+   and set **For this long after the first one** to 10 minutes. Tick **Collect events and send
+   them as one message**, type `service` into **Labels to group by** and set **Wait before
+   sending** to 30 seconds.
+6. Tick **Skip the routes below when this one matches**.
+7. Press **Create route**.
+
+</Steps>
+
+</TabItem>
+<TabItem label="API">
+
+```sh
+curl -s -X POST http://localhost:7269/api/routes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Failed payments in production",
+    "stop": true,
+    "match": {
+      "topic": "payments.*",
+      "min_severity": "error",
+      "labels": [{"op": "equals", "key": "env", "value": "prod"}],
+      "expr": "payload.amount > 100"
+    },
+    "targets": [{"connection_id": "'"$CONN"'"}],
+    "shaping": {
+      "dedup": {"window_s": 600},
+      "group": {"by": ["service"], "wait_s": 30}
+    }
+  }'
+```
+
+The answer is `201` with the stored route, including its `id`.
+
+</TabItem>
+</Tabs>
+
+<Screenshot name="route-editor" caption="The route editor, with the tester on the right showing what each route would do with one event." maxHeight="32rem" />
+
+## 2. Move it above "Everything"
+
+A new route is added after the existing ones, so "Everything" is still first. Routes are checked
+from the top, and every route that matches sends. With the new route below "Everything", a failed
+payment would be sent twice: at once by "Everything", and again by the new route.
+
+Put the new route first. Because it stops evaluation when it matches, "Everything" then only gets
+the events the new route did not match.
+
+<Tabs syncKey="how">
+<TabItem label="Web UI">
+
+On the **Routes** page, press the up arrow on the new route's row.
+
+</TabItem>
+<TabItem label="API">
+
+List the routes to get both ids, then send every id in the new order:
+
+```sh
+curl -s http://localhost:7269/api/routes -H "Authorization: Bearer $TOKEN"
+
+curl -s -X POST http://localhost:7269/api/routes/reorder \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["<id of the new route>", "<id of Everything>"]}'
+```
+
+The answer is `204`. The list must contain every route id exactly once.
+
+</TabItem>
+</Tabs>
+
+## 3. Try it before sending anything
+
+The **Try an event** panel on the **Routes** page shows what the routes would do with one event,
+without storing or sending it. Choose **An event I write here** and paste:
+
+```json
+{
+  "topic": "payments.failed",
+  "title": "Payment 7 failed",
+  "severity": "error",
+  "labels": {"env": "prod", "service": "checkout"},
+  "payload": {"amount": 250},
+  "dedup_key": "payment-7"
+}
+```
+
+The new route shows **matched** with the target outcome "opens a group", and two steps under it:
+
+- dedup: "first event with this key in the window"
+- group: "opens a group; it is sent after 30 s"
+
+"Everything" shows as skipped, because an earlier route stopped the evaluation. Change `amount` to
+`40` and the new route no longer matches; "Everything" matches instead and would send.
+
+The same test over the API is `POST /api/routes/test` with the event under `"event"`.
+
+## 4. Send the same failure twice
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "payments.failed", "title": "Payment 7 failed", "severity": "error",
+       "labels": {"env": "prod", "service": "checkout"},
+       "payload": {"amount": 250}, "dedup_key": "payment-7"}'
+```
+
+Run it twice within 30 seconds. Both requests answer `202`, and nothing arrives at the connection
+yet:
+
+- The first event opens a notification that is collecting. On the **Notifications** page it is
+  under **Waiting**.
+- The second event has the same `dedup_key`, so it is counted on that notification as a duplicate.
+
+Thirty seconds after the first event, one message goes out. The Webhook connection receives:
+
+```json
+{
+  "title": "Payment 7 failed (2 times)",
+  "body": null,
+  "severity": "error",
+  "status": "firing",
+  "topic": "payments.failed",
+  "labels": {"env": "prod", "service": "checkout"},
+  "link": null,
+  "ack_link": null,
+  "dedup_key": "payment-7",
+  "event_ids": ["01a136a8-abe9-7601-8ffe-11857f1b6b34", "01a136a8-abfa-76bd-829f-73890d3884a0"],
+  "sent_at": 1791918416790
+}
+```
+
+`link` and `ack_link` are `null` because the instance has no public address yet. Set one under
+**Settings** and messages link back to ramzes and carry a link that acknowledges the notification.
+See [Escalation and acknowledgement](/ramzes/concepts/escalation/).
+
+Open either event from the **Feed** to see its journey: which route it matched, whether it opened
+the notification or was counted as a duplicate, and the delivery with the status the service
+answered.
+
+<Aside type="note" title="What the dedup key is">
+Dedup compares keys. The key is the event's own `dedup_key` when it has one. Without one, a route
+with dedup turned on uses the event's topic and labels. A route can also compute the key with an
+expression. See [Noise control](/ramzes/concepts/noise-control/).
+</Aside>
+
+## 5. Acknowledge it
+
+Acknowledging says someone is on it. It stops reminders and escalation for that notification.
+
+<Tabs syncKey="how">
+<TabItem label="Web UI">
+
+Open **Notifications**, choose **Sent**, and press **Acknowledge** on the row.
+
+</TabItem>
+<TabItem label="API">
+
+```sh
+curl -s "http://localhost:7269/api/notifications?state=sent" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -s -X POST http://localhost:7269/api/notifications/<notification id>/acknowledge \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The answer is `204`. A second call answers `409` with "this notification is already acknowledged
+or over".
+
+</TabItem>
+</Tabs>
+
+The notification moves to **Acknowledged** and records who did it: your email address from the UI,
+or "API token" from the API.
+
+<Aside type="caution">
+Acknowledging a notification that is still under **Waiting** means it is never sent.
+</Aside>
+
+## 6. Resolve it
+
+Send an event with the same `dedup_key` and `"status": "resolved"`:
+
+```sh
+curl -X POST http://localhost:7269/v1/events \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "payments.failed", "title": "Payment 7 went through", "severity": "error",
+       "status": "resolved", "labels": {"env": "prod", "service": "checkout"},
+       "payload": {"amount": 250}, "dedup_key": "payment-7"}'
+```
+
+The route matches, finds the open notification with that key, and closes it. Because a message had
+been sent for it, the connection is told. The Webhook connection receives the same message again
+with `"status": "resolved"`:
+
+```json
+{
+  "title": "Payment 7 failed (2 times)",
+  "severity": "error",
+  "status": "resolved",
+  "topic": "payments.failed",
+  "dedup_key": "payment-7"
+}
+```
+
+(The other fields are as before.) The notification is now under **Resolved**. Later events with the
+key `payment-7` open a new notification.
+
+Three details worth knowing:
+
+- A resolved event closes a notification only when the keys match. Give the firing and the resolved
+  event the same `dedup_key`.
+- A resolved event that is less severe than the route's minimum still closes what the route opened.
+  It does nothing else on that route and does not stop evaluation, so routes below it see the event
+  too. In this example a resolved event sent with severity `info` would close the notification and
+  also be sent by "Everything".
+- To close without telling the target, untick **Tell the target when it is resolved** on the route
+  (`"notify_resolved": false` in `shaping`).
+
+## Where to go from here
+
+- [Routes](/ramzes/concepts/routes/) and [Noise control](/ramzes/concepts/noise-control/) explain
+  the rules used here in full.
+- [Routes and the tester](/ramzes/guide/routes/) covers the page you used.
+- [Templates](/ramzes/concepts/templates/) change the wording of the message.
+- [Escalation and acknowledgement](/ramzes/concepts/escalation/) adds "tell someone else if nobody
+  acknowledges".

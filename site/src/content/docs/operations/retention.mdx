@@ -1,6 +1,119 @@
 ---
 title: "Retention"
-description: "Retention in ramzes."
+description: "How long ramzes keeps events, what is deleted with them, how to set a different period per topic, and what is kept while work is still pending."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+
+ramzes deletes events that are older than a number of days, together with the notifications and
+deliveries that belong only to them. The default is 30 days. This page says exactly what is deleted,
+when, and what is not.
+
+## The settings
+
+Retention is set under **Settings**, **Instance**, and saved with **Save settings**:
+
+| Field | Default | Range | Meaning |
+|---|---|---|---|
+| **Keep events for (days)** | 30 | 0 to 3650 | Events received longer ago than this are deleted. `0` keeps them forever. |
+| **Different retention for some topics** | none | 0 to 3650 per topic | A number of days for one topic, used instead of the general one. `0` keeps that topic forever. |
+
+Over the API these are `retention_days` and `retention_overrides` in `PUT /api/settings`; see the
+[Configuration reference](/ramzes/operations/configuration/).
+
+A change is used from the next retention pass on. Lowering the number deletes the events that are
+now too old at that pass.
+
+## What counts as old
+
+An event's age is counted from when ramzes **received** it, not from the `ts` the sender gave. An
+event is deleted when it was received more than the configured number of days ago, counted to the
+millisecond from the moment the pass runs.
+
+## Per-topic overrides
+
+An override names one topic and a number of days:
+
+- The topic is matched **exactly**. `orders.failed` covers only that topic. Patterns such as
+  `orders.*` are not understood here; an entry written that way matches only a topic literally
+  named `orders.*`.
+- A topic with an override is taken out of the general rule entirely. With general retention of 30
+  days and an override of 7 days for `infra.heartbeat`, heartbeats are deleted after 7 days. With an
+  override of `0`, they are never deleted.
+- An override can be longer than the general period as well as shorter.
+
+A common use is a short period for a noisy topic:
+
+```json
+{
+  "retention_days": 30,
+  "retention_overrides": {"infra.heartbeat": 2, "billing.invoice.failed": 365},
+  "public_url": "https://ramzes.example.com"
+}
+```
+
+## What is deleted with an event
+
+When an event is deleted, these go with it:
+
+- its labels;
+- its place in every notification it was part of;
+- each notification it was part of, **once no other remaining event belongs to that
+  notification**, together with that notification's deliveries and their attempts.
+
+So a notification that collected ten events stays, with its deliveries, until the last of those ten
+events is old enough. A notification that had one event goes with it.
+
+After that, the event's page shows "This event does not exist. It may have been removed after its
+retention period."
+
+## What is kept while work is pending
+
+An event that is old enough is still kept when something about it has yet to happen:
+
+- it belongs to a notification with a delivery that is waiting to be sent or being retried;
+- it belongs to a notification that is still collecting events or is held (the **Waiting** tab on
+  the **Notifications** page).
+
+It is deleted at a later pass, once that work is done.
+
+<Aside type="caution">
+A notification that was sent and is still open, neither acknowledged nor resolved, is **not**
+protected. When its events pass the retention period it is deleted like any other. Escalation steps
+and repeats that were still scheduled for it then do nothing. Keep the retention period longer than
+the time you expect anything to stay open.
+</Aside>
+
+## The worker that does it
+
+- A retention pass runs when ramzes starts and then every hour.
+- It works through the overrides first, then the general rule.
+- It deletes in batches of 500 events, each batch in its own transaction, until nothing old enough
+  is left. A large backlog therefore does not hold one long transaction.
+- When a pass deleted something, the log has an `info` line "removed events past their retention"
+  with the number. A pass that fails logs "retention pass failed" and the next one tries again.
+
+There is no command or button to run a pass by hand. Restarting ramzes runs one.
+
+## What retention does not cover
+
+These are not events and are trimmed, or kept, by other rules:
+
+| Data | Rule |
+|---|---|
+| Configuration history | The newest 200 entries are kept |
+| Recorded requests of a source | The newest 20 per source are kept |
+| Silences | Kept until you delete them, including ones that have ended |
+| Sessions | An expired session stops working but its row is not removed. Signing out and removing a user remove sessions. |
+| Users, API tokens, routes, templates, connections, sources | Kept until you delete them |
+
+Deleting a source does not delete its events; they stay until retention removes them.
+
+## Disk space
+
+With SQLite, deleting rows does not make the database file smaller. ramzes does not vacuum the
+file. The freed space is reused by later events, so the file stops growing once the amount of data
+is steady. A copy made with `ramzes backup` contains no free space; see
+[Backup, export and import](/ramzes/operations/backup/).
+
+With Postgres, space is reclaimed by Postgres's own vacuuming.

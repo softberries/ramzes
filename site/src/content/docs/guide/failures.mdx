@@ -1,6 +1,75 @@
 ---
 title: "Failures"
-description: "Failures in ramzes."
+description: "How to use the Failures page: find deliveries that were rejected or ran out of retries, group them by error, and send one or many again."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+The Failures page lists deliveries that ended without arriving, and lets you send them again one at a
+time or in bulk. A delivery that is still being retried is not here; it appears only once ramzes has
+stopped trying.
+
+<Screenshot name="failures" caption="The Failures page with nothing to show: every delivery either arrived or is still being retried." />
+
+## What is listed
+
+A delivery is listed when it is in one of two states:
+
+| State | Meaning |
+| --- | --- |
+| **failed** | The service answered in a way that retrying would not fix, so ramzes stopped at once. |
+| **gave up** | Every attempt failed and the retries ran out. The error starts with "gave up after N attempts:". |
+
+Which answers count as which, and the retry schedule, are in
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+Two limits apply to the list:
+
+- It shows the newest 200 failures.
+- A failure disappears once a later delivery of the same notification to the same connection exists.
+  So sending a failure again removes it from this page, whether or not the new delivery succeeds; if
+  the new one fails too, that one is listed instead.
+
+The list reloads whenever a delivery finishes.
+
+## The table
+
+| Column | What it shows |
+| --- | --- |
+| (checkbox) | Selects the failure for **Send selected again**. |
+| **Failed** | When the delivery ended. |
+| **Event** | The title of the event that opened the notification, linking to the [event's page](/ramzes/guide/feed/). |
+| **Route** | The route that produced the notification. |
+| **Connection** | The connection it was sent to, or "a deleted connection". |
+| **Error** | The last error recorded, or "No error was recorded". |
+| **Attempts** | How many attempts were made. |
+| **State** | **failed** or **gave up**. |
+
+Click a heading to sort by it. The list starts with the most recent failure first and shows 25 per
+page. On narrower screens the route, connection and error move under the event's title.
+
+## Narrowing the list
+
+- The search box ("Search event, route, connection or error") keeps the rows that contain every word
+  you type.
+- The menu beside it starts at **Any error** and lists each distinct error text with the number of
+  failures that share it, the largest group first. Choose one to see only those failures. This is the
+  quick way to pick out everything that failed for one reason, such as an expired token.
+
+## Sending again
+
+1. Tick the failures to send again. **Select all N** ticks every failure the search and the error menu
+   currently list, across all pages, not only the page in view.
+2. Press **Send N selected again**.
+
+For each selected failure ramzes queues a new delivery of the same notification to the same connection
+and destination. The page then reports "Queued N deliveries to send again." The failed delivery and its
+attempts stay in the event's history; open the event to see both.
+
+Sending again does not re-evaluate routes and does not change the message's target. If the cause was a
+wrong URL or an expired credential, fix the connection under [Connections](/ramzes/guide/connections/)
+first. To send an event to a route that did not exist when it arrived, use **Run through routes again**
+on the [event's page](/ramzes/guide/feed/) instead.
+
+A single delivery can also be sent again from the event's page or the notification's page, with its
+**Send again** button.

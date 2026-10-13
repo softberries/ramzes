@@ -1,6 +1,128 @@
 ---
 title: "Templates"
-description: "Templates in ramzes."
+description: "What a template words (the title and body of a message, for any channel), how a route target picks one, what a template can read, what happens when one fails, and how to preview it."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+A template is your wording for a message. Without one, a message says what the event says: its title and its body. With one, you decide both. This page explains what a template controls and what it does not. For the editor, see [Templates in the UI guide](/ramzes/guide/templates/); for the language, see [Expressions and templates](/ramzes/reference/expressions/).
+
+## What a template words
+
+A template has a name and two parts: one for the **title** and one for the **body**.
+
+```json
+{
+  "name": "Short for chat",
+  "title": "[{{ labels.env | upper }}] {{ title | cut(60) }}",
+  "body": "{% if body %}{{ body }}\n{% endif %}Order {{ payload.order_id }}: {{ payload.amount }} {{ payload.currency }}"
+}
+```
+
+For the event on the [Events](/ramzes/concepts/events/#an-event) page this gives:
+
+```text
+[PROD] Payment failed for order 1042
+
+The card network timed out after 3 attempts.
+Order 1042: 129.5 EUR
+```
+
+A template is not tied to a channel. It produces a title and a body as plain text, and the connector of each channel puts them into that channel's format: Slack blocks, an email subject and text, a Teams card, a JSON field. One template can serve a Slack target and an email target alike.
+
+What a template does not change: the severity, status, topic, labels and links of the message, and the layout a channel gives them. To change the request a channel receives, write a [connector definition](/ramzes/reference/connector-definitions/).
+
+An empty part keeps the default. A template with only a title leaves the body as the event's body. A template needs at least one of the two.
+
+<Screenshot name="templates" caption="The Templates page: each template with its title part and its body part." />
+
+## How a target picks a template
+
+A template is chosen per target, with `template_id`:
+
+```json
+"targets": [
+  { "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d", "template_id": "01a136a6-0b1e-7c55-9d02-71f0c3a4e5b6" },
+  { "connection_id": "01a136a4-3f77-7a09-b6c1-0d2e4f6a8b9c" }
+]
+```
+
+Here the first target gets the template's wording and the second gets the event's own. A target of an [escalation step](/ramzes/concepts/escalation/) can name its own template; one that names none uses the template of the route's target.
+
+The template is looked up when a message is built, so a change to a template applies to the next message, including reminders and retries of notifications that are already open.
+
+A template that a route's target or one of its escalation steps uses cannot be deleted; the API answers `409` and names the routes.
+
+## What a template can read
+
+A template sees the first event of the notification, by field name, and a few things about the whole notification.
+
+| Name | Value |
+| --- | --- |
+| `title`, `body`, `topic`, `severity`, `status` | The event's fields. |
+| `labels` | The labels, as in `labels.env`. |
+| `payload` | The payload, as in `payload.order_id`. |
+| `id`, `source_id`, `dedup_key` | Identifiers. |
+| `occurred_at`, `received_at` | Unix milliseconds. |
+| `events` | Every event the message covers, each with the fields above. |
+| `count` | How many events the message covers. |
+| `message.title`, `message.body`, `message.link` | The default wording: what would be sent without the template. |
+
+A message can cover [several events](/ramzes/concepts/notifications/#what-a-message-says): the members of a group, a held digest. Then the top-level names are the first event's, and `message.title` and `message.body` hold the summary ramzes would have sent. A template for a route that groups should use them or loop over `events`:
+
+```text
+{{ message.title }}
+{% for e in events[:5] %}- {{ e.title | cut(80) }}
+{% endfor %}{% if count > 5 %}and {{ count - 5 }} more{% endif %}
+```
+
+Three things to know about values:
+
+- A name that does not exist prints as nothing: `{{ payload.no_such_field }}` is empty, however deep.
+- `body` and `dedup_key` always exist, and have no value when the event has none. Printed directly they give the text `None`. Write `{{ body or '' }}`, or test first with `{% if body %}`.
+- Text from an event is inserted as it is. It is not escaped, and it is never evaluated as a template: a title that contains `{{ 7 * 7 }}` prints those characters.
+
+The result of each part is trimmed. A body that comes out empty means the message has no body.
+
+## When a template fails
+
+A template is checked for syntax when you save it. It can still fail on a particular event, for example `{{ payload.items | length }}` when the event has no `items`, or produce an empty title.
+
+A failing template never stops a message:
+
+1. The default wording is sent instead: the event's own title and body, or the summary.
+2. The delivery is marked with a warning that names the template and the reason, such as `the template "Short for chat" failed (title: invalid operation: cannot calculate length of value of type undefined); the default wording was sent`.
+
+The warning is shown with the delivery and returned as its `warning` field. The delivery itself is `delivered` if the service accepted it.
+
+The same happens when the template a message should use no longer exists; the warning then reads `the route's template was deleted; the default wording was sent`.
+
+Templates are bounded like every expression in ramzes: each part may be at most 32 KiB of source, do a limited amount of work, and produce at most 256 KiB. Going over any of these is a failure of the kind above. See [Limits of the language](/ramzes/reference/expressions/#limits).
+
+## The preview
+
+Before you attach a template to a route, try it. The preview words an event with a template that need not be saved, and can also show the request a connection would send for the result.
+
+```sh
+curl -X POST http://localhost:7269/api/templates/preview \
+  -H "Authorization: Bearer $RAMZES_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "[{{ labels.env | upper }}] {{ title | cut(60) }}",
+    "body": "",
+    "event_id": "01a136a4-65fb-760c-9615-17aa0c5f6082",
+    "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d"
+  }'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `title`, `body` | The two parts. Either may be empty. |
+| `event_id` | The event to word. Without it the newest event is used, or a built-in sample when the instance has none. |
+| `connection_id`, `destination` | Optional. Also return the request this connection would send. |
+
+The answer has the `title` and `body` that would be sent. When the template fails, `error` says why and `title` and `body` are the default wording, exactly as a real message would be. With a connection, `request` is the method, address, headers and body the connector would send, with every credential replaced by `••••`.
+
+The preview words one event. It does not show the acknowledgement link, which exists only for a real notification.
+
+The editor on the Templates page runs this preview as you type.

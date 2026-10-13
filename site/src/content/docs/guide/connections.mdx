@@ -1,6 +1,115 @@
 ---
 title: "Connections"
-description: "Connections in ramzes."
+description: "How to add, test, edit and delete connections, read their health and paused state, and manage your own connector definitions on the Connections page."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+A connection is one place messages can go: a Slack channel, a mailbox, a webhook URL. The Connections
+page lists them with their health, and holds the catalogue you add new ones from. This page covers the
+screen; what to enter for each service is in the [channel pages](/ramzes/channels/overview/).
+
+<Screenshot name="connections" caption="Four connections with their deliveries of the last 24 hours, and below them the catalogue of channels a new connection can be made from." maxHeight="32rem" />
+
+## The list
+
+| Column | What it shows |
+| --- | --- |
+| **Name** | The connection's name. Under it, in red, "Last error:" with the most recent error of the last 24 hours, and the result of a test message if you sent one. |
+| **Kind** | The channel it uses, for example Webhook or Slack app. |
+| **Delivered, 24 h** | Deliveries that arrived in the last 24 hours, with a small bar showing the share that arrived of those that ended. |
+| **Failed, 24 h** | Deliveries that failed in the last 24 hours. "N waiting" underneath counts the ones still pending. |
+| **State** | **Active**, or **Paused until** a time; see below. |
+| **Changed** | How long ago the connection was last saved. |
+| **Actions** | **Send test message**, **Setup** (Slack app connections only), **Edit** and **Delete**. |
+
+The search box looks in the name, the kind and the last error. Headings sort the list; sorting by
+**State** puts paused connections first.
+
+## Adding a connection
+
+<Steps>
+
+1. Under **Add a connection**, pick a channel. The catalogue is grouped into **Chat**, **Paging**,
+   **Email and push**, **Generic** and, once you have written one, **Your own**. A card says what the
+   channel does and, after "Can do:", whether it supports buttons, threads, or updating its messages.
+
+2. Fill in the form. **Name** starts as the channel's name; change it to something that says where
+   messages go, such as `#ops (Slack)`. The other fields come from the channel, each with a line of
+   help underneath.
+
+3. Press **Add connection**. The server validates the fields; a problem is shown above the buttons.
+
+4. Press **Send test message** on the new row to check it.
+
+</Steps>
+
+For what each field means, go to the channel's page: [Slack](/ramzes/channels/slack/),
+[Microsoft Teams](/ramzes/channels/teams/), [Discord](/ramzes/channels/discord/),
+[Email](/ramzes/channels/email/), [ntfy, Telegram and Pushover](/ramzes/channels/push/),
+[PagerDuty and Opsgenie](/ramzes/channels/paging/) and [Webhook](/ramzes/channels/webhook/).
+
+A connection sends nothing until a route targets it. Add it to a route under
+[Routes](/ramzes/guide/routes/).
+
+### Slack app connections
+
+After you save a Slack app connection, a card titled "One more step in Slack for" and the connection's
+name shows the address Slack must send button presses to, with a **Copy** button. **Setup** on the
+connection's row shows the same card again later. The steps on the Slack side are in
+[Slack](/ramzes/channels/slack/).
+
+## Testing a connection
+
+**Send test message** sends a real message through the connection, to its own destination, with the
+title "Test message from ramzes" and the body "If you can read this, the connection works."
+
+Under the connection's name the row then shows "Test message delivered.", or "Test failed:" with what
+the service answered. A test is not an event: it does not appear in the feed, in the counts or in
+Failures.
+
+## Paused connections
+
+When deliveries to a connection keep failing, ramzes pauses it and holds its deliveries back instead of
+sending them into a service that is down. The **State** column then reads, for example, **Paused until
+14:32** "after 5 failed attempts in a row". The pause ends by itself.
+
+**Resume now** ends the pause at once and sends what was waiting. Use it when you know the service is
+back, or after fixing the connection. When and for how long a connection is paused is described in
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+Paused connections are also listed under **Failing connections** on the
+[Overview](/ramzes/guide/overview/).
+
+## Editing
+
+**Edit** opens the connection's form with its current settings. Secret fields are empty: stored secrets
+are never sent back to the browser.
+
+- Leave every secret field empty to keep the stored secrets.
+- To replace a secret, type the new value and press **Save connection**. On a connection with more
+  than one secret, such as a Slack app with its bot token and signing secret, the ones you leave empty
+  are kept.
+
+## Deleting
+
+**Delete** asks first and lists the routes that send to the connection, at once or in a step of their
+escalation chain. Those routes are not
+changed: they fail to deliver to it until you edit them. With no such route the dialog says "No route
+sends to it."
+
+## Your own connectors
+
+The **Your own connectors** card at the bottom is for a service ramzes ships no channel for. You
+describe the HTTP request to send as YAML, and the connector then appears in the catalogue under
+**Your own**, tagged "your own".
+
+- **Write a connector** opens an editor with a small working example to start from. **Add connector**
+  saves it.
+- The table lists your definitions by **Name**, **Kind** and **Added**, with **Edit** and **Delete**.
+- A connector that a connection still uses cannot be deleted. The server names the connections:
+  "this connector is used by: … Delete those connections first."
+
+The format is documented in [Your own connector](/ramzes/channels/custom/) and
+[Connector definitions](/ramzes/reference/connector-definitions/).

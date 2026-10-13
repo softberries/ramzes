@@ -1,6 +1,90 @@
 ---
 title: "Discord"
-description: "Discord in ramzes."
+description: "Send to a Discord channel through a channel webhook: the one value to paste, the embed ramzes posts field by field, its colours, limits and accepted answers."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+The Discord connector posts an embed to one channel through a channel webhook. This page covers the setup and the exact request.
+
+:::note
+This connector has not been sent to the live Discord. The request was written from Discord's documentation and is pinned by snapshot tests. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up
+
+<Steps>
+
+1. In Discord, open the channel's settings, then **Integrations**, **Webhooks**, and select **Copy Webhook URL** on a webhook.
+
+2. In ramzes, open **Connections** and select **Discord** under **Chat**.
+
+3. Paste the URL into **Webhook URL**, name the connection and select **Add connection**.
+
+4. Select **Send test message** on the new row.
+
+</Steps>
+
+The URL is the only setting. It is a secret: it is stored encrypted and not shown again. The webhook decides the channel, so a second channel needs a second webhook and a second connection.
+
+## What is sent
+
+A `POST` to the webhook URL with `Content-Type: application/json`. The body has one embed:
+
+```json
+{
+  "allowed_mentions": { "parse": [] },
+  "embeds": [
+    {
+      "title": "Charge failed: card network timeout",
+      "description": "14 charges failed in the last 30 s",
+      "url": "https://ramzes.example.com/events/0199",
+      "color": 15548997,
+      "fields": [
+        { "name": "env", "value": "prod", "inline": true },
+        { "name": "service", "value": "payments", "inline": true },
+        {
+          "name": "Acknowledge",
+          "value": "[Open the confirmation page](https://ramzes.example.com/ack/n1?t=abc)",
+          "inline": false
+        }
+      ],
+      "footer": { "text": "payments.charge.failed · firing · critical" }
+    }
+  ]
+}
+```
+
+| Part of the embed | Content | Limit |
+| --- | --- | --- |
+| `title` | The title. | 250 characters |
+| `description` | The body. Left out when the message has none. | 3,500 characters |
+| `url` | The link to the event or notification in ramzes, which makes the title a link. Left out without a public URL. | |
+| `color` | Chosen by status and severity, see below. | |
+| `fields` | One inline field per label. A label with an empty value is shown as `-`. | the first 8 labels; name 100, value 200 characters |
+| `fields`, last | A field named **Acknowledge** with a link to the confirmation page. Present only while the notification can be acknowledged and ramzes has a public URL. | |
+| `footer` | Topic, status and severity. | 300 characters |
+
+Text over a limit is cut and ends in an ellipsis.
+
+`"allowed_mentions": {"parse": []}` asks Discord to parse no mentions out of the text. It is there so that an event containing `@everyone` does not ping the channel.
+
+The colour:
+
+| Message | `color` | As hex |
+| --- | --- | --- |
+| resolved | `5763719` | `#57F287` |
+| `critical` or `error` | `15548997` | `#ED4245` |
+| `warning` | `15105570` | `#E67E22` |
+| `info` | `3447003` | `#3498DB` |
+| `debug` | `9807270` | `#95A5A6` |
+
+## What it cannot do
+
+Each message is a new embed. One already posted is not changed when the notification is acknowledged or resolved; the resolution arrives as another embed in the resolved colour. There are no threads and no buttons.
+
+## Answers
+
+Only `200` and `204` mean delivered. Another `2xx` status is a final failure with the reason `HTTP 2xx, which this connector does not count as delivered`, with the actual status in it. `408`, `425`, `429` and `5xx` are retried, and a `Retry-After` header in seconds is honoured. Any other status is final. See [Delivery and retries](/ramzes/concepts/delivery/).
+
+This connector is a YAML definition compiled into the binary: `crates/ramzes-connectors/src/definitions/discord.yaml`. To change the embed, copy it under another kind as [your own connector](/ramzes/channels/custom/).

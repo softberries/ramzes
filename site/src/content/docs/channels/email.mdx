@@ -1,6 +1,127 @@
 ---
 title: "Email"
-description: "Email in ramzes."
+description: "Send messages as email through an SMTP server: every setting, the three security modes and their default ports, where recipients come from, the subject and the plain-text and HTML parts, and what was not tested."
 ---
 
-This page is being written.
+The Email connector sends each message as one email through an SMTP server you provide. This page covers the settings, the security modes, recipients and what the email contains.
+
+:::note
+Email was sent to a test SMTP server inside the test suite only, without encryption. It has not been sent through a real mail provider, and the `starttls` and `tls` modes were not exercised against a server that speaks TLS. See [Verified claims](/ramzes/verified/).
+:::
+
+## Settings
+
+Open **Connections** and select **Email** under **Email and push**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **Server** | yes | The SMTP server's host name. |
+| **Port** | no | Leave empty for the default of the security mode: 587, 465 or 25. |
+| **Security** | no | `starttls` (the default), `tls` or `none`. Type the word. |
+| **User name** | no | Leave empty when the server needs no sign-in. |
+| **Password** | no | Stored encrypted. Used only when a user name is set. |
+| **From** | yes | The sender, for example `ramzes <alerts@example.com>`. |
+| **Default recipients** | no | Used by routes that name no recipient. Separate several with commas. |
+
+The form is checked when you save it:
+
+| Problem | Message |
+| --- | --- |
+| No server | `Server is required` |
+| A security mode other than the three | `Security must be starttls, tls or none` |
+| A port that is not a number from 1 to 65535 | `Port must be a number from 1 to 65535` |
+| No sender, or one that is not an address | `From is required`, or `From must be an email address, for example ramzes <alerts@example.com>` |
+| A default recipient that is not an address | `"…" is not an email address` |
+
+Saving does not contact the server. Use **Send test message** to find out whether the settings work; it needs **Default recipients** to be set, because the test names no recipient.
+
+## Security modes
+
+| `security` | What ramzes does | Default port |
+| --- | --- | --- |
+| `starttls` | Connects in plain text and upgrades with STARTTLS. If the server does not offer STARTTLS, nothing is sent. | 587 |
+| `tls` | Uses TLS from the first byte. | 465 |
+| `none` | No encryption. The message, the user name and the password travel in plain text. | 25 |
+
+Use `none` only for a relay on a network you trust.
+
+With a **User name**, ramzes signs in with that name and the password. Without one it does not sign in.
+
+## Recipients
+
+Recipients come from one of two places:
+
+1. The route target's destination. A target that uses an email connection has a **Recipients** input.
+2. Otherwise, the connection's **Default recipients**.
+
+Either may hold several addresses separated by commas or semicolons. Each may be a bare address or a name with an address: `Ops <ops@example.com>, oncall@example.com`.
+
+When a target names recipients, the default recipients are not added: the destination replaces them.
+
+All recipients of a message are put in the `To` header of one email, so they see each other's addresses.
+
+If there is no recipient in either place, or one is not an address, the delivery fails for good with `there is no recipient: set one on the route or on the connection` or `"…" is not an email address`.
+
+## The email
+
+**Subject.** A marker in square brackets and the title: `[critical] Charge failed: card network timeout`. The marker is the severity for a firing message and `resolved` for a resolved one. Line breaks and other control characters in the title become spaces, runs of whitespace are collapsed, and the subject is cut to 200 characters. A title therefore cannot add a header to the email.
+
+**Body.** The email has two alternative parts, plain text and HTML, with the same content. The mail client shows one of them.
+
+The plain-text part:
+
+```txt
+14 charges failed in the last 30 s
+
+env: prod
+service: payments
+
+topic: payments.charge.failed
+Open in ramzes: https://ramzes.example.com/events/0199
+Acknowledge: https://ramzes.example.com/ack/n1?t=abc
+```
+
+| Part | Content |
+| --- | --- |
+| First paragraph | The message body. Left out when there is none. |
+| Label lines | Every label as `key: value`. |
+| `topic:` | The event's topic. |
+| `Open in ramzes:` | The link to the event or notification. Left out without a public URL. |
+| `Acknowledge:` | The acknowledgement link. Present only while the notification can be acknowledged and ramzes has a public URL. |
+
+The HTML part shows the title in bold at the top, then the body with its line breaks kept, the labels as a two-column table, and a last line with the topic and the two links. It uses a monospace font and inline styles only. Every value from an event is HTML-escaped.
+
+Neither part is shortened. An event body may be up to 20,000 characters, and all of it is sent.
+
+The two links need a public URL, set in [Settings](/ramzes/guide/settings/) or with `RAMZES_PUBLIC_URL`. See [Escalation and acknowledgement](/ramzes/concepts/escalation/#the-acknowledgement-link).
+
+## What it cannot do
+
+Each message is a separate email. A resolution arrives as another email whose subject starts with `[resolved]`; ramzes sets no headers that would make a mail client thread it with the first one. Nothing already sent is changed.
+
+## Outcomes
+
+| What happened | Outcome |
+| --- | --- |
+| The server accepted the message | Delivered. |
+| The server refused permanently, for example an unknown recipient | Final. The reason starts with `the mail server said:` and holds up to 500 characters of the answer. |
+| The server answered with a temporary error, could not be reached, or did not answer within 10 seconds | Retried. |
+| The settings or recipients are not usable | Final, with the message from the tables above. |
+
+"Accepted" means the SMTP server took the message. ramzes does not know whether it reached a mailbox.
+
+Retries and giving up follow the same rules as every channel: see [Delivery and retries](/ramzes/concepts/delivery/).
+
+## With the private-address block on
+
+When the instance runs with `block_private_addresses`, the mail server must have a public address. ramzes resolves the server's name, connects to a public address it resolves to, and refuses with this message if there is none:
+
+```txt
+not sent: the address is private, and this instance blocks requests to private addresses
+```
+
+A relay at `localhost` or on a private network cannot be used while the block is on. See [Security](/ramzes/operations/security/#outbound-requests-and-the-private-address-block).
+
+## The preview
+
+Where ramzes shows the request a connector would make, such as on an event's page, an email appears as method `SMTP`, the server and port, the `From`, `To` and `Subject` headers, and the plain-text part. The password is never part of it.

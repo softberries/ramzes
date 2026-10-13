@@ -1,6 +1,215 @@
 ---
 title: "Docker Compose"
-description: "Docker Compose in ramzes."
+description: "Run ramzes with Docker Compose from a checkout: the SQLite and Postgres compose files, the data volume, the secret key, and what to set behind an HTTPS reverse proxy."
 ---
 
-This page is being written.
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The repository has two compose files under `deploy/`: one that runs ramzes with its built-in SQLite
+database, and one that adds Postgres. Both build the image from the checkout. There is no published
+image to pull.
+
+## With SQLite
+
+From the repository root:
+
+```sh
+docker compose -f deploy/compose.yaml up --build
+```
+
+Then open `http://localhost:7269`. Add `-d` to run it in the background.
+
+The file defines one service and one volume:
+
+```yaml
+services:
+  ramzes:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "7269:7269"
+    volumes:
+      - ramzes-data:/data
+    restart: unless-stopped
+
+volumes:
+  ramzes-data:
+```
+
+## What the image is
+
+`deploy/Dockerfile` builds in three stages: the web UI with Node 24, the binary with Rust 1.98 (the
+UI is embedded in it), and a `debian:bookworm-slim` runtime image with CA certificates.
+
+| | |
+|---|---|
+| User | `ramzes`, uid 10001, not root |
+| Entry point | `ramzes` |
+| Environment | `RAMZES_LISTEN=0.0.0.0:7269`, `RAMZES_DATA_DIR=/data` |
+| Volume | `/data` |
+| Port | 7269 |
+| Health check | `GET /healthz` every 10 seconds |
+
+To build the image on its own:
+
+```sh
+docker build -f deploy/Dockerfile -t ramzes .
+```
+
+## The data volume and the secret key
+
+`/data` holds two things:
+
+- `ramzes.db` (with SQLite's `-wal` and `-shm` files beside it): everything ramzes stores.
+- `secret.key`: the key that encrypts stored connection credentials. ramzes generates it on first
+  start when you do not supply one.
+
+Keep the volume. If you remove it (`docker compose down -v`), the database and the key are gone.
+
+<Aside type="caution">
+Back up `secret.key` together with the database. A database restored without the key it was
+written with still starts, but stored credentials cannot be read. See
+[Security](/ramzes/operations/security/) for exactly what stops working.
+</Aside>
+
+To supply the key yourself instead of keeping it in the volume, generate one and pass it in the
+environment:
+
+```sh
+openssl rand -base64 32
+```
+
+```yaml
+services:
+  ramzes:
+    environment:
+      RAMZES_SECRET_KEY: "<the 44 characters printed above>"
+```
+
+When `RAMZES_SECRET_KEY` is set, ramzes does not read or create `secret.key`. Set it before the
+first start, or copy the value from the existing `secret.key`; changing the key later makes the
+credentials already stored unreadable.
+
+## With Postgres
+
+```sh
+docker compose -f deploy/compose.postgres.yaml up --build
+```
+
+This file runs `postgres:18` next to ramzes and points ramzes at it:
+
+```yaml
+services:
+  ramzes:
+    environment:
+      RAMZES_DATABASE_URL: postgres://ramzes:ramzes@postgres:5432/ramzes
+    volumes:
+      # Still needed: the generated secret key lives here.
+      - ramzes-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ramzes
+      POSTGRES_PASSWORD: ramzes
+      POSTGRES_DB: ramzes
+    volumes:
+      - postgres-data:/var/lib/postgresql
+```
+
+Before you use it for anything real:
+
+- Change the password. It appears in two places: `POSTGRES_PASSWORD` and `RAMZES_DATABASE_URL`.
+- Keep both volumes. `postgres-data` holds the database; `ramzes-data` still holds `secret.key`
+  unless you set `RAMZES_SECRET_KEY`.
+
+ramzes creates its tables itself when it starts. To use a Postgres server you already run, take the
+SQLite compose file and add `RAMZES_DATABASE_URL` with your server's address.
+
+## Changing settings
+
+Every setting is an environment variable; add it under `environment:`. The full list is in the
+[Configuration reference](/ramzes/operations/configuration/). For example:
+
+```yaml
+services:
+  ramzes:
+    environment:
+      RAMZES_PUBLIC_URL: https://ramzes.example.com
+      RAMZES_SECURE_COOKIES: "true"
+      RAMZES_METRICS_TOKEN: "<a long random string>"
+      RAMZES_LOG_FORMAT: json
+```
+
+To run a subcommand in the running container, use `exec`. This writes a backup of the SQLite
+database into the volume and copies it out:
+
+```sh
+docker compose -f deploy/compose.yaml exec ramzes ramzes backup /data/backup.db
+docker compose -f deploy/compose.yaml cp ramzes:/data/backup.db ./backup.db
+docker compose -f deploy/compose.yaml cp ramzes:/data/secret.key ./secret.key
+```
+
+See [Backup, export and import](/ramzes/operations/backup/).
+
+## Behind a reverse proxy with HTTPS
+
+ramzes speaks plain HTTP and does not terminate TLS. To serve it over HTTPS, put a reverse proxy in
+front and forward everything to port 7269.
+
+<Steps>
+
+1. **Forward all paths.** The UI, the admin API (`/api/...`), the ingest endpoints (`/v1/...`), the
+   acknowledgement page (`/ack/...`) and the health and metrics endpoints are all on the same port.
+
+2. **Set `RAMZES_SECURE_COOKIES=true`.** The session cookie is then marked `Secure`, so the browser
+   sends it only over HTTPS.
+
+3. **Set the public address.** Set `RAMZES_PUBLIC_URL=https://ramzes.example.com`, or type the
+   address under **Settings**. Without it, messages carry no link back to ramzes and no
+   acknowledgement link.
+
+4. **Do not buffer `/api/stream`.** The UI gets live updates over server-sent events on that path,
+   with a keep-alive every 15 seconds. A proxy that buffers responses delays them.
+
+5. **Do not publish port 7269 as well.** Remove the `ports:` entry, or bind it to the loopback
+   interface (`"127.0.0.1:7269:7269"`), so the only way in is through the proxy.
+
+6. **Decide who may reach `/metrics`.** It is open unless `RAMZES_METRICS_TOKEN` is set. Set a
+   token, or have the proxy refuse the path from outside.
+
+</Steps>
+
+A minimal Caddy configuration, with Caddy on the same host and ramzes bound to loopback:
+
+```txt
+ramzes.example.com {
+	reverse_proxy 127.0.0.1:7269
+}
+```
+
+ramzes does not read `X-Forwarded-For` or similar headers, and it sends no CORS headers.
+
+## Stopping and updating
+
+`docker compose stop` sends `SIGTERM`. ramzes stops accepting connections, waits up to 3 seconds
+for open ones (the UI's live streams never end on their own), gives deliveries that are in flight
+up to 20 seconds to finish, and exits. A delivery that did not finish is attempted again after the
+next start, so its message may arrive twice.
+
+Docker kills a container that has not exited 10 seconds after `SIGTERM` unless told otherwise. Both
+compose files set `stop_grace_period: 30s`, so ramzes gets its full time.
+
+To update, pull the repository and build again:
+
+```sh
+git pull
+docker compose -f deploy/compose.yaml up --build -d
+```
+
+Read [Upgrading](/ramzes/install/upgrading/) first: database migrations run at start and there is no
+way back except a backup.

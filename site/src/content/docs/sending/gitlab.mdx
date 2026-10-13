@@ -1,6 +1,163 @@
 ---
 title: "GitLab"
-description: "GitLab in ramzes."
+description: "Receive GitLab webhooks in ramzes with a secret token or a signing token: the setup, both verification methods, which events get a readable title, and how pipelines fire and resolve."
 ---
 
-This page is being written.
+import { Steps } from '@astrojs/starlight/components';
+
+A GitLab source receives project and group webhooks. Every request becomes one event; pipelines, merge requests and pushes get a title written for them. ramzes accepts GitLab's secret token, and also its signing token. This page covers the setup, both ways of verifying, and the exact mapping.
+
+:::note
+ramzes has not received requests from a live GitLab. The mapping and the signature check were written from GitLab's webhook documentation and are tested against sample payloads and locally computed signatures. See [Verified claims](/ramzes/verified/).
+:::
+
+## Set it up with a secret token
+
+<Steps>
+
+1. In ramzes, open **Sources**. Under **Add a source**, choose **GitLab** in **What sends the events**, give the source a name and select **Create source**.
+
+2. A card titled **_name_ is ready to receive** appears. Copy the key now: it cannot be shown again. The card also shows the address to give the sender, of the form `http://localhost:7269/v1/in/<source id>`.
+
+3. In GitLab, open the project's or group's **Settings**, **Webhooks**, **Add new webhook**, and fill in:
+
+   | Field in GitLab | Value |
+   | --- | --- |
+   | URL | the source's address |
+   | Secret token | the source key |
+
+4. Choose the triggers and save.
+
+</Steps>
+
+GitLab has to reach ramzes over the network. The address in the card uses the host name you opened the ramzes UI with; replace the host if GitLab reaches ramzes under another name.
+
+## Set it up with a signing token
+
+With a signing token GitLab signs each request instead of sending a shared secret in a header. The bundled setup text describes this as available from GitLab 19.0. GitLab generates the token, so you give it to ramzes:
+
+<Steps>
+
+1. Create the source and the webhook as above.
+
+2. In GitLab, generate the webhook's signing token and copy it. ramzes accepts it with or without its `whsec_` prefix.
+
+3. In ramzes, select **Replace key** on the source's row, paste the token into **Secret from the sender, if it generates its own**, and confirm with **Replace key**.
+
+</Steps>
+
+The previous key stops working at once. From then on the source key is the signing token.
+
+## How requests are verified
+
+ramzes looks at the `webhook-signature` header first.
+
+**If the request has a `webhook-signature` header**, the signature is checked and the token header is not consulted:
+
+1. The source key, without its `whsec_` prefix, is decoded as standard base64. The result is the HMAC key.
+2. ramzes computes the HMAC-SHA256 of `<webhook-id>.<webhook-timestamp>.<body>`: the two header values and the raw request body, joined by full stops.
+3. The header may hold several signatures separated by spaces. The request passes if one that starts with `v1,` equals the base64 of the computed value.
+4. The `webhook-timestamp` header, in Unix seconds, must be within 5 minutes of ramzes's clock, earlier or later.
+
+A request missing `webhook-id` or `webhook-timestamp` fails. So does every signed request when the source key is not valid base64, which is what happens if GitLab signs but the source still holds a key ramzes generated.
+
+**If the request has no `webhook-signature` header**, the `X-Gitlab-Token` header must equal the source key.
+
+A request that fails gets `401` with the message `the request's signature does not match this source's key, or the request is more than 5 minutes old`, and is not recorded.
+
+:::caution
+The 5-minute tolerance depends on the clock of the machine ramzes runs on. If that clock is wrong by more than 5 minutes, every signed request is refused.
+:::
+
+GitLab's documentation does not say which base64 alphabet the signing token uses. ramzes assumes the standard one. This is listed on the [Verified claims](/ramzes/verified/) page.
+
+## How a request becomes an event
+
+The mapping reads `object_kind` from the JSON body.
+
+| Event field | Value |
+| --- | --- |
+| `topic` | `gitlab.` followed by `object_kind`, for example `gitlab.pipeline`. Without `object_kind` it uses `event_name`, then `gitlab.event`. |
+| `title` | `<project path>: <what happened>`, see below |
+| `severity` | `error` for a pipeline whose status is `failed`; `info` for everything else |
+| `status` | `resolved` for a pipeline whose status is `success`; `firing` for everything else |
+| `body` | `object_attributes.url`, or else the project's `web_url` |
+| `labels` | `project` (path with namespace), `kind` (`object_kind`), `ref`, `user` (username). A label whose value is absent is left out. |
+| `dedup_key` | for pipelines `<project path>/pipeline/<ref>`; none for other events |
+| `payload` | the whole request body |
+
+`ts` is not set, so the event is stamped with the time ramzes received it.
+
+### Titles
+
+The title starts with the project's `path_with_namespace`, or with `GitLab` if the payload has no project.
+
+| `object_kind` | Title after the prefix | Example |
+| --- | --- | --- |
+| `pipeline` | `pipeline #<id> <status> on <ref>` | `acme/shop: pipeline #31 failed on main` |
+| `merge_request` | `merge request !<iid> <action>: <title>`; the state is used when there is no action | `acme/shop: merge request !9 merge: Add retries` |
+| `push`, `tag_push` | `push to <branch> by <user name> (<n> commits)`; a tag is shown as `tag <name>` | `acme/shop: push to main by Kris (4 commits)` |
+| anything else | the `object_kind` itself | `acme/shop: note` |
+
+## Example
+
+This request:
+
+```json
+{
+  "object_kind": "pipeline",
+  "project": {
+    "name": "shop",
+    "web_url": "https://gitlab.com/acme/shop",
+    "path_with_namespace": "acme/shop"
+  },
+  "user": { "username": "kris" },
+  "object_attributes": {
+    "id": 31,
+    "iid": 3,
+    "ref": "main",
+    "status": "failed",
+    "url": "https://gitlab.com/acme/shop/-/pipelines/31"
+  }
+}
+```
+
+becomes this event:
+
+```json
+{
+  "topic": "gitlab.pipeline",
+  "title": "acme/shop: pipeline #31 failed on main",
+  "severity": "error",
+  "status": "firing",
+  "body": "https://gitlab.com/acme/shop/-/pipelines/31",
+  "labels": { "kind": "pipeline", "project": "acme/shop", "ref": "main", "user": "kris" },
+  "dedup_key": "acme/shop/pipeline/main",
+  "payload": { "object_kind": "pipeline", "…": "…" }
+}
+```
+
+You can send it by hand with the secret token to try a route:
+
+```sh
+curl -X POST http://localhost:7269/v1/in/<source id> \
+  -H 'Content-Type: application/json' \
+  -H 'X-Gitlab-Token: <the source key>' \
+  -d '{"object_kind":"pipeline","project":{"path_with_namespace":"acme/shop"},"object_attributes":{"id":31,"ref":"main","status":"failed"}}'
+```
+
+## What resolves what
+
+Only pipelines resolve anything. A pipeline on the same ref of the same project whose status is `success` is a resolved event with the same dedup key as an earlier failed pipeline, so it closes the notifications that failure opened. See [Notifications](/ramzes/concepts/notifications/).
+
+Before you write a route, note that every pipeline request that is neither `failed` nor `success`, for example `pending`, `running` or `canceled`, is a `firing` event with severity `info` and the same dedup key. To be told only about failures, give the route a minimum severity of `error`. See [Routes](/ramzes/concepts/routes/).
+
+The dedup key has no pipeline id in it: all pipelines on one ref of one project share it. Merge requests, pushes and other events have no dedup key and are always `firing`.
+
+## Repeated requests
+
+When a request carries an `Idempotency-Key` or `webhook-id` header, ramzes uses its value as the [idempotency key](/ramzes/concepts/events/#idempotency-keys). A second request with the same value stores nothing and is answered `202` with the first request's ids and `"duplicate": true`.
+
+## Answers and limits
+
+The body may be at most 1 MiB, and the source may send 6,000 events per minute; past that the answer is `429` with a `Retry-After` header. All answers are listed in [Source mappings](/ramzes/reference/mappings/#answers).

@@ -1,6 +1,179 @@
 ---
 title: "Delivery and retries"
-description: "Delivery and retries in ramzes."
+description: "Deliveries and attempts, the exact retry schedule, which answers are retried and which are final, Retry-After, the maximum age, per-connection limits, connection pausing, replay, and the events ramzes raises about itself."
 ---
 
-This page is being written.
+A delivery is one send of a notification's message to one target. This page describes how a delivery is attempted, when it is retried, when ramzes gives up, and what you can do afterwards.
+
+## Deliveries and attempts
+
+A notification gets a delivery each time something is to be sent for it: the first message, a reminder, an escalation step, the notice that it was resolved, or a send you ask for by hand. Each delivery belongs to one connection and destination.
+
+| Delivery state | Meaning |
+| --- | --- |
+| `pending` | Waiting for its first attempt or its next one. |
+| `in_progress` | Claimed by the delivery worker. |
+| `delivered` | The service accepted it. |
+| `failed` | The service rejected it, or it could not be sent at all. Not retried. |
+| `dead` | Retries ran out, or it became too old. |
+
+Every try is recorded as an attempt with its start time, duration, outcome, the HTTP status when the service answered, and a detail: up to 500 characters of what the service said. The outcome of an attempt is `delivered`, `retry`, `failed` or `expired`. You see the attempts on the event's page and the notification's page.
+
+The message is built at the time of each attempt, from the events the notification covers then. A request to a service may take at most 10 seconds. Redirects are not followed.
+
+## The retry schedule
+
+After a failed attempt that is worth retrying, the next one is scheduled with a delay that doubles each time, starting at 5 seconds. Each delay is multiplied by a random factor between 0.8 and 1.2, so that deliveries that failed together do not all come back at the same instant.
+
+| After attempt | Delay before the next | With jitter |
+| --- | --- | --- |
+| 1 | 5 s | 4 to 6 s |
+| 2 | 10 s | 8 to 12 s |
+| 3 | 20 s | 16 to 24 s |
+| 4 | 40 s | 32 to 48 s |
+| 5 | 80 s | 64 to 96 s |
+| 6 | 160 s | 128 to 192 s |
+| 7 | 320 s | 256 to 384 s |
+| 8 | none: ramzes gives up | |
+
+A delivery is attempted at most 8 times. With no delays asked for by the service, the eighth attempt comes about 10 and a half minutes after the first. When it fails too, the delivery is `dead` and its error reads `gave up after 8 attempts: …` with the last reason.
+
+The schedule is fixed in this version.
+
+### Retry-After
+
+When a service answers a retryable status with a `Retry-After` header that holds a number of seconds, the delay is that number or the scheduled delay, whichever is longer. Values above 24 hours are treated as 24 hours. The date form of the header is not understood and is ignored. A [connector definition](/ramzes/reference/connector-definitions/) can name a different header.
+
+### The maximum age
+
+A delivery may be retried for 24 hours from when it was created. This has two effects:
+
+- If the next attempt would fall after that, because a service asked for a very long wait, ramzes gives up at once and the delivery is `dead`.
+- A delivery that is found older than that when its turn comes is ended without being sent. Its last attempt has the outcome `expired` and the error `not sent: it could not be delivered within 24 h of being queued`. This happens when ramzes was not running, or when the connection was paused for a long time.
+
+## What is retried and what is final
+
+| The attempt ended with | Outcome |
+| --- | --- |
+| A 2xx status | Delivered. |
+| 408, 425, 429 or any 5xx status | Retried. |
+| A timeout, a refused or failed connection, a name that does not resolve, any other network failure | Retried. |
+| Any other status, including 3xx, 400, 401, 403 and 404 | Final: `failed`. |
+| A 2xx status that the connector's definition does not list as success | Final: `failed`. |
+| An address that is not an `http` or `https` URL | Final: `failed`. |
+| A private address, when the instance [blocks private addresses](/ramzes/operations/security/) | Final: `failed`. |
+| The connection was deleted, its credentials cannot be read, or its connector kind is unknown | Final: `failed`. |
+| A connector definition whose templates fail, or whose body is not valid JSON | Final: `failed`. |
+
+Some channels add rules of their own. The Slack app connector reads the error inside a `200` answer and retries the transient ones; email is sent over SMTP and has no HTTP status. The [channel pages](/ramzes/channels/overview/) say what each does.
+
+A final failure is not retried, because sending the same request again would get the same answer. Fix the cause and [send it again](#replay).
+
+## How many at once
+
+The delivery worker takes up to 32 due deliveries per pass and attempts up to 16 at the same time. One connection has at most 4 requests in flight, so a burst to one service does not take all the slots or flood that service. These numbers are fixed.
+
+## Connection pausing
+
+When a connection keeps failing, retrying every delivery against it wastes attempts and hides the problem. ramzes pauses the connection instead.
+
+**What counts.** ramzes counts failed attempts in a row per connection.
+
+| Attempt | Effect on the count |
+| --- | --- |
+| Delivered | Reset to zero. Any pause ends. |
+| Retryable failure other than 429 (5xx, timeout, cannot connect) | Plus one. |
+| Rejected with 401, 403 or 404 | Plus one. Wrong credentials or a missing endpoint fail every message. |
+| 429 | No change. Being told to slow down means the service is there; the retry delay handles it. |
+| Any other rejection, such as 400 | No change. It may be about this one message. |
+
+**The threshold and the durations.** At 5 failures in a row the connection is paused for 1 minute. Each further failure in a row doubles the pause, up to 15 minutes:
+
+| Failures in a row | Pause |
+| --- | --- |
+| 5 | 1 minute |
+| 6 | 2 minutes |
+| 7 | 4 minutes |
+| 8 | 8 minutes |
+| 9 or more | 15 minutes |
+
+**During a pause** nothing is sent through the connection. Its deliveries are put off until the pause ends. Waiting does not use up one of the 8 attempts, but the 24-hour maximum age keeps running.
+
+**When a pause ends** one delivery is sent to find out whether the connection works again. The others wait for its result. If it arrives, the count is reset and everything waiting is sent. If it fails in a way that counts, the count goes up by one and a longer pause begins. Without this, every waiting delivery would fail together and each would lengthen the next pause.
+
+**Ending a pause by hand.** After you fix the connection, resume it: the **Resume now** button on the Connections page, or
+
+```sh
+curl -X POST http://localhost:7269/api/connections/01a136a4-2d28-772b-83d9-c59a5db82f9d/resume \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+This clears the pause and the count, and what was waiting becomes due at once. See [Connections in the UI guide](/ramzes/guide/connections/).
+
+`GET /api/connections` shows `paused_until` and `failure_streak` for each connection.
+
+## Replay
+
+There are two ways to send something again. Both add to the history; neither removes the failed attempt.
+
+**Send a delivery again.** A new delivery is queued for the same notification, connection and destination. The notification's state does not change. This is the **Send again** button next to a delivery, and the Failures page can do it for many at once.
+
+```sh
+curl -X POST http://localhost:7269/api/deliveries/01a136a5-46c9-7b10-8a44-2f6d0c9e7b31/replay \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+**Run an event through the routes again.** The event is matched against the routes as they are now, and each matching target gets a new notification that is sent at once. This is the **Run through routes again** button on the event's page.
+
+```sh
+curl -X POST http://localhost:7269/api/events/01a136a5-46a7-766e-a6ad-6903b611762b/replay \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+```json
+{ "deliveries": 1 }
+```
+
+:::caution
+Replaying an event bypasses noise control. A replay is a person asking for the message, so it is sent whatever the route's shaping says: silences, dedup, grouping, quiet hours and the rate limit are all skipped. It also starts no escalation chain.
+:::
+
+The Failures page lists deliveries that are `failed` or `dead`, newest first, up to 200. A delivery that has since been sent again is left out, because the newer delivery speaks for it. See [Failures in the UI guide](/ramzes/guide/failures/).
+
+## Events ramzes raises about itself
+
+ramzes reports two of its own problems as events. They come from a built-in source named `ramzes`, which cannot be changed or deleted, and they are stored, shown in the feed and matched by routes like any other event.
+
+| Topic | Severity | Raised when | Labels | Dedup key |
+| --- | --- | --- | --- | --- |
+| `ramzes.connection.paused` | `error` | A connection's pause begins, at the fifth failure in a row. Not raised again when the pause is extended. | `connection`, `connection_id` | `connection-paused:<connection id>` |
+| `ramzes.delivery.failed` | `warning` | A delivery ends as `failed` or `dead`. | `connection`, `connection_id`, `outcome` (`rejected` or `gave up`), `delivery_id` | `delivery-failed:<connection id>` |
+
+The title names the connection, for example `Connection Status board is paused after 5 failed attempts`, and the body carries the last error.
+
+**Nothing routes these events unless you add a route for them.** Until you do, they appear in the feed as "no route". A route for them should send through a channel other than the ones it reports on:
+
+```json
+{
+  "name": "ramzes about itself",
+  "match": { "topic": "ramzes.*" },
+  "targets": [{ "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d" }],
+  "shaping": {
+    "dedup": { "window_s": 3600 }
+  }
+}
+```
+
+The dedup policy matters here. `ramzes.delivery.failed` is raised once per failed delivery, and every one for the same connection carries the same dedup key, so an hour of failures becomes one message. ramzes does not raise a resolved event when a connection recovers; the dedup window is what lets the next failure through.
+
+### The loop guard
+
+If the message about a failure fails to deliver, reporting that would produce another message that fails, and so on. So a delivery that carries an event whose topic starts with `ramzes.` never raises an event: not when it fails, and not when it causes a pause. The pause itself still happens.
+
+The guard goes by the topic prefix. An event of your own under `ramzes.` is covered by it too, which is one more reason to keep that prefix for ramzes.
+
+## Related
+
+- [Architecture](/ramzes/concepts/architecture/#leases-and-what-happens-after-a-crash): why a message can be sent twice after a crash.
+- [Metrics](/ramzes/operations/metrics/): delivery counts and durations for Prometheus.
+- [Troubleshooting](/ramzes/operations/troubleshooting/).

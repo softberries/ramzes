@@ -1,6 +1,102 @@
 ---
 title: "Upgrading"
-description: "Upgrading in ramzes."
+description: "What happens to the database when a newer ramzes starts, what to back up first, and how to go back."
 ---
 
-This page is being written.
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Nothing has been released, so there are no version-to-version notes yet. This page says what the
+code does when a newer build starts on an existing database, and how to upgrade without losing the
+way back.
+
+## What happens at start
+
+When ramzes starts, it applies every database migration that has not been applied yet, before it
+listens for requests. The same happens when you run `ramzes export` or `ramzes import`. `ramzes
+backup` does not migrate.
+
+- Migrations are compiled into the binary. There is one set for SQLite and Postgres.
+- A migration that fails stops the start with the error `migration failed: ...`.
+- There are no down migrations. Once a newer build has migrated a database, an older build refuses
+  to use it:
+
+  ```txt
+  migration failed: the database schema is newer than this binary (migration N is unknown); upgrade ramzes
+  ```
+
+So the only way back to an older build is a backup taken before the upgrade.
+
+## Upgrade
+
+<Steps>
+
+1. **Back up the database and the secret key.** With SQLite:
+
+   ```sh
+   ramzes backup /backups/ramzes-before-upgrade.db
+   cp data/secret.key /backups/secret.key
+   ```
+
+   With Postgres, use `pg_dump`. See [Backup, export and import](/ramzes/operations/backup/).
+
+2. **Stop the old build.** On `SIGTERM` or Ctrl-C, ramzes stops accepting connections and gives
+   deliveries that are in flight up to 20 seconds to finish.
+
+3. **Get the new build.** Pull the repository and build again: `make build`, or
+   `docker compose -f deploy/compose.yaml up --build -d`, or build and push a new image and run
+   `helm upgrade`.
+
+4. **Start it** with the same data directory, database URL and secret key as before. It migrates
+   and then listens. The log line `ramzes is listening` means the migrations are done.
+
+5. **Check it.** `GET /readyz` answers `ready` when the database is reachable. Open the UI and look
+   at the **Feed** and **Failures**.
+
+</Steps>
+
+## What carries over
+
+Everything is in the database: events, notifications, deliveries and their attempts, routes,
+templates, connections, sources, users, sessions, API tokens, silences and the configuration
+history. Timers are stored too, so a group that was collecting, a held digest or a pending
+escalation step fires after the restart if it became due meanwhile.
+
+Three things live only in memory and start from zero after a restart:
+
+- the per-source ingest rate count for the current minute;
+- the count of wrong passwords per email used by the sign-in lockout;
+- the counters in `/metrics`.
+
+## While ramzes is down
+
+ramzes runs as one instance, so an upgrade is a short outage:
+
+- Senders get connection errors. ramzes cannot accept an event while it is not running; the sender
+  has to retry. An `Idempotency-Key` header makes a retry safe.
+- Events that were accepted before the stop are in the database. They are routed and delivered
+  after the start.
+- A delivery that was being sent when ramzes stopped, and whose result was not recorded, is sent
+  again. Delivery is at-least-once, so a message can arrive twice across a restart.
+- A delivery is given up on when it could not be delivered within 24 hours of being queued. An
+  outage longer than that ends the deliveries that were waiting, with the error "not sent: it could
+  not be delivered within 24 h of being queued". They appear under **Failures**, where you can
+  send them again.
+
+## Going back
+
+<Steps>
+
+1. Stop ramzes.
+2. Restore the backup taken before the upgrade: put the SQLite file back as `ramzes.db` in the data
+   directory (and remove the `ramzes.db-wal` and `ramzes.db-shm` files left beside the newer
+   database), or restore the Postgres dump.
+3. Start the older build with the same secret key.
+
+</Steps>
+
+Everything received after the backup was taken is lost.
+
+<Aside type="caution">
+`ramzes export` is not a substitute for a backup here. It writes the configuration only: no events,
+no credentials and no source keys.
+</Aside>

@@ -1,6 +1,162 @@
 ---
 title: "Routes"
-description: "Routes in ramzes."
+description: "How ramzes decides where an event goes: evaluation order, topic globs, minimum severity, source, label conditions, expressions, stop, targets, and how a mild resolution still closes what a route opened."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+A route says which events it wants and where to send them. Every event is checked against all routes; each one that matches sends the event to its targets. This page defines matching exactly. To build routes in the UI, see [Routes in the UI guide](/ramzes/guide/routes/).
+
+## A route
+
+```json
+{
+  "name": "Payment failures to on-call",
+  "enabled": true,
+  "stop": false,
+  "match": {
+    "topic": "payments.*",
+    "min_severity": "error",
+    "labels": [
+      { "op": "equals", "key": "env", "value": "prod" },
+      { "op": "matches", "key": "region", "pattern": "^eu-" },
+      { "op": "exists", "key": "team" }
+    ],
+    "expr": "payload.amount > 100"
+  },
+  "targets": [
+    { "connection_id": "01a136a4-2d28-772b-83d9-c59a5db82f9d", "destination": "payments" }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | 1 to 100 characters. Shown in the UI and kept on each notification the route opens. |
+| `enabled` | A route that is off is not evaluated. Default `true`. |
+| `stop` | When this route matches, the routes after it are not evaluated. Default `false`. |
+| `match` | The conditions. All that are set must hold. |
+| `targets` | Where to send. At least one. |
+| `shaping` | Dedup, grouping, quiet hours, rate limit. See [Noise control](/ramzes/concepts/noise-control/). |
+| `escalation` | Who else is told while nobody acknowledges. See [Escalation](/ramzes/concepts/escalation/). |
+
+## Order
+
+Routes have a position. An event is checked against them from the first to the last, and it is sent by **every** route that matches, not only the first. A new route is added after the existing ones; you can reorder them.
+
+Order matters in one case: `stop`. When a route with `stop` matches, evaluation ends there and later routes are marked as skipped for that event. Use it for an exception placed above a general rule:
+
+1. `Noisy batch job` — topic `batch.nightly.*`, `stop` on, to a quiet channel.
+2. `All errors` — minimum severity `error`, to the on-call channel.
+
+An error from the nightly batch matches route 1 and never reaches route 2.
+
+A route that is off does not match and does not stop anything. Neither does a route whose expression failed.
+
+## Conditions
+
+Every condition that is set must hold. A route with no conditions matches every event.
+
+### Topic
+
+`topic` is a glob over the whole topic. `*` matches any run of characters, including none and including separators. Every other character matches itself. Matching is case-sensitive. There is no `?` and no `**`.
+
+| Pattern | Matches | Does not match |
+| --- | --- | --- |
+| `payments.*` | `payments.charge.failed`, `payments.` | `payments`, `orders.payments.x` |
+| `*.failed` | `payments.charge.failed`, `ci.failed` | `payments.failed.retry` |
+| `ci.*.main` | `ci.build.main`, `ci.a.b.main` | `ci.main` |
+| `orders.created` | `orders.created` only | `orders.created.eu` |
+| `*` | every topic | |
+
+An empty pattern is refused. Leave the field out to match any topic.
+
+### Minimum severity
+
+`min_severity` matches events at that severity or above, in the order `debug`, `info`, `warning`, `error`, `critical`.
+
+### Source
+
+`source_id` matches events that arrived through one [source](/ramzes/guide/sources/).
+
+### Labels
+
+`labels` is a list of conditions on the event's labels. All of them must hold.
+
+| `op` | Fields | Holds when |
+| --- | --- | --- |
+| `equals` | `key`, `value` | The label exists and its value is exactly `value`. |
+| `matches` | `key`, `pattern` | The label exists and the regular expression `pattern` is found in its value. |
+| `exists` | `key` | The event has the label, whatever its value. |
+
+`matches` searches: `eu` is found in `us-eu-1`. Anchor the pattern to match the whole value, as in `^eu-(west|central)$`. The syntax is that of the Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate, which has no backreferences and no look-around. A pattern that does not compile, or compiles to something very large, is refused when you save the route.
+
+There is no "not" operator among the structured conditions. Use an expression for that.
+
+### Expression
+
+`expr` is an optional [expression](/ramzes/reference/expressions/) over the event. It can read what the other conditions cannot, above all the payload:
+
+```text
+payload.amount > 100 and labels.env == 'prod'
+payload.customer.tier in ['gold', 'platinum']
+not (labels.team == 'platform')
+```
+
+The route matches when the result is truthy. The expression is evaluated only after the other conditions hold, so a cheap topic condition in front of an expensive expression saves work.
+
+A field that is missing is empty, not an error: `payload.customer.tier == 'gold'` is false for an event with no `customer`.
+
+### When an expression fails
+
+An expression can be valid and still fail on a particular event, for example `payload.items | length > 1` when the event has no `items`. Then:
+
+- The route does not match that event. Other routes are still evaluated.
+- The reason is recorded on the route with the time. The Routes page shows it, and `GET /api/routes` returns it as `last_error` and `last_error_at`.
+- The same error on the same route is written at most once a minute.
+- Saving the route clears the recorded error.
+
+Nothing is sent to say that an expression failed. If a route that should fire is silent, look at its last error and try the event in the route tester.
+
+## Targets
+
+A route sends to one or more targets:
+
+| Field | Meaning |
+| --- | --- |
+| `connection_id` | The [connection](/ramzes/guide/connections/) to send through. Must exist when the route is saved. |
+| `destination` | Optional. A place within the connection, when the channel has such a notion: a Slack channel ID, an ntfy topic, a Telegram chat. Without it the connection's own default is used. See the [channel pages](/ramzes/channels/overview/). |
+| `template_id` | Optional. The [template](/ramzes/concepts/templates/) that words the message for this target. Without it the event's own title and body are sent. |
+
+Each target is handled on its own. An event that matches a route with two targets opens two [notifications](/ramzes/concepts/notifications/), one per target, each with its own state, deliveries and retries. A failure to deliver to one does not affect the other.
+
+## A resolution milder than the minimum still closes
+
+What ends a failure is often reported as less severe than the failure. A database goes down at `critical` and comes back at `info`. A route with minimum severity `error` matches the first event and not the second, and without a special rule its notification would stay open for ever.
+
+So a `resolved` event that fails **only** the minimum severity, and passes every other condition of the route, is let through for one purpose: it closes what that route opened under the same dedup key, and whoever was told is told that it is over. It does nothing else there. If the route has nothing open for that key, the event leaves no trace on that route. It does not trigger `stop`.
+
+The route tester shows this outcome as `closes_only`.
+
+## Trying a route
+
+The route tester evaluates an event against routes and shows the outcome at each: `matched`, `closes_only`, `not_matched`, `disabled`, `skipped` or `error`, and for each target what shaping would do right now. Nothing is stored or sent. It takes a stored event or one you write, and saved routes or routes you have not saved yet.
+
+<Screenshot name="route-editor" caption="The route editor with the list of routes above it. The panel on the right tries an event against all routes, including unsaved changes." maxHeight="34rem" />
+
+```sh
+curl -X POST http://localhost:7269/api/routes/test \
+  -H "Authorization: Bearer $RAMZES_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"event": {"topic": "payments.charge.failed", "title": "Payment failed for order 1042",
+       "severity": "error", "labels": {"env": "prod", "region": "eu-west", "team": "payments"},
+       "payload": {"amount": 129.5}}}'
+```
+
+## What changing a route affects
+
+Routes are read when an event is routed. Changing a route does not touch events that were routed before. To run an old event through the routes as they are now, [replay it](/ramzes/concepts/delivery/#replay).
+
+Notifications that are already open follow the route as it is now for what happens later: the group's repeat interval, quiet hours and rate limit at the moment a group is sent, and the escalation chain. When the route is deleted, its open notifications stay; a group that was collecting is sent when its wait ends, and escalation stops.
+
+Every change to a route is recorded in the configuration history, from which you can roll back. See [Settings](/ramzes/guide/settings/).

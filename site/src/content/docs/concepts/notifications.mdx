@@ -1,6 +1,155 @@
 ---
 title: "Notifications"
-description: "Notifications in ramzes."
+description: "What a notification is, its six states and every transition between them, the roles an event can have in one, the cap on messages, what resolution does and who is told, and acknowledging or resolving by hand."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+A notification is one route telling one target about one thing, or about several things at once. It is the unit that is sent, held, acknowledged and resolved. An event is what happened; a notification is what ramzes does about it for one target.
+
+## One per route target
+
+When an event matches a route, each target of the route is handled separately. A target is the combination of route, connection and destination. For each one the event either opens a new notification or joins one that is already open there.
+
+So one event can belong to several notifications: one per target of every route that matched. And one notification can cover many events: duplicates of the first, the members of a group, a digest held over night.
+
+A notification keeps the name of its route, the title of the event that opened it, the highest severity among its events, how many events it covers and how many messages were sent for it.
+
+<Screenshot name="notification" caption="A notification that was silenced: its state and the reason, no deliveries, and the one event it covers with its role." />
+
+## States
+
+| State | Meaning | Open |
+| --- | --- | --- |
+| `grouping` | Collecting events until the group's wait is over. Nothing has been sent. | yes |
+| `held` | Waiting for quiet hours or a rate-limit window to end. | yes |
+| `sent` | A message went out. Nobody has acknowledged it. | yes |
+| `acknowledged` | A person said they are on it. | yes |
+| `resolved` | Over: a resolved event closed it, or a person did. | no |
+| `suppressed` | Recorded and deliberately not sent. The UI shows it as "not sent". | no |
+
+An open notification is one that later events can still join or resolve. `resolved` and `suppressed` are final.
+
+A notification that is held or suppressed carries a reason, for example `quiet hours until 07:00 (Europe/Warsaw)`, `rate limit: 5 per 600 s already sent`, `silenced: load test on staging` or `resolved, but nothing was open for it`.
+
+## Transitions
+
+```text
+                 ┌──────────┐  wait over   ┌──────┐  hold over
+   event ───────►│ grouping │─────────────►│ held │──────────┐
+     │           └────┬─────┘  (if quiet   └──┬───┘          │
+     │                │ wait    or limited)   │              ▼
+     │                │ over                  │           ┌──────┐   person   ┌──────────────┐
+     ├────────────────┴───────────────────────┼──────────►│ sent │───────────►│ acknowledged │
+     │                                        │           └──┬───┘            └──────┬───────┘
+     │                                        │              │                       │
+     │   resolved event, or resolved by hand, from any open state                    │
+     │                                        ▼              ▼                       ▼
+     │                                     ┌─────────────────────────────────────────────┐
+     │                                     │                  resolved                   │
+     │                                     └─────────────────────────────────────────────┘
+     └──► suppressed   (silenced, or a resolution of nothing open)
+```
+
+**How a notification starts.** What the route's [noise control](/ramzes/concepts/noise-control/) decides for the event:
+
+| Starts as | When |
+| --- | --- |
+| `sent` | Nothing delays it. A delivery is queued at once. |
+| `grouping` | The route groups. A timer is set for the end of the wait. |
+| `held` | It is quiet hours, or the rate limit is used up. A timer is set for the end of the hold. |
+| `suppressed` | A silence covers the event, or it is a resolution that found nothing open on a route with a dedup policy. |
+
+**What moves it afterwards.**
+
+| From | To | Cause |
+| --- | --- | --- |
+| `grouping` | `sent` | The wait is over and nothing holds it. One message covers every event collected. |
+| `grouping` | `held` | The wait is over during quiet hours, or with the rate limit used up. If something is already held for the same target and reason, the group's events move into that notification and the group's own notification is removed. |
+| `held` | `sent` | The hold is over. One message covers everything held. A hold that ended is checked against quiet hours again, and can be held once more. |
+| `sent`, `grouping`, `held` | `acknowledged` | A person acknowledged it. All its timers are removed. |
+| any open state | `resolved` | A resolved event closed it, or a person resolved it. All its timers are removed. |
+
+There is no way back from `acknowledged` to `sent`, and nothing reopens a resolved notification. After a resolution, the next firing event with the same key opens a new notification.
+
+Acknowledging a notification that is still `grouping` or `held` means it is never sent.
+
+## The role of an event
+
+Each event in a notification has a role that says how it got there:
+
+| Role | Meaning |
+| --- | --- |
+| `first` | The event that opened the notification. |
+| `duplicate` | Absorbed by dedup: same key as an open notification, counted and not sent again. |
+| `grouped` | Joined a group that was collecting, or a notification that was held. |
+| `resolved` | The resolved event that closed it, or closed part of it. |
+
+The notification's page lists its events with their roles. `GET /api/events/{id}` returns, for each notification the event belongs to, the role it has there.
+
+## What a message says
+
+A message is worded from the events the notification covers at that moment: its firing events, without those a later event has resolved.
+
+- **One event:** the event's own title, body, severity, topic and labels.
+- **Several events:** a summary. When every event has the same title, the title is that title with the count, as in `Disk above 90% (4 times)`, and the body is the first event's. Otherwise the title is `4 events`, or `14 events on infra.disk.full` when there are more than ten on one topic, and the body lists the first ten as `severity: title` with `and N more` after them. The severity is the highest among the events. Only labels that every event has with the same value are shown.
+
+When the target names a [template](/ramzes/concepts/templates/), it replaces the title and body in either case. A template can read every event of the notification.
+
+A message covers at most the first 1,000 events of a notification.
+
+## How many messages a notification sends
+
+A notification is sent once. It is sent again only when the route asks for a reminder (`repeat_s` under [grouping](/ramzes/concepts/noise-control/#grouping)), and then only while it is `sent`.
+
+:::note[The cap]
+A notification sends at most 20 messages in total: the first and up to 19 reminders, however long it stays open. After that the reminders stop. The cap is fixed.
+:::
+
+Deliveries that are not counted against the cap: [escalation steps](/ramzes/concepts/escalation/) (at most 10 per route), the notice that it was resolved, and a delivery you send again by hand.
+
+## Resolution
+
+A `resolved` event closes what an earlier event opened. It finds its target by dedup key: at each route target, every open notification that has a firing event with the same key. The key is the event's own `dedup_key`, or the one the route's dedup policy gives it.
+
+For each such notification:
+
+- **Nothing else in it is firing.** The notification becomes `resolved` and its timers are removed, so reminders and escalation stop. If a message had gone out for it, everyone who was told is told that it is over.
+- **Other events in it are still firing.** This happens in a group or a digest. The resolved event is recorded with the role `resolved` and the notification stays open for the rest. Later messages leave the resolved events out.
+- **It was not sent yet.** A notification still `grouping` or `held` is closed without anything being sent. Nobody hears about a problem that ended before they were told.
+
+**Who is told.** The route's own target, and the targets of every escalation step that fired for this notification. Each place is told once. Nobody else: a step that never fired is not told.
+
+**What they are told.** The notification's events, worded as before, marked as resolved. How a channel shows that is up to the channel: a different colour, a threaded reply, a resolve call to a paging service. The resolved event's own title is not used.
+
+Set `notify_resolved` to `false` on the route to close notifications without telling anyone. See [Noise control](/ramzes/concepts/noise-control/#notify_resolved).
+
+A resolution is acted on even when a [silence](/ramzes/concepts/noise-control/#silences) covers the event: what was reported has to be closed.
+
+A resolved event that is [milder than the route's minimum severity](/ramzes/concepts/routes/#a-resolution-milder-than-the-minimum-still-closes) still closes what the route opened.
+
+### A resolution that finds nothing open
+
+| The route has | The resolved event is |
+| --- | --- |
+| a dedup policy | recorded as a `suppressed` notification with the reason `resolved, but nothing was open for it`. Nothing is sent. |
+| no dedup policy | treated like any other event: it opens a notification and is sent, subject to the route's grouping, quiet hours and rate limit. |
+
+:::caution
+For resolutions to pair up with what they resolve, the firing event and the resolved event must have the same key at the route. Either send the same `dedup_key` on both, or give the route a dedup policy whose key is the same for both. The default key of a dedup policy is derived from the topic and **all** labels, so a label that differs between the two events breaks the pairing.
+:::
+
+## Acknowledging and resolving by hand
+
+**Acknowledge** says a person is on it. It is allowed while the notification is `sent`, `grouping` or `held`. Reminders and escalation stop, and one that was still waiting is not sent. The notification records who acknowledged it and when. It stays open: duplicates still join it and a resolved event still closes it. The [ways to acknowledge](/ramzes/concepts/escalation/#four-ways-to-acknowledge) and what is passed on to the channels are described under Escalation.
+
+**Resolve** closes a notification by hand. It is allowed from any open state. Nothing is sent to anyone. A message delivered through a Slack app is rewritten to say it is resolved; paging services are not told, so close the incident there yourself.
+
+Either one on a notification that is already past that point is refused with `409 Conflict`.
+
+```sh
+curl -X POST http://localhost:7269/api/notifications/01a136a5-46c1-7d22-9e0c-5a7d1f3b9a10/acknowledge \
+  -H "Authorization: Bearer $RAMZES_TOKEN"
+```
+
+In the UI both are buttons on the notification. See [Notifications in the UI guide](/ramzes/guide/notifications/).

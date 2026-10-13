@@ -1,6 +1,78 @@
 ---
 title: "Overview"
-description: "Overview in ramzes."
+description: "How to read the Overview page: the four figures, the event and delivery charts, the noisiest sources and topics, and the failing connections table."
 ---
 
-This page is being written.
+import Screenshot from '../../../components/Screenshot.astro';
+
+The Overview page summarises a period: how many events arrived, how many messages went out, where the
+volume came from, and which connections are in trouble. It only reads; nothing on it changes anything.
+
+<Screenshot name="overview" caption="Overview for the last 24 hours: four figures, events by hour and severity, delivery results, the noisiest sources and topics, and failing connections." maxHeight="32rem" />
+
+## Choosing the period
+
+The **Period** menu in the top right offers **Last 24 hours**, **Last 7 days** and **Last 30 days**.
+The default is 24 hours. Any other choice is kept in the page address as `?hours=168` or `?hours=720`,
+so you can bookmark it.
+
+The 24-hour view counts in hours and names each bar by its local time. The 7-day and 30-day views count
+in days and name each bar by its date in UTC, because the server cuts days in UTC.
+
+The page reloads about a second after an event arrives, a delivery finishes or a notification changes.
+
+## The four figures
+
+| Card | What it counts |
+| --- | --- |
+| **Events received** | Events received in the period. Below it, the change against the period of the same length just before ("vs the 24 hours before"), and a small line chart of the period. When there was nothing before, it says "Nothing in the 24 hours before". |
+| **Deliveries that arrived** | The share of the period's deliveries that were delivered. The comparison underneath is of the share among deliveries that have ended (delivered or failed), now and in the period before. With nothing to compare, it reads for example "457 of 457 that ended", or "Nothing was sent". |
+| **Notifications waiting now** | Notifications that are collecting events or being held right now. This is a current count, not one for the period. The number links to [Notifications](/ramzes/guide/notifications/). |
+| **Sent, not acknowledged** | Notifications that were sent and are neither acknowledged nor resolved, right now. The number links to the **Sent** view of Notifications. |
+
+## Events received and by severity
+
+**Events received** is a stacked bar chart, one bar per hour or day, split by severity with the most
+severe at the bottom. The line above it names the busiest bar, for example "Most in one hour: 20 events,
+11:00".
+
+**By severity** lists the severities that occurred, most severe first, each with its count and its share
+of all events in the period.
+
+## Deliveries
+
+**Deliveries** is a ring with the share that arrived in its centre, beside the counts and shares of
+**delivered**, **failed** and **pending**. When anything failed, a link "See what failed and send it
+again" leads to [Failures](/ramzes/guide/failures/).
+
+**Deliveries over time** shows delivered and failed deliveries per hour or day. A delivery is counted in
+the bar of the time it was queued, not the time it finished.
+
+How a delivery ends up delivered, failed or pending is described in
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+## Noisiest sources and topics
+
+**Noisiest sources** and **Noisiest topics** each list the five with the most events in the period,
+with a bar scaled to the largest.
+
+## Failing connections
+
+The table at the bottom lists every connection that had a failed delivery in the period or is paused
+right now, the one with the most failures first.
+
+| Column | Meaning |
+| --- | --- |
+| **Connection** | Its name, linking to [Connections](/ramzes/guide/connections/). "A deleted connection" when it no longer exists. |
+| **Failed** / **Delivered** | Deliveries that failed and that arrived in the period. |
+| **State** | "paused until" and a time while ramzes has paused the connection, otherwise "sending". |
+| **Last error** | The most recent error recorded for it. |
+
+When there is nothing to list, the card says "No connection failed a delivery in the last 24 hours, and
+none is paused."
+
+## When the period is empty
+
+With no events and no deliveries in the period, the charts are replaced by one line: "Nothing has
+arrived in the last 24 hours. To send the first event, create a source under Sources and use its example
+command." See [Sources](/ramzes/guide/sources/) and [The events API](/ramzes/sending/events-api/).

@@ -1,6 +1,368 @@
 ---
 title: "Troubleshooting"
-description: "Troubleshooting in ramzes."
+description: "Find out why an event did not arrive, why a request was refused, why a connection is paused or a route does not match, using the UI and the exact error texts ramzes produces."
 ---
 
-This page is being written.
+import { Aside } from '@astrojs/starlight/components';
+import Screenshot from '../../../components/Screenshot.astro';
+
+This page is organised by symptom. For each one it says where to look and quotes the messages
+ramzes produces, so you can search for the text you see.
+
+Three places answer most questions:
+
+- **The event's journey.** Open the event from the **Feed**. The page shows when it was received,
+  each route it matched, what noise control did with it, the message as it was worded, and every
+  delivery attempt with the status and answer of the service.
+- **The route tester.** The **Try an event** panel on the **Routes** page shows what every route
+  would do with a stored event or one you write, without sending anything.
+- **Failures.** Every delivery that was rejected or ran out of retries, with the reason.
+
+<Screenshot name="event" caption="An event's journey: received, the routes it matched, the message, and each delivery attempt with the service's answer." />
+
+## An event was accepted but nothing arrived
+
+A `202` from `/v1/events` means the event is stored. It says nothing about routing or delivery,
+which happen afterwards. Find the event in the **Feed** and read the **Outcome** column, then open
+it.
+
+| Outcome in the feed | What the journey says | Meaning |
+|---|---|---|
+| no route | "No route matched" | No enabled route matched the event. See [A route never matches](#a-route-never-matches). |
+| pending | "Waiting to be routed", or a delivery marked pending | Not routed yet, or a delivery is waiting or being retried. |
+| waiting | "Collecting events to send as one message", or "Held until 07:00" with a reason | Noise control is holding it. See below. |
+| not sent | "Not sent" with a reason such as "silenced" | Routed and deliberately not sent. See below. |
+| failed | A delivery marked failed or dead, with the error | See [A delivery failed](#a-delivery-failed). |
+| delivered | Each attempt with its status | The service accepted the message. |
+
+**It is waiting.** The route has grouping, quiet hours or a rate limit. The notification says why:
+
+- "Collecting events to send as one message": the group's wait is not over yet. It is sent when
+  the wait ends.
+- "quiet hours until 07:00 (Europe/Warsaw)": held until the quiet period ends, then sent as one
+  digest.
+- "rate limit: 5 per 3600 s already sent": held until the window has room, then sent as one
+  summary.
+
+**It was not sent.** The reason is one of:
+
+- "silenced" or "silenced: &lt;the silence's comment&gt;": an active silence matches the event. See
+  **Silences**.
+- "resolved, but nothing was open for it": a resolved event arrived on a route with dedup, and no
+  open notification had its key.
+
+**It was counted, not sent.** The journey says "Counted as a duplicate of an earlier event." or
+"Joined a group of N events." The event is part of a notification that another event opened. That
+is dedup or grouping doing its job; open the notification to see the message that covers it.
+
+**It was delivered, but you do not see it.** ramzes got a success status from the service. Open
+**Request** under the message in the journey to see exactly what was sent and where, then look on
+the service's side: the wrong channel or topic, a muted channel, a filter.
+
+**The request was a repeat.** If the answer to the sender was `{"ids":[...],"duplicate":true}`, the
+`Idempotency-Key` had been used by that source before. Nothing new was stored; the ids are those of
+the first request.
+
+**Someone acknowledged it while it was waiting.** A notification acknowledged while collecting or
+held is never sent.
+
+**It stays on "Waiting to be routed".** Routing normally happens within a second. If events stay
+unrouted, look at the log for "routing pass failed" or "could not write routing result", check
+`/readyz`, and watch `ramzes_queue_unrouted` in [the metrics](/ramzes/operations/metrics/).
+
+After you fix a route, press **Run through routes again** on the event's page. That sends the event
+through the current routes at once, without noise control.
+
+## 401 from `/v1/events`
+
+```json
+{"error":"unauthorized","message":"send the source key as: Authorization: Bearer <key>"}
+```
+
+The request did not carry a key that belongs to a source. Check that:
+
+- the header is exactly `Authorization: Bearer <key>`, with the word `Bearer` and one space;
+- the key is a **source key** (it starts with `rz_src_` unless you supplied your own). An API token
+  (`rz_tok_`) is for the admin API and is refused here;
+- the key was not replaced. **Replace key** on the **Sources** page makes the old key stop working
+  at once;
+- the source was not deleted.
+
+A lost key cannot be shown again. Replace it and give the sender the new one.
+
+## 401, 400 or 404 from `/v1/in/<source id>`
+
+Third-party senders post to a per-source address, and each kind proves itself differently.
+
+| Status and message | Cause |
+|---|---|
+| `404` "there is no source at this address" | The id in the address is wrong, or the source was deleted. |
+| `400` "this source sends ramzes's own format; post to /v1/events instead" | The source is of the kind "ramzes API". |
+| `401` "send the source key as: Authorization: Bearer &lt;key&gt;" | The source expects a bearer key (Alertmanager, Grafana, any-JSON by default). |
+| `401` "the request does not carry this source's key in the expected header" | The key was not in the header the mapping names. |
+| `401` "the URL does not carry this source's key" | The key was not in the URL parameter the mapping names. |
+| `401` "the request's signature does not match this source's key" | The secret configured at the sender and the source's key differ (GitHub, Sentry, HMAC). |
+| `401` "the request's signature does not match this source's key, or the request is more than 5 minutes old" | As above, or the sender's or the server's clock is off (GitLab signing token). |
+| `401` "this source has no stored secret to check signatures with; replace its key in ramzes" | The key's encrypted copy cannot be read, usually because the secret key changed. |
+| `422` "this source's mapping cannot be used: ..." | The stored mapping no longer parses. |
+
+Requests that pass verification are recorded, whether they were accepted or refused as invalid.
+Open the source on the **Sources** page to see its recent requests, each with the body, the headers
+and the reason if it was refused.
+
+## 400 or 422 from `/v1/events`
+
+The body was read but not accepted. The `message` says what is wrong, and for a batch it starts
+with the position of the event, counted from 0.
+
+| `error` | Example `message` |
+|---|---|
+| `invalid_json` | "the body is not valid JSON: ..." or "the JSON body must be an event object or an array of event objects" |
+| `invalid_event` | "topic may only contain letters, digits and . _ : / -" |
+| `invalid_event` | "event 1: severity: unknown variant \`fatal\`, expected one of \`debug\`, \`info\`, \`warning\`, \`error\`, \`critical\`" |
+| `invalid_event` | "foo: unknown field \`foo\`, expected one of \`topic\`, \`title\`, ..." |
+| `invalid_event` | "the batch is empty" |
+| `batch_too_large` | "a request may carry at most 1000 events; this one has 1200" |
+| `invalid_idempotency_key` | "Idempotency-Key must be 1 to 200 visible ASCII characters" |
+
+A batch is all or nothing: one invalid event refuses the whole request.
+
+`413` with "the body is larger than 1048576 bytes" means the request body is over 1 MiB.
+
+The newest 20 refused requests of a source are kept with their bodies. Open the source on the
+**Sources** page to see them. [The events API](/ramzes/sending/events-api/) lists every field and
+its limits.
+
+## 429
+
+**From `/v1/events` or `/v1/in/...`:**
+
+```json
+{"error":"rate_limited","message":"this source may send 6000 events per minute"}
+```
+
+The source went over 6000 events in the current minute. The `Retry-After` header gives the seconds
+until the next minute starts. Things to know:
+
+- Events are counted, not requests. A batch counts with all its events and is refused whole when it
+  does not fit in what is left of the minute.
+- The count is per source and per clock minute. It is kept in memory and starts again after a
+  restart.
+- The limit is fixed. To send more, spread the load over time or over several sources.
+
+**From sign-in:**
+
+```json
+{"error":"too_many_attempts","message":"too many wrong passwords for this email; try again in 15 minutes"}
+```
+
+Ten wrong passwords for that email address in 15 minutes. Wait, or restart ramzes, which clears the
+count. See [Security](/ramzes/operations/security/).
+
+## 503 from `/v1/events`
+
+```json
+{"error":"unavailable","message":"ramzes cannot store events right now; retry shortly"}
+```
+
+ramzes could not write to its database. The event was not stored; the sender should retry. Check
+`/readyz` and the log, which has the database error.
+
+## A connection is paused
+
+The **Connections** page shows "Paused until" on the connection, and the topic
+`ramzes.connection.paused` gets an event.
+
+A connection is paused after five attempts in a row that say the connection itself is not working:
+
+| Counts towards a pause | Does not count |
+|---|---|
+| Timeouts and connection errors | `429` (the service is there and asks for patience) |
+| `5xx`, `408` and `425` answers | Other `4xx` answers such as `400`, which may be about one message only |
+| `401`, `403` and `404` answers | A success, which resets the count |
+
+The first pause lasts 1 minute. Each further failure doubles it: 2, 4, 8 and then 15 minutes, which
+is the longest. While a connection is paused its deliveries wait; they are not attempted and do not
+use up retries. When the pause ends, one delivery tests the connection. If it succeeds the rest
+follow; if it fails the connection is paused again.
+
+What to do:
+
+1. Read the last error on the connection's row or on a delivery: a wrong URL, revoked credentials,
+   a service that is down.
+2. Fix it. To change credentials press **Edit**.
+3. Press **Send test message** to check.
+4. Press **Resume now**. This ends the pause, clears the failure count and makes the waiting
+   deliveries due at once.
+
+A delivery waits at most 24 hours from when it was queued. One that waited longer, for example
+behind a long outage, ends with "not sent: it could not be delivered within 24 h of being queued"
+and appears under **Failures**.
+
+## A delivery failed
+
+Open **Failures**, or the event's journey. The error is what the last attempt produced.
+
+| Error | Meaning | Retried? |
+|---|---|---|
+| "HTTP 500: ..." (also `408`, `425`, `429`, other `5xx`) | The service answered with a status that is worth trying again | Yes |
+| "the request timed out" | No answer within 10 seconds | Yes |
+| "could not connect to the service" | DNS, refused connection, TLS | Yes |
+| "the request failed: ..." | Another network failure | Yes |
+| "gave up after 8 attempts: ..." | The retries are used up; the text after the colon is the last error | No more |
+| "not sent: it could not be delivered within 24 h of being queued" | The delivery expired | No more |
+| "HTTP 400: ..." and other `4xx` | The service rejected the message. The text after the status is the start of its answer | No |
+| "HTTP 204, which this connector does not count as delivered" | A success status that the connector's definition does not list | No |
+| "the address is not an http or https URL" | The connection's URL is malformed | No |
+| "not sent: the address is private, and this instance blocks requests to private addresses" | `block_private_addresses` is on and the address is internal | No |
+| "the connection was deleted" | A route still targets a connection that no longer exists | No |
+| "the event was deleted" | Retention removed the event before the delivery ran | No |
+| "this instance has no connector of kind ..." | The connection uses a custom connector whose definition is gone | No |
+| "the connection's credentials could not be read: decryption failed; was it sealed with a different secret key?" | The secret key is not the one the credentials were stored with | No |
+
+Retries follow a fixed schedule: about 5 seconds after the first failure, doubling up to 1 hour,
+at most 8 attempts and never beyond 24 hours after the delivery was queued. When the service sends
+`Retry-After` with a longer wait, that wait is used. See
+[Delivery and retries](/ramzes/concepts/delivery/).
+
+After fixing the cause, send again: **Send again** on a delivery in the journey, or select rows
+under **Failures** and press **Send selected again**. The failed attempt stays in the event's
+history.
+
+## A route never matches
+
+Use the tester. On the **Routes** page, under **Try an event**, choose the event that should have
+matched. Each route shows "matched", "not matched", "off", "skipped, an earlier route stops here"
+or "expression failed: ..." with the reason.
+
+Then check the route against this list:
+
+- **Every condition must hold.** Topic, minimum severity, source, each label condition and the
+  expression are combined with "and".
+- **The topic pattern covers the whole topic.** `orders` matches only the topic `orders`, not
+  `orders.failed`. `*` matches any run of characters, including dots: `orders.*`, `*.failed`,
+  `*`. Matching is case-sensitive.
+- **Minimum severity** is a floor. The order is `debug`, `info`, `warning`, `error`, `critical`.
+  An event sent without `severity` is `info`.
+- **A label "equals" condition** needs the exact value. **"matches"** is a regular expression
+  searched for anywhere in the value; anchor it with `^` and `$` to match the whole value.
+- **The route is off.** A route that is switched off shows "off" in the list.
+- **An earlier route stops evaluation.** A route marked "stops here" that matched the event keeps
+  the routes below it from being evaluated. The tester shows those as skipped.
+- **The expression fails.** A route whose expression fails counts as not matching. The route's row
+  shows "Expression failed ... : &lt;reason&gt;" with the latest failure, until the route is saved
+  again. A reference to a payload field that is missing is not a failure; the value is empty.
+- **The event is a resolution.** A resolved event that is less severe than the route's minimum only
+  closes what the route opened. It is not sent there. The tester says "too mild to match, but it
+  resolves what this route opened", or "not matched: too mild, and nothing of this route is open".
+
+A route that matches but does not send is a noise-control question, not a matching one: the tester
+shows "opens a group", "held", "joins an open notification" or "not sent" with the step that
+decided it.
+
+## A template did not apply
+
+When a template fails, ramzes sends the default wording instead of nothing and records a warning on
+the delivery. It shows in the event's journey and in the tester:
+
+- `the template "Name" failed (<reason>); the default wording was sent`
+- "the route's template was deleted; the default wording was sent"
+
+Common reasons:
+
+- "title: the template produced an empty title": the title template rendered to nothing for this
+  event.
+- "it did too much work and was stopped": the template went over the work limit.
+- "its output is too long (over 262144 bytes)".
+- A syntax or evaluation error, quoted from the template engine.
+
+If there is no warning and the wording is still the default:
+
+- **The target has no template.** A template is chosen per target of a route, in the **Wording**
+  column under **Send to**. "The event's own wording" means none. Targets of escalation steps have
+  their own choice.
+- **A part of the template is empty.** An empty title or body in a template keeps the default for
+  that part.
+- **The channel does not show that part.** Open **Request** under the message in the journey to
+  see what was sent.
+
+Try a template against a real event on the **Templates** page before using it. See
+[Templates](/ramzes/guide/templates/).
+
+## The acknowledgement link is missing
+
+A message carries an acknowledgement link only when all of these hold:
+
+- **The instance has a public address.** Set **Address of this ramzes instance** under
+  **Settings**, or `RAMZES_PUBLIC_URL`. Without it messages carry neither the link back to the
+  event nor the acknowledgement link.
+- **The notification is open** when the message is sent. Messages about a notification that is
+  already acknowledged or resolved carry none.
+- **The channel's message format includes it.** Open **Request** under the message in the journey
+  to see whether the link is in what was sent.
+
+If the link opens a page that says "This link is not valid", it was copied incompletely, the
+notification was removed by retention, or the secret key changed since the message was sent.
+
+## A resolved event did not close anything
+
+A resolved event closes an open notification when its key matches the key of an event in that
+notification, on the same route and target.
+
+- Send the same `dedup_key` on the firing event and on the resolved one.
+- On a route with dedup and no explicit keys, the key is derived from the topic and labels, so both
+  events need the same topic and the same labels.
+- On a route **without** dedup, an event without `dedup_key` has no key at all. A resolved event
+  like that is sent as an ordinary message with the status resolved.
+- If the notification was already resolved, by an earlier event or by hand, there is nothing left
+  to close. On a route with dedup the event is then not sent, and the journey says "resolved, but
+  nothing was open for it". On a route without dedup it is sent as an ordinary message.
+
+## A message arrived twice
+
+- **Two routes matched.** Every matching route sends unless an earlier one stops evaluation. The
+  journey lists each route that matched.
+- **A route has two targets on the same channel.**
+- **Delivery is at-least-once.** If ramzes stopped, or lost its database connection, after a
+  service accepted a message and before the result was recorded, the delivery is attempted again.
+- **Someone pressed "Send again" or "Run through routes again".** Those are marked in the journey;
+  a replayed notification has the tag "replayed".
+- **A reminder.** A route with "Send again while still open" repeats the message until the
+  notification is acknowledged or resolved, or until it has been sent 20 times.
+
+## Problems signing in or calling the admin API
+
+| Answer | Cause |
+|---|---|
+| `401` "wrong email or password" | As it says. The answer is the same whether or not the address exists. |
+| `429` "too many wrong passwords for this email; try again in N minutes" | The sign-in lockout. |
+| `401` "sign in or send an API token" | No valid session cookie or API token. Sessions end 30 days after sign-in. |
+| `403` "requests that change state must carry the header X-Ramzes-Request: 1" | A script is using the session cookie. Add the header, or use an API token. |
+| `409` "setup has already been completed" | `POST /api/setup` after the first user exists. |
+| `409` "the last user cannot be deleted" | |
+| `500` "something went wrong inside ramzes; see its log" | The log has the cause. |
+| You sign in and are sent straight back to the sign-in page | `secure_cookies` is on and you are using plain HTTP. Browsers do not keep a `Secure` cookie that was set over plain HTTP; some make an exception for `localhost`. |
+
+## ramzes does not start
+
+Start-up errors are printed to standard error after `ramzes:`.
+
+| Message | Cause |
+|---|---|
+| "could not listen on 127.0.0.1:7269: ..." | The port is taken, or the address is not on this machine. |
+| "listen address \"...\" is not host:port" | `listen` needs both, for example `0.0.0.0:7269`. |
+| "... is not a valid config file" | The TOML file has a syntax error or an unknown key. |
+| "could not create the data directory ..." | No permission to create it. |
+| "could not open the database: ..." | A wrong URL, an unreachable Postgres, or a file that cannot be opened. A URL must start with `sqlite://` or `postgres://`. |
+| "migration failed: the database schema is newer than this binary (migration N is unknown); upgrade ramzes" | The database was used by a newer build. |
+| "the secret key is not valid base64: ..." or "the secret key must be 32 bytes, got N" | `secret_key` or the contents of `secret.key` are wrong. |
+
+## The page says the binary was built without the web UI
+
+The server was compiled before the UI was built. Run `make ui` and build again, or use
+`make build`, which does both. See [From source](/ramzes/install/from-source/).
+
+## Getting more detail
+
+Set `RAMZES_LOG=debug` for more log output, and `RAMZES_LOG_FORMAT=json` if you collect logs. Both
+are read at start. See the [Configuration reference](/ramzes/operations/configuration/).

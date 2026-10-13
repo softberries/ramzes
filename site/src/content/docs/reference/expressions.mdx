@@ -1,6 +1,154 @@
 ---
 title: "Expressions and templates"
-description: "Expressions and templates in ramzes."
+description: "The one language ramzes uses for route expressions, dedup keys, message templates, connector definitions and source mappings: how it is configured, what each place can read, its limits, and what to watch for."
 ---
 
-This page is being written.
+ramzes uses one language everywhere a user writes logic or wording: [MiniJinja](https://docs.rs/minijinja/), an implementation of the Jinja2 template language. This page describes how ramzes configures it and what each place can read. It does not restate the language; for the full syntax see MiniJinja's [syntax reference](https://docs.rs/minijinja/latest/minijinja/syntax/index.html), its [filters](https://docs.rs/minijinja/latest/minijinja/filters/index.html) and its [tests](https://docs.rs/minijinja/latest/minijinja/tests/index.html).
+
+## Two forms
+
+**An expression** is a single value, written without braces:
+
+```text
+payload.amount > 100 and labels.env == 'prod'
+```
+
+**A template** is text with expressions in `{{ … }}` and statements in `{% … %}`:
+
+```text
+[{{ labels.env | upper }}] {{ title }}{% if count > 1 %} (+{{ count - 1 }} more){% endif %}
+```
+
+## Where each is used
+
+| Where | Form | Can read | Result | When it fails |
+| --- | --- | --- | --- | --- |
+| A route's [`match.expr`](/ramzes/concepts/routes/#expression) | expression | [the event](#the-event) | truthy means the route matches | The route does not match that event; the reason is recorded on the route. |
+| A silence's `match.expr` | expression | the event | truthy means the silence covers the event | The silence does not cover that event. |
+| A route's [dedup `key`](/ramzes/concepts/noise-control/#dedup) | expression | the event | the key | The default key is used. |
+| A [template](/ramzes/concepts/templates/)'s title and body | template | [the event and the notification](#a-message-template) | text | The default wording is sent; the delivery gets a warning. |
+| A [connector definition](/ramzes/reference/connector-definitions/)'s `url`, `headers` and `body` | template | [the message and the connection](#a-connector-definition) | the request | The delivery fails for good. |
+| A [source mapping](/ramzes/reference/mappings/)'s `events`, `when` and `fields` | expression | [the request](#a-source-mapping) | events | The request is refused with `422`. |
+
+Every one of these is checked for syntax when you save it. The failures in the last column are those that happen later, on a particular event.
+
+## How ramzes configures the language
+
+**Missing values are empty, not errors.** `payload.customer.tier` on an event with no `customer` is an undefined value, however deep the path goes. It prints as nothing, is false in a condition, and becomes `null` as the result of an expression.
+
+**Nothing is escaped.** Values are inserted as they are. Where the output must be JSON or HTML, apply `tojson` or `e` yourself.
+
+**Values are never evaluated again.** Text that comes from an event is data. A title that contains `{{ 7 * 7 }}` prints those characters.
+
+**There is nothing to include.** `{% include %}`, `{% extends %}` and `{% import %}` find no templates. Macros and `{% set %}` work within one template.
+
+### What ramzes adds
+
+| Name | Kind | Use | Result |
+| --- | --- | --- | --- |
+| `cut(n)` | filter | `{{ title \| cut(80) }}` | At most `n` characters. When the text is longer it is shortened to `n - 1` characters and ends in `…`. |
+| `urlpath` | filter | `{{ message.dedup_key \| urlpath }}` | Percent-encodes every character except ASCII letters and digits, so the value is safe as one segment of a URL path: `acme/shop CI` becomes `acme%2Fshop%20CI`. |
+| `digits` | test | `{% if chat is digits %}` | True for text that is a whole number, optionally negative, of at most 18 digits. |
+
+### Built-in filters and tests
+
+These were tried on this build and work as MiniJinja documents them:
+
+- **Filters:** `abs`, `batch`, `bool`, `capitalize`, `default`, `dictsort`, `e` (also `escape`), `first`, `float`, `format`, `indent`, `int`, `items`, `join`, `last`, `length`, `lines`, `list`, `lower`, `map`, `max`, `min`, `pprint`, `replace`, `reverse`, `round`, `safe`, `selectattr`, `sort`, `split`, `string`, `sum`, `title`, `tojson`, `trim`, `unique`, `upper`.
+- **Tests:** `defined`, `undefined`, `none`, `string`, `number`, `odd`, `divisibleby`, `startingwith`, `endingwith`, and the `in` operator.
+- **Functions:** `range`, `dict`, `namespace`.
+
+Not available: `urlencode`, `truncate` (use `cut`), `wordcount`, any date formatting, a `now()` function, a regular-expression test, and Python string methods such as `title.upper()` (use the filter, `title | upper`).
+
+## Limits
+
+| Limit | Value | Error message |
+| --- | --- | --- |
+| Source length | 32 KiB (32,768 bytes) per expression or template part | `it is longer than 32768 bytes` |
+| Work | 50,000 instructions per evaluation | `it did too much work and was stopped` |
+| Output of a template | 256 KiB (262,144 bytes) | `its output is too long (over 262144 bytes)` |
+
+The work limit is MiniJinja's fuel: every instruction the evaluation executes uses one unit, so a loop pays for each pass. `{% for i in range(100000) %}{% endfor %}` is stopped. What the error then does is in the table [above](#where-each-is-used).
+
+:::caution[No memory limit]
+The work limit bounds how much an evaluation computes, not how much memory it uses. An expression can build a large value within its allowance. Everyone who can write expressions in ramzes is an administrator, so this is a limit on mistakes, not a security boundary against a hostile author.
+:::
+
+## What each place can read
+
+### The event
+
+Route expressions, silence expressions and dedup keys see the event's fields by name:
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `topic`, `title` | text | |
+| `severity` | text | `debug`, `info`, `warning`, `error` or `critical` |
+| `status` | text | `firing` or `resolved` |
+| `body` | text or none | |
+| `labels` | object of text | `labels.env`, or `labels['my-key']` for keys with a dash or a dot |
+| `payload` | any JSON | `payload.order.id`, `payload.items[0]` |
+| `dedup_key` | text or none | |
+| `id`, `source_id` | text | |
+| `occurred_at`, `received_at` | integer | Unix milliseconds |
+
+```text
+payload.amount > 100 and labels.env == 'prod'
+payload.customer.tier in ['gold', 'platinum']
+severity in ['error', 'critical'] and not (labels.team == 'platform')
+topic is startingwith('payments.') and payload.attempts >= 3
+labels.region is undefined
+```
+
+### A message template
+
+A [template](/ramzes/concepts/templates/) sees the first event of the notification by the names above, and:
+
+| Name | Value |
+| --- | --- |
+| `events` | Every event the message covers, each with the fields above. |
+| `count` | How many events the message covers. |
+| `message.title`, `message.body`, `message.link` | The default wording, and the link to ramzes when the instance has a public URL. |
+
+```text
+{{ message.title }}{% if payload.runbook %} · runbook: {{ payload.runbook }}{% endif %}
+```
+
+### A connector definition
+
+The templates of a [connector definition](/ramzes/reference/connector-definitions/#what-the-templates-can-read) see `message`, `settings`, `credentials`, `destination` and `now_ms`. The event itself is not available there: a connector formats a message that is already worded.
+
+```text
+{{ settings.base_url }}/rooms/{{ destination | default(settings.room) | urlpath }}/messages
+```
+
+### A source mapping
+
+The expressions of a [mapping](/ramzes/reference/mappings/#what-the-expressions-can-read) see `payload` (the request body), `headers` (lower-case names) and `item` (the current element of the `events` list, or the payload).
+
+```text
+'alertmanager.' ~ (item.labels.alertname or 'alert')
+'resolved' if payload.action == 'resolved' else 'firing'
+```
+
+## Things to watch for
+
+Each of these was observed on this build.
+
+**Severity is text.** `severity >= 'warning'` compares alphabetically and is false for `error`. Use `severity in ['error', 'critical']`, or the route's minimum severity, which knows the order.
+
+**Text and numbers compare without an error.** A payload that carries `"amount": "50"` as text makes `payload.amount > 100` true, because any text sorts after any number. Convert first: `payload.amount | int > 100`. The conversion fails when the text is not a number, which for a route means no match and a recorded error.
+
+**A missing value compares as the smallest.** `payload.retries > 5` is false when `retries` is missing, as you would want. But `payload.retries < 5` is true. Guard it: `payload.retries is defined and payload.retries < 5`.
+
+**Missing and null are different.** `payload.x == none` is true when the payload has `"x": null` and false when it has no `x`. Use `is undefined` for a missing value and `is none` for a null one. Both are false in a condition, so `not payload.x` covers both, along with `0`, `false`, empty text, an empty list and an empty object.
+
+**Arithmetic and most filters on a missing value fail.** `payload.count + 1` and `payload.items | length` are errors when the field is missing. Give a default first: `(payload.items | default([])) | length`.
+
+**None prints as `None`.** `{{ body }}` for an event without a body prints the text `None`, since the field exists and holds no value. Write `{{ body or '' }}`. In the same way `true` prints as `True`.
+
+**`default` applies to missing values only.** `{{ dedup_key | default('-') }}` still prints `None` for an event without a key, because the field exists. Pass `true` as the second argument to cover none and other false values: `default('-', true)`.
+
+**Times are numbers.** `occurred_at` is Unix milliseconds and there is no filter that formats a date.
+
+**Put text into JSON with `tojson`.** In a connector definition's body, `"title": {{ message.title | tojson }}` writes the quotes and escapes for you. Writing `"{{ message.title }}"` breaks on the first title that contains a quote.

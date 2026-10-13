@@ -1,6 +1,174 @@
 ---
 title: "ntfy, Telegram and Pushover"
-description: "ntfy, Telegram and Pushover in ramzes."
+description: "Push notifications through ntfy, Telegram and Pushover: the settings of each connector, the exact request ramzes sends, how severity becomes a priority, and which carry the acknowledgement link."
 ---
 
-This page is being written.
+Three connectors reach phones and desktops: **ntfy**, **Telegram** and **Pushover**. This page covers the settings and the exact request of each.
+
+:::note
+None of these connectors has been sent to its live service. The requests were written from each service's documentation and are pinned by snapshot tests. See [Verified claims](/ramzes/verified/).
+:::
+
+| | ntfy | Telegram | Pushover |
+| --- | --- | --- | --- |
+| Destination per route target | Topic | Chat ID | none |
+| Labels in the message | no | the first 8 | no |
+| Link to ramzes | opens on tap | a link in the text | a link under the message |
+| Acknowledgement link | an action button | a link in the text | not carried |
+
+All three send a new message each time. None changes a message it has sent, and a resolution arrives as another message.
+
+## ntfy
+
+Sends to a topic on `ntfy.sh` or on your own ntfy server.
+
+### Settings
+
+Open **Connections** and select **ntfy** under **Email and push**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **Server** | yes | `https://ntfy.sh`, or the address of your own server. |
+| **Default topic** | no | Used by routes that name no topic. |
+| **Access token** | no | Only for topics that need sign-in. Starts with `tk_`. Stored encrypted. |
+
+A route target that uses the connection has a **Topic** input. A message goes to that topic, or to the default topic when the target names none. Give the connection a default topic if you want **Send test message** to work.
+
+A message is addressed by the topic's name alone. If the topics on your server are open to anyone who knows the name, choose one that cannot be guessed, or protect the topic and set an access token.
+
+### What is sent
+
+A `POST` to the server's address with a JSON body. When an access token is set the request carries `Authorization: Bearer <token>`; without one the header is left out.
+
+```json
+{
+  "topic": "ops",
+  "title": "Charge failed: card network timeout",
+  "message": "14 charges failed in the last 30 s",
+  "priority": 5,
+  "tags": ["rotating_light"],
+  "click": "https://ramzes.example.com/events/0199",
+  "actions": [
+    { "action": "view", "label": "Acknowledge", "url": "https://ramzes.example.com/ack/n1?t=abc" }
+  ]
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `topic` | The target's topic, or the default topic. |
+| `title` | The title, at most 200 characters. |
+| `message` | The body, at most 1,000 characters. A message with no body uses its topic, such as `deploy.finished`. |
+| `priority`, `tags` | From status and severity, see below. |
+| `click` | The link to ramzes. Left out without a public URL. |
+| `actions` | One `view` action labelled **Acknowledge**. Present only while the notification can be acknowledged and ramzes has a public URL. |
+
+| Message | `priority` | Tag |
+| --- | --- | --- |
+| resolved | 2 | `white_check_mark` |
+| `critical` | 5 | `rotating_light` |
+| `error` | 4 | `red_circle` |
+| `warning` | 3 | `warning` |
+| `info` | 3 | `information_source` |
+| `debug` | 2 | `white_circle` |
+
+Any `2xx` answer means delivered.
+
+## Telegram
+
+Sends to a chat, group or channel through a bot.
+
+### Settings
+
+Create a bot with `@BotFather`; it gives you the token. The bot must be a member of the chat it sends to. Then open **Connections** and select **Telegram** under **Chat**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **Bot token** | yes | The token from `@BotFather`. Stored encrypted. |
+| **Default chat ID** | no | A numeric chat id, or `@channelname`. Used by routes that name no chat. |
+
+A route target that uses the connection has a **Chat ID** input, which overrides the default. Give the connection a default chat if you want **Send test message** to work.
+
+### What is sent
+
+A `POST` to `https://api.telegram.org/bot<token>/sendMessage`. The token is part of the address; ramzes masks it wherever it shows the request.
+
+```json
+{
+  "chat_id": -1001234567890,
+  "text": "<b>Charge failed: card network timeout</b>\n14 charges failed in the last 30 s\n\n<i>env</i>: prod\n<i>service</i>: payments\n\n<code>payments.charge.failed</code> · firing · critical\n<a href=\"https:&#x2f;&#x2f;ramzes.example.com&#x2f;events&#x2f;0199\">Open in ramzes</a>\n<a href=\"https:&#x2f;&#x2f;ramzes.example.com&#x2f;ack&#x2f;n1?t=abc\">Acknowledge</a>",
+  "parse_mode": "HTML",
+  "link_preview_options": { "is_disabled": true }
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `chat_id` | The target's chat, or the default. A value made only of digits, with an optional minus sign, is sent as a number; anything else, such as `@ops_channel`, as a string. |
+| `text` | HTML, described below. |
+| `parse_mode` | Always `HTML`. |
+| `link_preview_options` | Link previews are switched off. |
+
+The text is built in this order:
+
+1. The title in bold, at most 250 characters.
+2. The body, at most 2,400 characters, if there is one.
+3. The first 8 labels, one per line: the key in italics (at most 40 characters) and the value (at most 100).
+4. A line with the topic in a code span, the status and the severity.
+5. An **Open in ramzes** link and an **Acknowledge** link, when ramzes has a public URL and the notification can be acknowledged.
+
+Every value taken from an event is HTML-escaped before it is placed in the text, so a title containing `<b>` is shown as written. The escaping also writes `/` as `&#x2f;`, which is why the links in the example look the way they do.
+
+Any `2xx` answer means delivered.
+
+## Pushover
+
+Sends to the devices of a Pushover user or group.
+
+### Settings
+
+Create an application at pushover.net to get an API token. Then open **Connections** and select **Pushover** under **Email and push**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **Application token** | yes | The application's API token. Stored encrypted. |
+| **User or group key** | yes | Shown on your Pushover dashboard. Stored encrypted. |
+
+There is no destination: one connection sends to one user or group key. For another recipient, add another connection.
+
+### What is sent
+
+A `POST` to `https://api.pushover.net/1/messages.json` with a JSON body:
+
+```json
+{
+  "token": "••••",
+  "user": "••••",
+  "title": "Charge failed: card network timeout",
+  "message": "14 charges failed in the last 30 s",
+  "priority": 1,
+  "url": "https://ramzes.example.com/events/0199",
+  "url_title": "Open in ramzes"
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `token`, `user` | The two secrets of the connection. |
+| `title` | The title, at most 250 characters. |
+| `message` | The body, at most 1,000 characters. A message with no body uses its topic. |
+| `priority` | `1` for a firing `critical` message, `-1` for a firing `debug` message, `0` for everything else, including every resolved message. |
+| `url`, `url_title` | The link to ramzes (at most 500 characters) and the text `Open in ramzes`. Left out without a public URL. |
+
+Labels are not included, and neither is the acknowledgement link. To acknowledge from a Pushover message, open the link to ramzes and acknowledge there.
+
+ramzes sends only the priorities `-1`, `0` and `1`.
+
+Any `2xx` answer means delivered.
+
+## Common to all three
+
+- Text over a limit is cut and ends in an ellipsis.
+- The link to ramzes and the acknowledgement link need a public URL, set in [Settings](/ramzes/guide/settings/) or with `RAMZES_PUBLIC_URL`. See [Escalation and acknowledgement](/ramzes/concepts/escalation/#the-acknowledgement-link).
+- `408`, `425`, `429` and `5xx` are retried; any other status outside `2xx` is final. See [Delivery and retries](/ramzes/concepts/delivery/).
+- Each is a YAML definition compiled into the binary, under `crates/ramzes-connectors/src/definitions/`. To change a message, copy the definition under another kind as [your own connector](/ramzes/channels/custom/).

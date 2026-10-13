@@ -1,6 +1,183 @@
 ---
 title: "Webhook"
-description: "Webhook in ramzes."
+description: "The generic webhook connector: its two settings, the JSON body field by field, the X-Ramzes-Signature header and how to verify it, with tested examples in Python and Node.js."
 ---
 
-This page is being written.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The Webhook connector sends each message as a JSON `POST` to a URL of your choice, signed when you set a secret. Use it to feed your own service, an automation tool, or anything ramzes has no connector for. This page covers the settings, the body and how to verify the signature.
+
+If the receiving service needs a different body, write [your own connector](/ramzes/channels/custom/) instead: this connector's body is fixed.
+
+## Settings
+
+Open **Connections** and select **Webhook** under **Generic**.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| **URL** | yes | Where to send the request. An absolute `http` or `https` URL. |
+| **Signing secret** | no | When set, each request carries an HMAC-SHA256 signature in `X-Ramzes-Signature`. Stored encrypted. |
+
+The URL is a setting, not a secret: it is shown when you edit the connection and included in a configuration export. Do not put credentials in it.
+
+There is no destination. One connection posts to one URL.
+
+## The request
+
+```txt
+POST <your URL>
+Content-Type: application/json
+User-Agent: ramzes/<version>
+X-Ramzes-Signature: sha256=<hex>      (only with a signing secret)
+X-Ramzes-Timestamp: 1791884467000     (only with a signing secret)
+```
+
+```json
+{
+  "title": "Charge failed: card network timeout",
+  "body": "14 charges failed in the last 30 s",
+  "severity": "critical",
+  "status": "firing",
+  "topic": "payments.charge.failed",
+  "labels": {
+    "env": "prod",
+    "service": "payments"
+  },
+  "link": "https://ramzes.example.com/events/0199",
+  "ack_link": null,
+  "dedup_key": null,
+  "event_ids": ["0199"],
+  "sent_at": 1791884467000
+}
+```
+
+Every field is always present. One that has no value is `null`, not left out.
+
+| Field | Type | Content |
+| --- | --- | --- |
+| `title` | string | The message's title, as worded by the route's [template](/ramzes/concepts/templates/) if it has one. |
+| `body` | string or `null` | The message's body. |
+| `severity` | string | `debug`, `info`, `warning`, `error` or `critical`. For a message about several events, the highest among them. |
+| `status` | string | `firing`, or `resolved` for the notice that a notification is over. |
+| `topic` | string | The event's topic. `several topics` when the message summarises events on different topics. |
+| `labels` | object | The event's labels. For a summary, the labels all its events share. |
+| `link` | string or `null` | A link to the event or notification in ramzes. `null` when ramzes has no public URL. |
+| `ack_link` | string or `null` | The [acknowledgement link](/ramzes/concepts/escalation/#the-acknowledgement-link). `null` without a public URL, and once the notification is acknowledged or resolved. |
+| `dedup_key` | string or `null` | What the message is about: the notification's dedup key, or its id when it has none. The firing message and its resolution carry the same value. `null` only in a connection test. |
+| `event_ids` | array of strings | The ids of the events the message covers. Empty in a connection test. |
+| `sent_at` | number | When this attempt was made, in Unix milliseconds. |
+
+The event's `payload` is not part of the body. To pass a value from it, put it into the title or body with a template, or write your own connector.
+
+To pair a resolution with the message it closes, match on `dedup_key` and look at `status`.
+
+## Answering
+
+Answer with any `2xx` status within 10 seconds and the message is delivered. The body of your answer is ignored on success.
+
+| Your answer | What ramzes does |
+| --- | --- |
+| `2xx` | Delivered. |
+| `408`, `425`, `429`, `5xx` | Retries later. With a `Retry-After` header holding a number of seconds, it waits at least that long. |
+| No answer within 10 seconds, or no connection | Retries later. |
+| A redirect (`3xx`) | Final failure. Redirects are not followed. |
+| Any other `4xx` | Final failure. Up to 500 characters of your answer are kept as the reason. |
+
+A retry is a new request. Because an attempt that timed out may still have reached you, the same message can arrive more than once. Make your receiver tolerate a repeat. The retry schedule is in [Delivery and retries](/ramzes/concepts/delivery/).
+
+## The signature
+
+With a **Signing secret**, every request carries two headers:
+
+| Header | Value |
+| --- | --- |
+| `X-Ramzes-Timestamp` | The time of the attempt in Unix **milliseconds**, as decimal digits. The same number as `sent_at`. |
+| `X-Ramzes-Signature` | `sha256=` followed by the lower-case hexadecimal HMAC-SHA256 of the signed text, keyed with the secret. |
+
+The signed text is the timestamp, a full stop, and the request body exactly as it was sent:
+
+```txt
+<X-Ramzes-Timestamp>.<raw request body>
+```
+
+To verify a request:
+
+1. Read the raw body as bytes, before any JSON parsing. A body that is parsed and written out again may differ in spacing or key order and will not match.
+2. Compute the HMAC-SHA256 of `timestamp + "." + body` with your secret and put `sha256=` in front of its hex form.
+3. Compare it with the header using a constant-time comparison.
+4. Reject a timestamp that is too far from your clock. ramzes does not do this for you; it is your defence against a captured request being sent again. Five minutes is a common choice.
+
+Each attempt is signed afresh, so a retry has a new timestamp and a new signature.
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+import hashlib
+import hmac
+import time
+
+MAX_AGE_MS = 5 * 60 * 1000
+
+def is_from_ramzes(secret: str, headers, raw_body: bytes) -> bool:
+    timestamp = headers.get("X-Ramzes-Timestamp", "")
+    given = headers.get("X-Ramzes-Signature", "")
+    if not timestamp.isdigit():
+        return False
+    if abs(time.time() * 1000 - int(timestamp)) > MAX_AGE_MS:
+        return False
+    signed = timestamp.encode() + b"." + raw_body
+    expected = "sha256=" + hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(given, expected)
+```
+
+</TabItem>
+<TabItem label="Node.js">
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+const MAX_AGE_MS = 5 * 60 * 1000;
+
+// `headers` has lower-case names, as Node's http module gives them. `rawBody` is a Buffer.
+export function isFromRamzes(secret, headers, rawBody) {
+  const timestamp = headers['x-ramzes-timestamp'] ?? '';
+  const given = headers['x-ramzes-signature'] ?? '';
+  if (!/^\d+$/.test(timestamp)) return false;
+  if (Math.abs(Date.now() - Number(timestamp)) > MAX_AGE_MS) return false;
+  const expected =
+    'sha256=' + createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest('hex');
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+</TabItem>
+<TabItem label="Shell">
+
+To check one captured request by hand:
+
+```sh
+SECRET='s3cret'
+TIMESTAMP='1791884467000'          # the X-Ramzes-Timestamp header
+# body.json holds the request body byte for byte
+
+printf 'sha256=%s\n' "$( { printf '%s.' "$TIMESTAMP"; cat body.json; } \
+  | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')"
+```
+
+The output must equal the `X-Ramzes-Signature` header.
+
+</TabItem>
+</Tabs>
+
+Without a signing secret the two headers are absent and nothing proves where a request came from. Set a secret for any receiver that is reachable by others.
+
+## Seeing the request before it is sent
+
+The event's page in ramzes shows the request each target would receive, with the signature header in place and the secret masked. See [Feed and event journey](/ramzes/guide/feed/). **Send test message** on the connection's row posts a message titled `Test message from ramzes` with the topic `ramzes.test`, no labels, and `null` for `link`, `ack_link` and `dedup_key`.
+
+## Private addresses
+
+By default the URL may point anywhere, including `localhost` and addresses inside your network. When the instance runs with `block_private_addresses`, a URL that is, or resolves to, a private address is refused and the delivery fails for good. See [Channels overview](/ramzes/channels/overview/#the-private-address-block).
