@@ -60,6 +60,8 @@ pub struct NotificationRow {
     /// Messages sent for it so far.
     pub sent_count: i64,
     pub held_until: Option<i64>,
+    /// When a message was last sent for it.
+    pub sent_at: Option<i64>,
     /// When it is next due to be sent, released or repeated.
     pub next_timer_at: Option<i64>,
     pub acked_by: Option<String>,
@@ -95,7 +97,7 @@ pub struct NotificationDetail {
 }
 
 const ROW_COLS: &str = "n.id, n.route_id, n.route_name, n.connection_id, c.name AS connection_name, n.destination, \
-     n.state, n.reason, n.title, n.severity, n.event_count, n.sent_count, n.held_until, n.acked_by, n.acked_at, \
+     n.state, n.reason, n.title, n.severity, n.event_count, n.sent_count, n.held_until, n.sent_at, n.acked_by, n.acked_at, \
      n.resolved_at, n.created_at, n.updated_at, \
      (SELECT MIN(t.due_at) FROM timers t WHERE t.notification_id = n.id) AS next_timer_at";
 
@@ -117,6 +119,7 @@ macro_rules! notification_row {
             event_count: $row.try_get("event_count")?,
             sent_count: $row.try_get("sent_count")?,
             held_until: $row.try_get("held_until")?,
+            sent_at: $row.try_get("sent_at")?,
             next_timer_at: $row.try_get("next_timer_at")?,
             acked_by: $row.try_get("acked_by")?,
             acked_at: $row.try_get("acked_at")?,

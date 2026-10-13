@@ -56,6 +56,10 @@ pub struct EventRow {
     pub deliveries_total: i64,
     pub deliveries_delivered: i64,
     pub deliveries_failed: i64,
+    /// Notifications of the event that are collecting or held: something is still to be sent.
+    pub notifications_waiting: i64,
+    /// Notifications of the event that were not sent: silenced, or a resolution of nothing open.
+    pub notifications_suppressed: i64,
     /// Names of the connections the event was sent to, in order of first use.
     pub targets: Vec<String>,
 }
@@ -67,6 +71,10 @@ const MAX_PAGE: i64 = 500;
 /// Deliveries belonging to event `e`.
 const DELIVERIES_OF_E: &str = "FROM notification_events ne JOIN deliveries d ON d.notification_id = ne.notification_id \
                                WHERE ne.event_id = e.id";
+
+/// Notifications belonging to event `e`.
+const NOTIFICATIONS_OF_E: &str = "FROM notification_events ne JOIN notifications n ON n.id = ne.notification_id \
+                                  WHERE ne.event_id = e.id";
 
 /// An event row before its text columns are parsed.
 pub(crate) struct RawEvent {
@@ -355,7 +363,9 @@ impl Store {
             "SELECT {cols}, e.routed_at, e.route_count, \
              (SELECT COUNT(*) {DELIVERIES_OF_E}) AS d_total, \
              (SELECT COUNT(*) {DELIVERIES_OF_E} AND d.state = 'delivered') AS d_delivered, \
-             (SELECT COUNT(*) {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead')) AS d_failed \
+             (SELECT COUNT(*) {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead')) AS d_failed, \
+             (SELECT COUNT(*) {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) AS n_waiting, \
+             (SELECT COUNT(*) {NOTIFICATIONS_OF_E} AND n.state = 'suppressed') AS n_suppressed \
              FROM events e WHERE e.workspace_id = "
         ));
         sql.text(workspace_id);
@@ -429,6 +439,8 @@ impl Store {
             total: i64,
             delivered: i64,
             failed: i64,
+            waiting: i64,
+            suppressed: i64,
         }
         let rows: Vec<(RawEvent, Extra)> = with_db!(self, |pool| {
             let rows = bind_args!(sqlx::query(AssertSqlSafe(text.as_str())), sql.args)
@@ -442,6 +454,8 @@ impl Store {
                         total: row.try_get("d_total")?,
                         delivered: row.try_get("d_delivered")?,
                         failed: row.try_get("d_failed")?,
+                        waiting: row.try_get("n_waiting")?,
+                        suppressed: row.try_get("n_suppressed")?,
                     };
                     Ok::<_, sqlx::Error>((raw_event!(row), extra))
                 })
@@ -463,6 +477,8 @@ impl Store {
                 deliveries_total: x.total,
                 deliveries_delivered: x.delivered,
                 deliveries_failed: x.failed,
+                notifications_waiting: x.waiting,
+                notifications_suppressed: x.suppressed,
             })
             .collect())
     }

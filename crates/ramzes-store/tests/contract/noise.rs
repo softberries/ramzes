@@ -698,6 +698,26 @@ async fn notifications_are_listed_by_state_and_shown_in_detail(store: Store) {
         ("Order 17 failed", Some("hook c1"), 1)
     );
     assert_eq!(row.next_timer_at, Some(30_100));
+    assert_eq!(row.sent_at, None);
+    assert_eq!(
+        all.iter()
+            .find(|n| n.id == first.notification_id)
+            .unwrap()
+            .sent_at,
+        Some(100)
+    );
+    let filter = ramzes_store::EventFilter {
+        limit: 10,
+        ..Default::default()
+    };
+    let feed = store.list_events(&ws, &filter).await.unwrap();
+    assert_eq!(
+        (
+            feed[0].notifications_waiting,
+            feed[0].notifications_suppressed
+        ),
+        (1, 1)
+    );
 
     let filter = NotificationFilter {
         states: vec![NotificationState::Grouping, NotificationState::Held],

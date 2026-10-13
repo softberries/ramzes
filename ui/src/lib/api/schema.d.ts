@@ -132,7 +132,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Make the configuration what it was after a past change. Source keys are not affected. */
+        /**
+         * Make the configuration what it was after a past change. Source keys are not affected, and
+         *     connections that still exist keep their current credentials.
+         */
         post: operations["rollback"];
         delete?: never;
         options?: never;
@@ -406,7 +409,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One notification with its events and deliveries. */
+        /** One notification with its events, deliveries and escalation progress. */
         get: operations["detail"];
         put?: never;
         post?: never;
@@ -1067,6 +1070,13 @@ export interface components {
             next_attempt_at: number;
             notification_id: string;
             state: components["schemas"]["DeliveryState"];
+            /**
+             * Format: int64
+             * @description The escalation step that sent it, counted from 0. Absent for the route's own targets.
+             */
+            step?: number | null;
+            /** @description The template that words it, when it differs from the notification's. */
+            template_id?: string | null;
             /** Format: int64 */
             updated_at: number;
             /** @description Something went wrong that did not stop the send, for example a template that failed. */
@@ -1081,6 +1091,15 @@ export interface components {
             error: string;
             /** @description What went wrong, for people. */
             message: string;
+        };
+        /** @description One step of an escalation chain. */
+        EscalationStep: {
+            /**
+             * Format: int64
+             * @description Seconds after the previous step (or after the notification was first sent).
+             */
+            after_s: number;
+            targets: components["schemas"]["Target"][];
         };
         /** @description A stored event. */
         Event: {
@@ -1125,6 +1144,16 @@ export interface components {
             deliveries_failed: number;
             /** Format: int64 */
             deliveries_total: number;
+            /**
+             * Format: int64
+             * @description Notifications of the event that were not sent: silenced, or a resolution of nothing open.
+             */
+            notifications_suppressed: number;
+            /**
+             * Format: int64
+             * @description Notifications of the event that are collecting or held: something is still to be sent.
+             */
+            notifications_waiting: number;
             /** Format: int64 */
             route_count: number;
             routed: boolean;
@@ -1378,6 +1407,11 @@ export interface components {
             route_name: string;
             /**
              * Format: int64
+             * @description When a message was last sent for it.
+             */
+            sent_at?: number | null;
+            /**
+             * Format: int64
              * @description Messages sent for it so far.
              */
             sent_count: number;
@@ -1391,6 +1425,10 @@ export interface components {
         };
         /** @enum {string} */
         NotificationState: "grouping" | "held" | "sent" | "acknowledged" | "resolved" | "suppressed";
+        NotificationView: components["schemas"]["NotificationDetail"] & {
+            /** @description The escalation chain of the route as it is now. Empty when the route has none. */
+            escalation: components["schemas"]["StepProgress"][];
+        };
         OverviewView: {
             /** Format: int64 */
             bucket_ms: number;
@@ -1494,6 +1532,8 @@ export interface components {
         };
         Route: {
             enabled: boolean;
+            /** @description Who else is told, and after how long, while nobody acknowledges. */
+            escalation?: components["schemas"]["EscalationStep"][];
             id: string;
             match: components["schemas"]["RouteMatch"];
             name: string;
@@ -1507,6 +1547,8 @@ export interface components {
         };
         RouteInput: {
             enabled?: boolean;
+            /** @description Who else is told, and after how long, while nobody acknowledges. */
+            escalation?: components["schemas"]["EscalationStep"][];
             match: components["schemas"]["RouteMatch"];
             name: string;
             /** @description Dedup, grouping, quiet hours and rate limit. Empty sends every matching event at once. */
@@ -1640,6 +1682,31 @@ export interface components {
             /** @description `silence`, `resolve`, `dedup`, `group`, `quiet_hours`, `rate_limit` or `send`. */
             step: string;
         };
+        /** @description One step of the route's escalation chain and how far this notification is with it. */
+        StepProgress: {
+            /**
+             * Format: int64
+             * @description Seconds after the previous step.
+             */
+            after_s: number;
+            /**
+             * Format: int64
+             * @description When it will go out, if it is the next one and the notification is still unacknowledged.
+             */
+            due_at?: number | null;
+            /**
+             * Format: int64
+             * @description When the step went out.
+             */
+            sent_at?: number | null;
+            targets: components["schemas"]["StepTarget"][];
+        };
+        StepTarget: {
+            connection_id: string;
+            /** @description Absent when the connection was deleted. */
+            connection_name?: string | null;
+            destination?: string | null;
+        };
         /** @description Where a route sends: a connection and an optional destination within it (for example a channel). */
         Target: {
             connection_id: string;
@@ -1766,6 +1833,14 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2534,7 +2609,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationDetail"];
+                    "application/json": components["schemas"]["NotificationView"];
                 };
             };
             404: {

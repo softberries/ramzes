@@ -45,6 +45,15 @@
                 }
               }
             }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -208,7 +217,7 @@
         "tags": [
           "config"
         ],
-        "summary": "Make the configuration what it was after a past change. Source keys are not affected.",
+        "summary": "Make the configuration what it was after a past change. Source keys are not affected, and\nconnections that still exist keep their current credentials.",
         "operationId": "rollback",
         "parameters": [
           {
@@ -1059,7 +1068,7 @@
         "tags": [
           "notifications"
         ],
-        "summary": "One notification with its events and deliveries.",
+        "summary": "One notification with its events, deliveries and escalation progress.",
         "operationId": "detail",
         "parameters": [
           {
@@ -1076,7 +1085,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotificationDetail"
+                  "$ref": "#/components/schemas/NotificationView"
                 }
               }
             }
@@ -2892,6 +2901,21 @@
           "state": {
             "$ref": "#/components/schemas/DeliveryState"
           },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The escalation step that sent it, counted from 0. Absent for the route's own targets."
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The template that words it, when it differs from the notification's."
+          },
           "updated_at": {
             "type": "integer",
             "format": "int64"
@@ -2935,6 +2959,28 @@
             "description": "What went wrong, for people."
           }
         }
+      },
+      "EscalationStep": {
+        "type": "object",
+        "description": "One step of an escalation chain.",
+        "required": [
+          "after_s",
+          "targets"
+        ],
+        "properties": {
+          "after_s": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds after the previous step (or after the notification was first sent)."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "Event": {
         "type": "object",
@@ -3055,6 +3101,8 @@
               "deliveries_total",
               "deliveries_delivered",
               "deliveries_failed",
+              "notifications_waiting",
+              "notifications_suppressed",
               "targets"
             ],
             "properties": {
@@ -3069,6 +3117,16 @@
               "deliveries_total": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "notifications_suppressed": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Notifications of the event that were not sent: silenced, or a resolution of nothing open."
+              },
+              "notifications_waiting": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Notifications of the event that are collecting or held: something is still to be sent."
               },
               "route_count": {
                 "type": "integer",
@@ -3934,6 +3992,14 @@
           "route_name": {
             "type": "string"
           },
+          "sent_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When a message was last sent for it."
+          },
           "sent_count": {
             "type": "integer",
             "format": "int64",
@@ -3965,6 +4031,28 @@
           "acknowledged",
           "resolved",
           "suppressed"
+        ]
+      },
+      "NotificationView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationDetail"
+          },
+          {
+            "type": "object",
+            "required": [
+              "escalation"
+            ],
+            "properties": {
+              "escalation": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StepProgress"
+                },
+                "description": "The escalation chain of the route as it is now. Empty when the route has none."
+              }
+            }
+          }
         ]
       },
       "OverviewView": {
@@ -4284,6 +4372,13 @@
           "enabled": {
             "type": "boolean"
           },
+          "escalation": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EscalationStep"
+            },
+            "description": "Who else is told, and after how long, while nobody acknowledges."
+          },
           "id": {
             "type": "string"
           },
@@ -4323,6 +4418,13 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "escalation": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EscalationStep"
+            },
+            "description": "Who else is told, and after how long, while nobody acknowledges."
           },
           "match": {
             "$ref": "#/components/schemas/RouteMatch"
@@ -4802,6 +4904,67 @@
           "step": {
             "type": "string",
             "description": "`silence`, `resolve`, `dedup`, `group`, `quiet_hours`, `rate_limit` or `send`."
+          }
+        }
+      },
+      "StepProgress": {
+        "type": "object",
+        "description": "One step of the route's escalation chain and how far this notification is with it.",
+        "required": [
+          "after_s",
+          "targets"
+        ],
+        "properties": {
+          "after_s": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds after the previous step."
+          },
+          "due_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it will go out, if it is the next one and the notification is still unacknowledged."
+          },
+          "sent_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the step went out."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepTarget"
+            }
+          }
+        }
+      },
+      "StepTarget": {
+        "type": "object",
+        "required": [
+          "connection_id"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "connection_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the connection was deleted."
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
