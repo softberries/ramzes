@@ -287,6 +287,7 @@ async fn joining_adds_the_event_and_raises_the_severity(store: Store) {
     let join = Join {
         notification_id: d.notification_id.clone(),
         role: Role::Grouped,
+        dedup_key: None,
         resolve: None,
     };
     store
@@ -346,6 +347,7 @@ async fn resolving_closes_the_notification_and_cancels_its_timers(store: Store) 
     let join = Join {
         notification_id: d.notification_id.clone(),
         role: Role::Resolved,
+        dedup_key: None,
         resolve: Some(vec![ramzes_store::NewDelivery {
             id: notice.clone(),
             connection_id: "c1".into(),
@@ -466,6 +468,7 @@ async fn merging_moves_events_and_removes_the_source(store: Store) {
     let join = Join {
         notification_id: group.notification_id.clone(),
         role: Role::Grouped,
+        dedup_key: None,
         resolve: None,
     };
     store
@@ -741,6 +744,7 @@ async fn the_journey_says_what_role_an_event_played(store: Store) {
     let join = Join {
         notification_id: d.notification_id.clone(),
         role: Role::Duplicate,
+        dedup_key: None,
         resolve: None,
     };
     store

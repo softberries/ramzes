@@ -76,6 +76,10 @@ fn rejected(detail: impl Into<String>) -> SendOutcome {
 fn connection_verdict(outcome: &SendOutcome) -> Option<bool> {
     match outcome {
         SendOutcome::Delivered { .. } => Some(true),
+        // Being told to slow down means the service is there; the retry delay handles it.
+        SendOutcome::Retry {
+            status: Some(429), ..
+        } => None,
         SendOutcome::Retry { .. } => Some(false),
         // Wrong credentials or a missing endpoint fail every message; a 400 may be this one only.
         SendOutcome::Permanent {
@@ -294,6 +298,9 @@ impl Engine {
             .store
             .notification_events(&delivery.notification_id)
             .await?;
+        let about_ramzes = events
+            .iter()
+            .any(|e| e.topic.starts_with(SYSTEM_TOPIC_PREFIX));
         self.announce(Change::DeliveryUpdated {
             event_ids: events.into_iter().map(|e| e.id).collect(),
             delivery_id: delivery.id.clone(),
@@ -301,6 +308,31 @@ impl Engine {
             connector_kind: "none".to_owned(),
             duration_ms: 0,
         });
+        if !about_ramzes {
+            let connection = self
+                .config
+                .store
+                .get_connection(&delivery.workspace_id, &delivery.connection_id)
+                .await?;
+            let name = connection.map_or_else(|| "a deleted connection".to_owned(), |c| c.name);
+            self.raise(
+                &delivery.workspace_id,
+                SystemEvent {
+                    topic: "ramzes.delivery.failed",
+                    title: format!("A message to {name} could not be delivered"),
+                    body: attempt.detail.clone(),
+                    severity: Severity::Warning,
+                    labels: &[
+                        ("connection", &name),
+                        ("connection_id", &delivery.connection_id),
+                        ("outcome", "gave up"),
+                        ("delivery_id", &delivery.id),
+                    ],
+                    dedup_key: format!("delivery-failed:{}", delivery.connection_id),
+                },
+            )
+            .await;
+        }
         Ok(())
     }
 
@@ -365,10 +397,7 @@ impl Engine {
         if refs.is_empty() {
             return Ok(());
         }
-        let mut events = store.notification_events(notification_id).await?;
-        if events.iter().any(|e| e.status == EventStatus::Firing) {
-            events.retain(|e| e.status == EventStatus::Firing);
-        }
+        let events = store.sendable_events(notification_id).await?;
         let Some(mut composed) = self
             .compose_for(
                 &n.workspace_id,
@@ -420,7 +449,7 @@ impl Engine {
     /// are reported as a permanent failure of the delivery.
     async fn send(&self, delivery: &Delivery) -> Result<Sent> {
         let store = &self.config.store;
-        let mut events = store.notification_events(&delivery.notification_id).await?;
+        let events = store.sendable_events(&delivery.notification_id).await?;
         let event_ids: Vec<String> = events.iter().map(|e| e.id.clone()).collect();
         let about_ramzes = events
             .iter()
@@ -448,11 +477,6 @@ impl Engine {
         let resolved = notification
             .as_ref()
             .is_some_and(|n| n.state == NotificationState::Resolved);
-        // The notice that something is resolved is about what was firing, not about the event
-        // that reported the resolution.
-        if resolved && events.iter().any(|e| e.status == EventStatus::Firing) {
-            events.retain(|e| e.status == EventStatus::Firing);
-        }
         let template_id = delivery
             .template_id
             .clone()

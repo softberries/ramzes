@@ -9,6 +9,8 @@ crate::contract!(
     the_first_reference_of_a_place_is_remembered,
     retention_leaves_events_that_still_have_work_waiting,
     a_failure_that_was_sent_again_is_no_longer_listed,
+    open_notifications_are_found_by_the_key_of_any_member,
+    a_message_leaves_out_members_that_are_already_resolved,
 );
 
 async fn a_route_keeps_its_escalation_chain(store: Store) {
@@ -153,6 +155,7 @@ async fn resolving_tells_the_listed_targets(store: Store) {
     let join = Join {
         notification_id: d.notification_id.clone(),
         role: Role::Resolved,
+        dedup_key: None,
         resolve: Some(vec![
             to("c1", None, None),
             to("c2", Some("oncall"), Some(0)),
@@ -394,4 +397,172 @@ async fn a_failure_that_was_sent_again_is_no_longer_listed(store: Store) {
     let listed = store.list_failures(&ws, 10).await.unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].delivery.id, second.delivery_id.unwrap());
+}
+
+async fn keyed_event(
+    store: &Store,
+    ws: &str,
+    source: &str,
+    title: &str,
+    resolved: bool,
+) -> ramzes_core::Event {
+    let mut e = crate::event(ws, source, "orders.failed", 100);
+    e.title = title.into();
+    if resolved {
+        e.status = ramzes_core::EventStatus::Resolved;
+    }
+    store
+        .insert_events(std::slice::from_ref(&e), None)
+        .await
+        .unwrap();
+    e
+}
+
+/// A grouping notification with members keyed `db` and `disk`.
+async fn group_of_two(store: &Store, ws: &str, source: &str) -> String {
+    use ramzes_core::shaping::NotificationState;
+    let db = keyed_event(store, ws, source, "Database down", false).await;
+    let d = NewDispatch {
+        notification_id: ramzes_core::new_id(),
+        route_id: "r".into(),
+        route_name: "r".into(),
+        connection_id: "c1".into(),
+        target_key: "r|c1|".into(),
+        state: NotificationState::Grouping,
+        dedup_key: Some("db".into()),
+        ..NewDispatch::default()
+    };
+    store
+        .write_routing(&db, std::slice::from_ref(&d), &[], true, 100)
+        .await
+        .unwrap();
+    let disk = keyed_event(store, ws, source, "Disk full", false).await;
+    let join = Join {
+        notification_id: d.notification_id.clone(),
+        role: Role::Grouped,
+        dedup_key: Some("disk".into()),
+        resolve: None,
+    };
+    store
+        .write_routing(&disk, &[], std::slice::from_ref(&join), true, 110)
+        .await
+        .unwrap();
+    d.notification_id
+}
+
+async fn open_notifications_are_found_by_the_key_of_any_member(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let id = group_of_two(&store, &ws, &source).await;
+    for key in ["db", "disk"] {
+        let found = store
+            .open_notifications(&ws, "r|c1|", Some(key))
+            .await
+            .unwrap();
+        assert_eq!(
+            (
+                found[0].id.as_str(),
+                found[0].has_key,
+                found[0].others_firing
+            ),
+            (id.as_str(), true, true),
+            "{key}"
+        );
+    }
+    let other = store
+        .open_notifications(&ws, "r|c1|", Some("other"))
+        .await
+        .unwrap();
+    assert_eq!((other.len(), other[0].has_key), (1, false));
+
+    // Once `db` is resolved, `disk` is the only thing still firing in the group.
+    let up = keyed_event(&store, &ws, &source, "Database up", true).await;
+    let partial = Join {
+        notification_id: id.clone(),
+        role: Role::Resolved,
+        dedup_key: Some("db".into()),
+        resolve: None,
+    };
+    store
+        .write_routing(&up, &[], std::slice::from_ref(&partial), true, 120)
+        .await
+        .unwrap();
+    let found = store
+        .open_notifications(&ws, "r|c1|", Some("disk"))
+        .await
+        .unwrap();
+    assert_eq!((found[0].has_key, found[0].others_firing), (true, false));
+    // And `db` no longer has a firing member to resolve or to deduplicate against.
+    assert!(
+        !store
+            .open_notifications(&ws, "r|c1|", Some("db"))
+            .await
+            .unwrap()[0]
+            .has_key
+    );
+}
+
+async fn a_message_leaves_out_members_that_are_already_resolved(store: Store) {
+    use ramzes_core::shaping::{HoldKind, NotificationState};
+    let (ws, source) = crate::seed(&store).await;
+    let id = group_of_two(&store, &ws, &source).await;
+    let titles =
+        |events: Vec<ramzes_core::Event>| events.into_iter().map(|e| e.title).collect::<Vec<_>>();
+    assert_eq!(
+        titles(store.sendable_events(&id).await.unwrap()),
+        vec!["Database down", "Disk full"]
+    );
+    let up = keyed_event(&store, &ws, &source, "Database up", true).await;
+    let partial = Join {
+        notification_id: id.clone(),
+        role: Role::Resolved,
+        dedup_key: Some("db".into()),
+        resolve: None,
+    };
+    store
+        .write_routing(&up, &[], std::slice::from_ref(&partial), true, 120)
+        .await
+        .unwrap();
+    assert_eq!(
+        titles(store.sendable_events(&id).await.unwrap()),
+        vec!["Disk full"]
+    );
+
+    // Merging into a held digest keeps who resolved what.
+    let held = NewDispatch {
+        notification_id: ramzes_core::new_id(),
+        route_id: "r".into(),
+        route_name: "r".into(),
+        connection_id: "c1".into(),
+        target_key: "r|c1|".into(),
+        state: NotificationState::Held,
+        hold: Some((HoldKind::Quiet, 9000)),
+        dedup_key: Some("net".into()),
+        ..NewDispatch::default()
+    };
+    let net = keyed_event(&store, &ws, &source, "Network slow", false).await;
+    store
+        .write_routing(&net, std::slice::from_ref(&held), &[], true, 130)
+        .await
+        .unwrap();
+    store
+        .merge_notifications(&id, &held.notification_id, 140)
+        .await
+        .unwrap();
+    let mut merged = titles(store.sendable_events(&held.notification_id).await.unwrap());
+    merged.sort();
+    assert_eq!(merged, vec!["Disk full", "Network slow"]);
+
+    // When the whole notification is resolved the message is about everything that had fired.
+    store
+        .resolve_notification(&ws, &held.notification_id, 150)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .sendable_events(&held.notification_id)
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
 }

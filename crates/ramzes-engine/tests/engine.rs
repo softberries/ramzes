@@ -1777,3 +1777,214 @@ async fn delivered_messages_are_updated_when_the_notification_is_acknowledged() 
     w.settle().await;
     assert_eq!(w.connector.updates.lock().unwrap().len(), 1);
 }
+
+// ---- findings of the milestone 2-4 review ----
+
+fn key(name: &'static str) -> impl FnOnce(&mut Event) {
+    move |e| e.dedup_key = Some(name.into())
+}
+
+fn resolves(name: &'static str) -> impl FnOnce(&mut Event) {
+    move |e| {
+        e.dedup_key = Some(name.into());
+        e.status = EventStatus::Resolved;
+    }
+}
+
+#[tokio::test]
+async fn resolving_one_event_of_a_group_does_not_drop_the_others() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    w.shaped(&c, json!({"group": {"by": [], "wait_s": 30}}))
+        .await;
+    w.send("Database down", key("db")).await;
+    let disk = w.send("Disk full", key("disk")).await;
+    w.settle().await;
+    w.send("Database up", resolves("db")).await;
+    w.settle().await;
+    w.advance(60_000);
+    w.settle().await;
+    // The group goes out with what is still firing.
+    let sent = w.messages();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (sent[0].title.as_str(), sent[0].status),
+        ("Disk full", EventStatus::Firing)
+    );
+    assert_eq!(sent[0].event_ids, vec![disk.id.clone()]);
+    assert_eq!(w.notifications().await[0].state, NotificationState::Sent);
+
+    // Resolving the last firing member closes it and tells the target.
+    w.send("Disk fine", resolves("disk")).await;
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].status, EventStatus::Resolved);
+    assert_eq!(
+        w.notifications().await[0].state,
+        NotificationState::Resolved
+    );
+}
+
+#[tokio::test]
+async fn a_sent_group_is_not_called_resolved_while_part_of_it_still_fires() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    w.shaped(&c, json!({"group": {"by": [], "wait_s": 30}}))
+        .await;
+    w.send("Database down", key("db")).await;
+    w.send("Disk full", key("disk")).await;
+    w.settle().await;
+    w.advance(30_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    w.send("Database up", resolves("db")).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    assert_eq!(w.notifications().await[0].state, NotificationState::Sent);
+}
+
+#[tokio::test]
+async fn a_held_digest_survives_the_resolution_of_one_of_its_events() {
+    let w = world().await;
+    w.clock.0.store(NOON, Ordering::SeqCst);
+    let c = w.connection("team").await;
+    w.shaped(
+        &c,
+        json!({"quiet_hours": {"tz": "Europe/Warsaw", "start": "13:00", "end": "15:00"}}),
+    )
+    .await;
+    w.send("Database down", key("db")).await;
+    w.settle().await;
+    w.send("Disk full", key("disk")).await;
+    w.settle().await;
+    w.send("Database up", resolves("db")).await;
+    w.settle().await;
+    w.advance(61 * MINUTE);
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].title, "Disk full");
+}
+
+#[tokio::test]
+async fn a_resolution_closes_every_open_notification_with_the_key_and_stops_their_chains() {
+    let w = world().await;
+    let (team, lead) = (w.connection("team").await, w.connection("lead").await);
+    w.escalating(&team, &[(1800, &lead)], json!({})).await;
+    w.send("Database down", key("db")).await;
+    w.settle().await;
+    w.advance(10 * MINUTE);
+    w.send("Database down", key("db")).await;
+    w.settle().await;
+    w.advance(MINUTE);
+    w.send("Database up", resolves("db")).await;
+    w.settle().await;
+    w.advance(60 * MINUTE);
+    w.settle().await;
+    let states: Vec<NotificationState> = w.notifications().await.iter().map(|n| n.state).collect();
+    assert_eq!(
+        states,
+        vec![NotificationState::Resolved, NotificationState::Resolved]
+    );
+    assert!(
+        w.sent_to().iter().all(|(who, _, _)| who == "team"),
+        "{:?}",
+        w.sent_to()
+    );
+}
+
+#[tokio::test]
+async fn a_silence_does_not_keep_a_sent_notification_open_forever() {
+    let w = world().await;
+    let (team, lead) = (w.connection("team").await, w.connection("lead").await);
+    w.escalating(&team, &[(1800, &lead)], json!({})).await;
+    w.send("Database down", key("db")).await;
+    w.settle().await;
+    let now = w.clock.now_ms();
+    let silence = Silence {
+        id: new_id(),
+        r#match: RouteMatch {
+            topic: Some("orders.*".into()),
+            ..RouteMatch::default()
+        },
+        starts_at: now,
+        ends_at: now + 60 * MINUTE,
+        comment: None,
+    };
+    w.store
+        .create_silence(&w.ws, &silence, "kris", now)
+        .await
+        .unwrap();
+    w.send("Database up", resolves("db")).await;
+    w.settle().await;
+    w.advance(40 * MINUTE);
+    w.settle().await;
+    assert_eq!(
+        w.notifications().await[0].state,
+        NotificationState::Resolved
+    );
+    assert!(
+        w.sent_to().iter().all(|(who, _, _)| who == "team"),
+        "{:?}",
+        w.sent_to()
+    );
+    assert_eq!(w.messages().last().unwrap().status, EventStatus::Resolved);
+}
+
+#[tokio::test]
+async fn being_rate_limited_by_a_service_does_not_pause_the_connection() {
+    let w = world().await;
+    let c = w.connection("busy").await;
+    w.route("orders.*", &[(&c, None)]).await;
+    for _ in 0..6 {
+        w.connector
+            .outcomes
+            .lock()
+            .unwrap()
+            .push_back(SendOutcome::Retry {
+                after_ms: Some(1000),
+                status: Some(429),
+                detail: "HTTP 429".into(),
+            });
+    }
+    for i in 0..6 {
+        w.send(&format!("event {i}"), |_| {}).await;
+    }
+    w.settle().await;
+    let status = w.store.connection_status(&w.ws).await.unwrap();
+    assert_eq!(
+        (status[&c].paused_until, status[&c].failure_streak),
+        (None, 0)
+    );
+}
+
+#[tokio::test]
+async fn an_acknowledgement_through_the_engine_stops_reminders_and_updates_messages() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    w.shaped(
+        &c,
+        json!({"group": {"by": [], "wait_s": 10, "repeat_s": 600}}),
+    )
+    .await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    w.advance(10_000);
+    w.settle().await;
+    let id = w.notifications().await[0].id.clone();
+    w.engine.acknowledge(&w.ws, &id, "kris").await.unwrap();
+    assert!(matches!(
+        w.engine.acknowledge(&w.ws, &id, "kris").await,
+        Err(ramzes_engine::EngineError::Conflict(_))
+    ));
+    w.advance(3_600_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    assert_eq!(w.connector.updates.lock().unwrap().len(), 1);
+    w.engine.resolve(&w.ws, &id).await.unwrap();
+    assert_eq!(
+        w.notifications().await[0].state,
+        NotificationState::Resolved
+    );
+}

@@ -74,6 +74,9 @@ pub enum Change {
 pub enum EngineError {
     #[error("not found")]
     NotFound,
+    /// The thing is not in a state that allows what was asked.
+    #[error("{0}")]
+    Conflict(String),
     #[error(transparent)]
     Store(StoreError),
 }
@@ -82,6 +85,7 @@ impl From<StoreError> for EngineError {
     fn from(e: StoreError) -> Self {
         match e {
             StoreError::NotFound => EngineError::NotFound,
+            StoreError::Conflict(reason) => EngineError::Conflict(reason),
             other => EngineError::Store(other),
         }
     }
@@ -158,6 +162,39 @@ impl Engine {
         self.announce(Change::NotificationChanged {
             notification_id: notification_id.to_owned(),
         });
+    }
+
+    /// Acknowledges a notification on a person's behalf. It waits for a shaping decision or a
+    /// timer that is in progress, so an acknowledgement is never overtaken by a send that was
+    /// decided before it.
+    pub async fn acknowledge(
+        &self,
+        workspace_id: &str,
+        notification_id: &str,
+        by: &str,
+    ) -> Result<()> {
+        let _shaping = self.shaping_lock.lock().await;
+        self.config
+            .store
+            .acknowledge(workspace_id, notification_id, by, self.now())
+            .await?;
+        drop(_shaping);
+        self.notification_changed(notification_id);
+        self.request_refresh(notification_id);
+        Ok(())
+    }
+
+    /// Closes a notification by hand, under the same guarantee as [`Engine::acknowledge`].
+    pub async fn resolve(&self, workspace_id: &str, notification_id: &str) -> Result<()> {
+        let _shaping = self.shaping_lock.lock().await;
+        self.config
+            .store
+            .resolve_notification(workspace_id, notification_id, self.now())
+            .await?;
+        drop(_shaping);
+        self.notification_changed(notification_id);
+        self.request_refresh(notification_id);
+        Ok(())
     }
 
     /// Asks for the messages already delivered for a notification to be updated where the

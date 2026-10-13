@@ -11,8 +11,7 @@ use hmac::{Hmac, Mac};
 use ramzes_connectors::{ACK_ACTION, SILENCE_ACTION};
 use ramzes_core::shaping::{NotificationState, Silence};
 use ramzes_core::{LabelCond, RouteMatch, new_id};
-use ramzes_engine::{Opener, ack_text};
-use ramzes_store::StoreError;
+use ramzes_engine::{EngineError, Opener, ack_text};
 use serde::Deserialize;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -127,27 +126,22 @@ async fn ack_submit(
     if !token_matches(&state, &id, &token.t) {
         return not_valid();
     }
-    let now = state.clock.now_ms();
     match state
-        .store
-        .acknowledge(&state.workspace_id, &id, "link", now)
+        .engine
+        .acknowledge(&state.workspace_id, &id, "link")
         .await
     {
-        Ok(()) => {
-            state.engine.notification_changed(&id);
-            state.engine.request_refresh(&id);
-            page(
-                StatusCode::OK,
-                "Acknowledged",
-                "<p>Reminders and escalation for this notification have stopped. You can close this page.</p>",
-            )
-        }
-        Err(StoreError::Conflict(_)) => page(
+        Ok(()) => page(
+            StatusCode::OK,
+            "Acknowledged",
+            "<p>Reminders and escalation for this notification have stopped. You can close this page.</p>",
+        ),
+        Err(EngineError::Conflict(_)) => page(
             StatusCode::OK,
             "Nothing to acknowledge",
             "<p>This notification was already acknowledged or is resolved.</p>",
         ),
-        Err(StoreError::NotFound) => not_valid(),
+        Err(EngineError::NotFound) => not_valid(),
         Err(e) => {
             tracing::error!(error = %e, "could not acknowledge from a link");
             page(
@@ -261,13 +255,9 @@ async fn slack_interaction(
     for action in &payload.actions {
         let id = &action.value;
         if action.action_id == ACK_ACTION {
-            match state.store.acknowledge(ws, id, &who, now).await {
-                Ok(()) => {
-                    state.engine.notification_changed(id);
-                    state.engine.request_refresh(id);
-                }
+            match state.engine.acknowledge(ws, id, &who).await {
                 // Already acknowledged or gone: pressing again is harmless.
-                Err(StoreError::Conflict(_) | StoreError::NotFound) => {}
+                Ok(()) | Err(EngineError::Conflict(_) | EngineError::NotFound) => {}
                 Err(e) => {
                     tracing::error!(error = %e, "could not acknowledge from Slack");
                     return StatusCode::INTERNAL_SERVER_ERROR;

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use ramzes_core::shaping::{
     Action, Dedup, Group, HoldKind, NotificationState, OpenNotification, QuietHours, RateLimit,
-    ReleaseFrom, ReleaseInput, Released, Role, ShapeInput, Shaping, Silence, digest, quiet_until,
-    release, shape,
+    ReleaseFrom, ReleaseInput, Released, Resolution, Role, ShapeInput, Shaping, Silence, digest,
+    quiet_until, release, shape,
 };
 use ramzes_core::{Event, EventStatus, RouteMatch, Severity};
 use serde_json::json;
@@ -42,7 +42,29 @@ fn open(id: &str, state: NotificationState) -> OpenNotification {
         created_at: NOON - 60_000,
         sent: state == NotificationState::Sent || state == NotificationState::Acknowledged,
         hold: None,
+        has_key: false,
+        others_firing: false,
     }
+}
+
+/// An open notification one of whose firing events carries the key being looked up.
+fn keyed(id: &str, state: NotificationState) -> OpenNotification {
+    OpenNotification {
+        has_key: true,
+        ..open(id, state)
+    }
+}
+
+fn resolves(what: &[(&str, bool, bool)]) -> Action {
+    Action::Resolve(
+        what.iter()
+            .map(|(id, whole, notify)| Resolution {
+                notification_id: id.to_string(),
+                whole: *whole,
+                notify: *notify,
+            })
+            .collect(),
+    )
 }
 
 struct Case {
@@ -178,8 +200,7 @@ fn an_active_matching_silence_suppresses_and_is_named() {
 fn a_duplicate_within_the_window_is_counted_not_sent() {
     let mut case = Case::new(dedup(600));
     case.event.dedup_key = Some("order-17".into());
-    let mut sent = open("n1", NotificationState::Sent);
-    sent.dedup_key = Some("order-17".into());
+    let mut sent = keyed("n1", NotificationState::Sent);
     sent.created_at = NOON - 300_000;
     case.open = vec![sent.clone()];
     assert_eq!(
@@ -192,8 +213,10 @@ fn a_duplicate_within_the_window_is_counted_not_sent() {
 
     // Another key, or the same key after the window, is a new notification.
     case.event.dedup_key = Some("order-18".into());
+    case.open[0].has_key = false;
     assert!(matches!(case.action(), Action::Send { .. }));
     case.event.dedup_key = Some("order-17".into());
+    case.open[0].has_key = true;
     case.open[0].created_at = NOON - 601_000;
     assert_eq!(
         case.action(),
@@ -270,53 +293,19 @@ fn a_resolved_event_closes_what_is_open_and_tells_only_those_who_were_told() {
     let mut case = Case::new(Shaping::default());
     case.event.status = EventStatus::Resolved;
     case.event.dedup_key = Some("order-17".into());
-    let with_key = |id: &str, state| {
-        let mut n = open(id, state);
-        n.dedup_key = Some("order-17".into());
-        n
-    };
+    let with_key = keyed;
     case.open = vec![with_key("sent", NotificationState::Sent)];
-    assert_eq!(
-        case.action(),
-        Action::Resolve {
-            notification_id: "sent".into(),
-            notify: true
-        }
-    );
+    assert_eq!(case.action(), resolves(&[("sent", true, true)]));
     case.open = vec![with_key("acked", NotificationState::Acknowledged)];
-    assert_eq!(
-        case.action(),
-        Action::Resolve {
-            notification_id: "acked".into(),
-            notify: true
-        }
-    );
+    assert_eq!(case.action(), resolves(&[("acked", true, true)]));
     case.open = vec![with_key("grouping", NotificationState::Grouping)];
-    assert_eq!(
-        case.action(),
-        Action::Resolve {
-            notification_id: "grouping".into(),
-            notify: false
-        }
-    );
+    assert_eq!(case.action(), resolves(&[("grouping", true, false)]));
     case.open = vec![with_key("held", NotificationState::Held)];
-    assert_eq!(
-        case.action(),
-        Action::Resolve {
-            notification_id: "held".into(),
-            notify: false
-        }
-    );
+    assert_eq!(case.action(), resolves(&[("held", true, false)]));
 
     case.shaping.notify_resolved = false;
     case.open = vec![with_key("sent", NotificationState::Sent)];
-    assert_eq!(
-        case.action(),
-        Action::Resolve {
-            notification_id: "sent".into(),
-            notify: false
-        }
-    );
+    assert_eq!(case.action(), resolves(&[("sent", true, false)]));
 }
 
 #[test]
@@ -381,12 +370,8 @@ fn quiet_hours_hold_until_they_end_also_across_midnight() {
         Some(NOON + 17 * HOUR)
     );
     assert_eq!(quiet_until(&night, NOON).unwrap(), None);
-    // The same start and end means the whole day.
-    assert!(
-        quiet_until(&quiet("00:00", "00:00"), NOON)
-            .unwrap()
-            .is_some()
-    );
+    // The same start and end is no period at all (and is refused when a route is saved).
+    assert_eq!(quiet_until(&quiet("09:00", "09:00"), NOON).unwrap(), None);
 }
 
 #[test]
@@ -629,4 +614,83 @@ fn a_policy_is_validated() {
         serde_json::from_str::<Shaping>("{}").unwrap(),
         Shaping::default()
     );
+}
+
+#[test]
+fn a_resolution_closes_every_open_notification_with_the_key() {
+    let mut case = Case::new(Shaping::default());
+    case.event.status = EventStatus::Resolved;
+    case.event.dedup_key = Some("db".into());
+    case.open = vec![
+        keyed("older", NotificationState::Sent),
+        open("unrelated", NotificationState::Sent),
+        keyed("newer", NotificationState::Sent),
+    ];
+    assert_eq!(
+        case.action(),
+        resolves(&[("older", true, true), ("newer", true, true)])
+    );
+}
+
+#[test]
+fn resolving_one_member_of_a_group_leaves_the_rest_alone() {
+    let mut case = Case::new(group(30));
+    case.event.status = EventStatus::Resolved;
+    case.event.dedup_key = Some("db".into());
+    let mut collecting = keyed("g1", NotificationState::Grouping);
+    collecting.others_firing = true;
+    case.open = vec![collecting.clone()];
+    // The event is recorded against the group; the group lives on for its other events.
+    assert_eq!(case.action(), resolves(&[("g1", false, false)]));
+    // The same for a group that was already sent: nobody is told it is over while part of it fires.
+    collecting.state = NotificationState::Sent;
+    collecting.sent = true;
+    case.open = vec![collecting];
+    assert_eq!(case.action(), resolves(&[("g1", false, false)]));
+}
+
+#[test]
+fn a_silence_does_not_swallow_the_resolution_of_something_already_sent() {
+    let mut case = Case::new(Shaping::default());
+    case.event.status = EventStatus::Resolved;
+    case.event.dedup_key = Some("db".into());
+    case.silences = vec![Silence {
+        id: "s".into(),
+        r#match: RouteMatch {
+            topic: Some("orders.*".into()),
+            ..RouteMatch::default()
+        },
+        starts_at: NOON - HOUR,
+        ends_at: NOON + HOUR,
+        comment: None,
+    }];
+    case.open = vec![keyed("sent", NotificationState::Sent)];
+    assert_eq!(case.action(), resolves(&[("sent", true, true)]));
+    // With nothing open the silence applies as usual.
+    case.open = vec![];
+    assert!(matches!(
+        case.action(),
+        Action::Suppress {
+            silence_id: Some(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn quiet_hours_with_no_length_are_refused() {
+    let none = Shaping {
+        quiet_hours: Some(quiet("09:00", "09:00")),
+        ..Shaping::default()
+    };
+    assert!(none.validate().unwrap_err().contains("quiet"));
+}
+
+#[test]
+fn a_hold_never_ends_in_the_past_when_the_clocks_go_back() {
+    // 2026-10-25 01:10 UTC is 02:10 in Warsaw for the second time; the period ends 02:30.
+    let night = quiet("22:00", "02:30");
+    let now = 1_792_890_600_000;
+    let until = quiet_until(&night, now).unwrap().unwrap();
+    assert!(until > now, "{until} is not after {now}");
 }

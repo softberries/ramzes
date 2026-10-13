@@ -204,22 +204,24 @@ impl Engine {
                 } => plan.joins.push(Join {
                     notification_id,
                     role,
+                    dedup_key: event_key,
                     resolve: None,
                 }),
-                Action::Resolve {
-                    notification_id,
-                    notify,
-                } => {
-                    let told = if notify {
-                        self.told_about(&notification_id).await?
-                    } else {
-                        Vec::new()
-                    };
-                    plan.joins.push(Join {
-                        notification_id,
-                        role: Role::Resolved,
-                        resolve: Some(told),
-                    });
+                Action::Resolve(resolved) => {
+                    for r in resolved {
+                        let told = if r.notify {
+                            self.told_about(&r.notification_id).await?
+                        } else {
+                            Vec::new()
+                        };
+                        plan.joins.push(Join {
+                            notification_id: r.notification_id,
+                            role: Role::Resolved,
+                            dedup_key: event_key.clone(),
+                            // Part of a group resolved: the event is recorded, the group lives on.
+                            resolve: r.whole.then_some(told),
+                        });
+                    }
                 }
                 Action::OpenGroup {
                     group_key,
@@ -242,6 +244,7 @@ impl Engine {
                 } => plan.joins.push(Join {
                     notification_id,
                     role: Role::Grouped,
+                    dedup_key: event_key,
                     resolve: None,
                 }),
                 Action::Hold {

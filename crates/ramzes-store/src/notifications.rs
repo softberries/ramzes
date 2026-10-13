@@ -135,7 +135,7 @@ pub struct JourneyDelivery {
 }
 
 impl Store {
-    /// The events a notification covers, oldest first.
+    /// The events a notification covers, oldest first; at most the first thousand.
     pub async fn notification_events(&self, notification_id: &str) -> Result<Vec<Event>> {
         let cols = EVENT_COLS
             .split(", ")
@@ -145,7 +145,7 @@ impl Store {
         let sql = self
             .sql(&format!(
                 "SELECT {cols} FROM events e JOIN notification_events ne ON ne.event_id = e.id \
-                 WHERE ne.notification_id = $1 ORDER BY e.id"
+                 WHERE ne.notification_id = $1 ORDER BY e.id LIMIT 1000"
             ))
             .into_owned();
         let raw: Vec<RawEvent> = with_db!(self, |pool| {

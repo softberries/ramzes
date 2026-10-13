@@ -86,6 +86,9 @@ impl From<EngineError> for ApiError {
     fn from(e: EngineError) -> Self {
         match e {
             EngineError::NotFound => ApiError::not_found(),
+            EngineError::Conflict(message) => {
+                ApiError::new(StatusCode::CONFLICT, "conflict", message)
+            }
             EngineError::Store(e) => e.into(),
         }
     }

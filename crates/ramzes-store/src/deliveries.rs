@@ -61,6 +61,8 @@ impl Default for NewDispatch {
 pub struct Join {
     pub notification_id: String,
     pub role: Role,
+    /// The joining event's dedup key at this target, kept so a later resolution finds it.
+    pub dedup_key: Option<String>,
     /// The event resolves the notification. The list holds the deliveries that tell those who
     /// had been told about it; empty when nobody had.
     pub resolve: Option<Vec<NewDelivery>>,
@@ -227,7 +229,8 @@ impl Store {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
         );
         let link = q(
-            "INSERT INTO notification_events (notification_id, event_id, workspace_id, role) VALUES ($1, $2, $3, $4) \
+            "INSERT INTO notification_events (notification_id, event_id, workspace_id, role, dedup_key) \
+             VALUES ($1, $2, $3, $4, $5) \
              ON CONFLICT (notification_id, event_id) DO NOTHING",
         );
         let delivery = q(
@@ -283,6 +286,7 @@ impl Store {
                     .bind(&event.id)
                     .bind(&event.workspace_id)
                     .bind(Role::First.as_str())
+                    .bind(&d.dedup_key)
                     .execute(&mut *tx)
                     .await?;
                 if let Some(delivery_id) = &d.delivery_id {
@@ -314,6 +318,7 @@ impl Store {
                     .bind(&event.id)
                     .bind(&event.workspace_id)
                     .bind(j.role.as_str())
+                    .bind(&j.dedup_key)
                     .execute(&mut *tx)
                     .await?
                     .rows_affected();

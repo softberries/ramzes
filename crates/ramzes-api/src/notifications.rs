@@ -180,11 +180,9 @@ pub(crate) async fn acknowledge(
 ) -> Result<StatusCode, ApiError> {
     let by = auth.user.as_ref().map_or("API token", |u| u.email.as_str());
     state
-        .store
-        .acknowledge(&auth.workspace_id, &id, by, state.clock.now_ms())
+        .engine
+        .acknowledge(&auth.workspace_id, &id, by)
         .await?;
-    state.engine.notification_changed(&id);
-    state.engine.request_refresh(&id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -198,11 +196,6 @@ pub(crate) async fn resolve(
     auth: Auth,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    state
-        .store
-        .resolve_notification(&auth.workspace_id, &id, state.clock.now_ms())
-        .await?;
-    state.engine.notification_changed(&id);
-    state.engine.request_refresh(&id);
+    state.engine.resolve(&auth.workspace_id, &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

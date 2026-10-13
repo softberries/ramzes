@@ -84,13 +84,26 @@ impl Store {
         target_key: &str,
         dedup_key: Option<&str>,
     ) -> Result<Vec<OpenNotification>> {
-        let sql = self.sql(
-            "SELECT id, state, dedup_key, group_key, created_at, sent_count, hold_kind FROM notifications \
-             WHERE workspace_id = $1 AND target_key = $2 AND (state IN ('grouping', 'held') \
-             OR (state IN ('sent', 'acknowledged') AND dedup_key = $3)) ORDER BY id DESC LIMIT 100",
-        );
+        // A member "fires" a key when it carries it and no resolved member of the same
+        // notification carries it too.
+        const FIRING: &str = "f.notification_id = n.id AND f.role <> 'resolved' AND NOT EXISTS \
+             (SELECT 1 FROM notification_events r WHERE r.notification_id = n.id AND r.role = 'resolved' \
+              AND r.dedup_key = f.dedup_key)";
+        let sql = self
+            .sql(&format!(
+                "SELECT n.id, n.state, n.dedup_key, n.group_key, n.created_at, n.sent_count, n.hold_kind, \
+                 CAST(CASE WHEN EXISTS (SELECT 1 FROM notification_events f WHERE {FIRING} AND f.dedup_key = $3) \
+                      THEN 1 ELSE 0 END AS BIGINT) AS has_key, \
+                 CAST(CASE WHEN EXISTS (SELECT 1 FROM notification_events f WHERE {FIRING} \
+                      AND (f.dedup_key IS NULL OR f.dedup_key <> $3)) THEN 1 ELSE 0 END AS BIGINT) AS others_firing \
+                 FROM notifications n WHERE n.workspace_id = $1 AND n.target_key = $2 \
+                 AND (n.state IN ('grouping', 'held') OR (n.state IN ('sent', 'acknowledged') AND EXISTS \
+                 (SELECT 1 FROM notification_events f WHERE {FIRING} AND f.dedup_key = $3))) \
+                 ORDER BY n.id DESC LIMIT 100"
+            ))
+            .into_owned();
         let mut found: Vec<OpenNotification> = with_db!(self, |pool| {
-            let rows = sqlx::query(AssertSqlSafe(&*sql))
+            let rows = sqlx::query(AssertSqlSafe(sql.as_str()))
                 .bind(workspace_id)
                 .bind(target_key)
                 .bind(dedup_key)
@@ -109,12 +122,41 @@ impl Store {
                         created_at: row.try_get("created_at")?,
                         sent: row.try_get::<i64, _>("sent_count")? > 0,
                         hold: hold.as_deref().and_then(HoldKind::parse),
+                        has_key: row.try_get::<i64, _>("has_key")? != 0,
+                        others_firing: row.try_get::<i64, _>("others_firing")? != 0,
                     })
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
         found.reverse();
         Ok(found)
+    }
+
+    /// The events a message about a notification covers. While the notification is open these
+    /// are its firing events that no later event resolved; once it is resolved, everything
+    /// that had fired.
+    pub async fn sendable_events(&self, notification_id: &str) -> Result<Vec<ramzes_core::Event>> {
+        let sql = self.sql(
+            "SELECT ne.event_id FROM notification_events ne JOIN notifications n ON n.id = ne.notification_id \
+             WHERE ne.notification_id = $1 AND ne.role <> 'resolved' AND (n.state = 'resolved' OR NOT EXISTS \
+             (SELECT 1 FROM notification_events r WHERE r.notification_id = ne.notification_id \
+              AND r.role = 'resolved' AND r.dedup_key = ne.dedup_key))",
+        );
+        let keep: Vec<(String,)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        let all = self.notification_events(notification_id).await?;
+        // A notification made only of resolved events still needs something to say.
+        if keep.is_empty() {
+            return Ok(all);
+        }
+        Ok(all
+            .into_iter()
+            .filter(|e| keep.iter().any(|(id,)| *id == e.id))
+            .collect())
     }
 
     /// How many notifications were sent to a target at or after `since_ms`, and the earliest.
@@ -396,8 +438,9 @@ impl Store {
     pub async fn merge_notifications(&self, from: &str, into: &str, now_ms: i64) -> Result<()> {
         let q = |text: &str| self.sql(text).into_owned();
         let copy = q(
-            "INSERT INTO notification_events (notification_id, event_id, workspace_id, role) \
-             SELECT $1, event_id, workspace_id, 'grouped' FROM notification_events WHERE notification_id = $2 \
+            "INSERT INTO notification_events (notification_id, event_id, workspace_id, role, dedup_key) \
+             SELECT $1, event_id, workspace_id, CASE WHEN role = 'first' THEN 'grouped' ELSE role END, dedup_key \
+             FROM notification_events WHERE notification_id = $2 \
              ON CONFLICT (notification_id, event_id) DO NOTHING",
         );
         let unlink = q("DELETE FROM notification_events WHERE notification_id = $1");

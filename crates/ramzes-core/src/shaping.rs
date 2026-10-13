@@ -167,8 +167,11 @@ impl Shaping {
         if let Some(quiet) = &self.quiet_hours {
             TimeZone::get(&quiet.tz)
                 .map_err(|_| format!("quiet hours: {:?} is not a known time zone", quiet.tz))?;
-            parse_time(&quiet.start).map_err(|e| format!("quiet hours: {e}"))?;
-            parse_time(&quiet.end).map_err(|e| format!("quiet hours: {e}"))?;
+            let start = parse_time(&quiet.start).map_err(|e| format!("quiet hours: {e}"))?;
+            let end = parse_time(&quiet.end).map_err(|e| format!("quiet hours: {e}"))?;
+            if start == end {
+                return Err("quiet hours: the start and the end must differ".into());
+            }
             for day in &quiet.days {
                 parse_day(day).map_err(|e| format!("quiet hours: {e}"))?;
             }
@@ -201,7 +204,10 @@ pub fn quiet_until(q: &QuietHours, now_ms: i64) -> Result<Option<i64>, String> {
     let today = now.date();
     let yesterday = today.checked_sub(1.day()).map_err(|e| e.to_string())?;
     let tomorrow = today.checked_add(1.day()).map_err(|e| e.to_string())?;
-    let overnight = end <= start;
+    if start == end {
+        return Ok(None);
+    }
+    let overnight = end < start;
 
     // A period belongs to the day it starts on.
     let ends = if overnight && on(yesterday.weekday()) && now.time() < end {
@@ -220,7 +226,10 @@ pub fn quiet_until(q: &QuietHours, now_ms: i64) -> Result<Option<i64>, String> {
         None => Ok(None),
         Some(civil) => {
             let at = civil.to_zoned(tz).map_err(|e| e.to_string())?;
-            Ok(Some(at.timestamp().as_millisecond()))
+            // When clocks go back an end time can name an instant that has passed while the
+            // wall clock still shows the quiet period. The hold then ends a minute from now
+            // and is looked at again.
+            Ok(Some(at.timestamp().as_millisecond().max(now_ms + 60_000)))
         }
     }
 }
@@ -348,6 +357,11 @@ pub struct OpenNotification {
     /// A message has gone out for it.
     pub sent: bool,
     pub hold: Option<HoldKind>,
+    /// One of its firing events carries the dedup key of the event being shaped.
+    pub has_key: bool,
+    /// It has firing events with another key that are not resolved, so resolving this key
+    /// does not finish it.
+    pub others_firing: bool,
 }
 
 pub struct ShapeInput<'a> {
@@ -377,11 +391,8 @@ pub enum Action {
     },
     /// Add the event to an existing notification without sending.
     Attach { notification_id: String, role: Role },
-    /// Close an existing notification; `notify` when its target had been told about it.
-    Resolve {
-        notification_id: String,
-        notify: bool,
-    },
+    /// The event resolves what these open notifications are about.
+    Resolve(Vec<Resolution>),
     /// Open a notification that collects events until `flush_at`.
     OpenGroup {
         group_key: String,
@@ -397,6 +408,17 @@ pub enum Action {
         dedup_key: Option<String>,
         group_key: Option<String>,
     },
+}
+
+/// What a resolved event does to one open notification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution {
+    pub notification_id: String,
+    /// Nothing else in the notification is still firing, so it is closed. Otherwise the event
+    /// is recorded and the notification lives on for its other events.
+    pub whole: bool,
+    /// Tell those who were told about it. Only when it is closed and had been sent.
+    pub notify: bool,
 }
 
 /// One shaping step and what it concluded, for the journey and the route tester.
@@ -534,6 +556,40 @@ pub fn shape(input: &ShapeInput<'_>) -> Decision {
     let mut steps = Vec::new();
     let done = |action: Action, steps: Vec<Step>| Decision { action, steps };
 
+    let key = dedup_key(shaping, event, &mut steps);
+    let same_key = |n: &&OpenNotification| key.is_some() && n.has_key && n.state.is_open();
+
+    // A resolution of something open is acted on even under a silence: what was reported has
+    // to be closed, and whoever was told has to hear that it is over.
+    if event.status == EventStatus::Resolved && key.is_some() {
+        let resolved: Vec<Resolution> = input
+            .open
+            .iter()
+            .filter(same_key)
+            .map(|open| {
+                let whole = !open.others_firing;
+                Resolution {
+                    notification_id: open.id.clone(),
+                    whole,
+                    notify: whole && open.sent && shaping.notify_resolved,
+                }
+            })
+            .collect();
+        if !resolved.is_empty() {
+            steps.push(Step {
+                step: "resolve",
+                outcome: if resolved.iter().any(|r| r.notify) {
+                    "resolves an open notification; whoever was told is told".into()
+                } else if resolved.iter().any(|r| r.whole) {
+                    "resolves an open notification that was not sent yet; nothing is sent".into()
+                } else {
+                    "resolves part of an open notification; its other events stay open".into()
+                },
+            });
+            return done(Action::Resolve(resolved), steps);
+        }
+    }
+
     if let Some(silence) = input.silences.iter().find(|s| s.covers(event, now_ms)) {
         let reason = match silence
             .comment
@@ -557,28 +613,7 @@ pub fn shape(input: &ShapeInput<'_>) -> Decision {
         );
     }
 
-    let key = dedup_key(shaping, event, &mut steps);
-    let same_key = |n: &&OpenNotification| key.is_some() && n.dedup_key == key && n.state.is_open();
-
     if event.status == EventStatus::Resolved && key.is_some() {
-        if let Some(open) = input.open.iter().rev().find(same_key) {
-            let notify = open.sent && shaping.notify_resolved;
-            steps.push(Step {
-                step: "resolve",
-                outcome: if notify {
-                    "resolves an open notification; its target is told".into()
-                } else {
-                    "resolves an open notification that was not sent yet; nothing is sent".into()
-                },
-            });
-            return done(
-                Action::Resolve {
-                    notification_id: open.id.clone(),
-                    notify,
-                },
-                steps,
-            );
-        }
         if shaping.dedup.is_some() {
             let reason = "resolved, but nothing was open for it".to_owned();
             steps.push(Step {
