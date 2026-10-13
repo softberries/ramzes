@@ -22,6 +22,8 @@ function row(id: string, delivered = 0): EventRow {
 		deliveries_total: 1,
 		deliveries_delivered: delivered,
 		deliveries_failed: 0,
+		notifications_waiting: 0,
+		notifications_suppressed: 0,
 		targets: []
 	};
 }

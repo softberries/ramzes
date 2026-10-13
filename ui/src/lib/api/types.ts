@@ -51,6 +51,9 @@ export type NotificationState = Schemas['NotificationState'];
 export type NotificationRow = Schemas['NotificationRow'];
 export type NotificationPage = Schemas['NotificationPage'];
 export type NotificationDetail = Schemas['NotificationDetail'];
+export type NotificationView = Schemas['NotificationView'];
+export type EscalationStep = Schemas['EscalationStep'];
+export type StepProgress = Schemas['StepProgress'];
 export type SilenceRow = Schemas['SilenceRow'];
 export type NewSilence = Schemas['NewSilence'];
 export type Overview = Schemas['OverviewView'];
@@ -58,6 +61,8 @@ export type Bucket = Schemas['Bucket'];
 
 export const SEVERITIES: Severity[] = ['debug', 'info', 'warning', 'error', 'critical'];
 
-/** What became of an event, as the feed shows it. */
+/** What became of an event, as the feed can be filtered by. */
 export type Outcome = 'pending' | 'delivered' | 'failed' | 'unrouted';
 export const OUTCOMES: Outcome[] = ['pending', 'delivered', 'failed', 'unrouted'];
+/** What became of an event, as a feed row shows it: shaping adds two outcomes the filter does not know. */
+export type RowOutcome = Outcome | 'waiting' | 'not_sent';

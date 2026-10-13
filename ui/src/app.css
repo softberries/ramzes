@@ -29,6 +29,8 @@
 	--st-failed: #ff6b86;
 	--st-dead: #d9608c;
 	--st-unrouted: #e3b341;
+	--st-waiting: var(--gold);
+	--st-not_sent: var(--muted);
 }
 
 :root[data-theme='light'] {

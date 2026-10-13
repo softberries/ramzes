@@ -52,14 +52,23 @@ describe('duration', () => {
 });
 
 describe('outcomeOf', () => {
-	const row = { routed: true, route_count: 1, deliveries_total: 2, deliveries_delivered: 2, deliveries_failed: 0 };
+	const row = {
+		routed: true,
+		route_count: 1,
+		deliveries_total: 2,
+		deliveries_delivered: 2,
+		deliveries_failed: 0,
+		notifications_waiting: 0,
+		notifications_suppressed: 0
+	};
+	const unsent = { ...row, deliveries_total: 0, deliveries_delivered: 0 };
 
 	it('is pending until the event is routed', () => {
 		expect(outcomeOf({ ...row, routed: false })).toBe('pending');
 	});
 
 	it('is unrouted when no route matched', () => {
-		expect(outcomeOf({ ...row, route_count: 0, deliveries_total: 0, deliveries_delivered: 0 })).toBe('unrouted');
+		expect(outcomeOf({ ...unsent, route_count: 0 })).toBe('unrouted');
 	});
 
 	it('is failed as soon as one delivery failed for good', () => {
@@ -69,5 +78,29 @@ describe('outcomeOf', () => {
 	it('is delivered only when every delivery arrived', () => {
 		expect(outcomeOf(row)).toBe('delivered');
 		expect(outcomeOf({ ...row, deliveries_delivered: 1 })).toBe('pending');
+	});
+
+	it('is not sent when every notification of the event was suppressed', () => {
+		expect(outcomeOf({ ...unsent, notifications_suppressed: 1 })).toBe('not_sent');
+		expect(outcomeOf({ ...unsent, route_count: 2, notifications_suppressed: 2 })).toBe('not_sent');
+	});
+
+	it('is not "not sent" when another route did send it', () => {
+		expect(outcomeOf({ ...row, deliveries_total: 1, deliveries_delivered: 1, notifications_suppressed: 1 })).toBe('delivered');
+	});
+
+	it('is waiting while a notification is collecting or held', () => {
+		expect(outcomeOf({ ...unsent, notifications_waiting: 1 })).toBe('waiting');
+		expect(outcomeOf({ ...unsent, notifications_waiting: 1, notifications_suppressed: 1 })).toBe('waiting');
+		// One route delivered already, another still holds its message.
+		expect(outcomeOf({ ...row, notifications_waiting: 1 })).toBe('waiting');
+	});
+
+	it('is failed rather than waiting when a delivery failed', () => {
+		expect(outcomeOf({ ...row, deliveries_delivered: 1, deliveries_failed: 1, notifications_waiting: 1 })).toBe('failed');
+	});
+
+	it('is pending when a matched event has nothing to show yet', () => {
+		expect(outcomeOf(unsent)).toBe('pending');
 	});
 });

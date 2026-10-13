@@ -1,4 +1,4 @@
-import type { Outcome } from './api/types';
+import type { RowOutcome } from './api/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -56,12 +56,17 @@ interface DeliveryCounts {
 	deliveries_total: number;
 	deliveries_delivered: number;
 	deliveries_failed: number;
+	notifications_waiting: number;
+	notifications_suppressed: number;
 }
 
-/** The one-word outcome of an event from its delivery counts. */
-export function outcomeOf(row: DeliveryCounts): Outcome {
+/** The one-word outcome of an event from its delivery and notification counts. */
+export function outcomeOf(row: DeliveryCounts): RowOutcome {
 	if (!row.routed) return 'pending';
 	if (row.deliveries_failed > 0) return 'failed';
-	if (row.deliveries_total === 0) return row.route_count === 0 ? 'unrouted' : 'pending';
+	if (row.route_count === 0) return 'unrouted';
+	// Something is still to be sent, whatever else already went out.
+	if (row.notifications_waiting > 0) return 'waiting';
+	if (row.deliveries_total === 0) return row.notifications_suppressed > 0 ? 'not_sent' : 'pending';
 	return row.deliveries_delivered === row.deliveries_total ? 'delivered' : 'pending';
 }
