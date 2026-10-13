@@ -21,13 +21,18 @@ type Handler<K extends keyof StreamMessages> = (message: StreamMessages[K]) => v
 
 const TYPES: (keyof StreamMessages)[] = ['event', 'delivery', 'resync'];
 
+/** The browser's EventSource, seen through the narrower interface this module needs. */
+function openEventSource(url: string): EventSourceLike {
+	return new EventSource(url) as unknown as EventSourceLike;
+}
+
 /** Live changes from the server. The browser reconnects by itself when the connection drops. */
 export class LiveStream {
 	status = $state<'connecting' | 'live' | 'reconnecting'>('connecting');
 	private source: EventSourceLike | null = null;
 	private handlers: { [K in keyof StreamMessages]: Handler<K>[] } = { event: [], delivery: [], resync: [] };
 
-	connect(open: (url: string) => EventSourceLike = (url) => new EventSource(url)) {
+	connect(open: (url: string) => EventSourceLike = openEventSource) {
 		if (this.source) return;
 		const source = open('/api/stream');
 		this.source = source;
