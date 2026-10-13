@@ -107,9 +107,7 @@
 
 	function setFilters(next: FeedFilters) {
 		const search = filtersToQuery(next);
-		// The path is resolved; only the query string is appended to it.
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(`${resolve('/')}${search ? `?${search}` : ''}`, { replace: true, reset: false });
+		goto(resolve(search ? `/?${search}` : '/'), { replace: true, reset: false });
 	}
 
 	function resume() {

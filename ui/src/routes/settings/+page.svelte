@@ -128,7 +128,10 @@
 		<div class="max-w-md">
 			<label class="field-label" for="public-url">Address of this ramzes instance</label>
 			<input id="public-url" class="input" type="url" placeholder="https://ramzes.example.com" bind:value={publicUrl} />
-			<p class="hint mt-1">Used for the link back to the event in each message. Leave empty for no link.</p>
+			<p class="hint mt-1">
+				Used for the links in each message: back to the event, and to acknowledge it. While this is empty,
+				messages carry neither link.
+			</p>
 		</div>
 		<div class="max-w-md">
 			<label class="field-label" for="retention">Keep events for (days)</label>

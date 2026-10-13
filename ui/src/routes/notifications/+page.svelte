@@ -2,11 +2,12 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api } from '#lib/api/client.ts';
-	import type { NotificationPage, NotificationRow, Overview } from '#lib/api/types.ts';
+	import type { NotificationPage, NotificationRow, Overview, Settings } from '#lib/api/types.ts';
 	import NotificationActions from '#lib/components/NotificationActions.svelte';
 	import NotificationState from '#lib/components/NotificationState.svelte';
 	import SeverityMark from '#lib/components/SeverityMark.svelte';
 	import { mergeNewest } from '#lib/feed.ts';
+	import { dismiss, isDismissed, lacksPublicUrl } from '#lib/hints.ts';
 	import { TABS, stateQuery, tabOf } from '#lib/notifications.ts';
 	import { live } from '#lib/stream.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
@@ -23,6 +24,21 @@
 	let now = $state(Date.now());
 	/** How many are waiting and how many were sent and not acknowledged, shown on those two views. */
 	let counts = $state<{ waiting: number; sent: number } | null>(null);
+	/** Messages carry an acknowledgement link only when the instance knows its own address. */
+	let noAckLink = $state(false);
+
+	$effect(() => {
+		if (isDismissed(localStorage, 'no-public-url')) return;
+		// The hint is an extra: when the settings cannot be read, the page works without it.
+		api<Settings>('GET', '/api/settings')
+			.then((settings) => (noAckLink = lacksPublicUrl(settings)))
+			.catch(() => {});
+	});
+
+	function dismissAckHint() {
+		dismiss(localStorage, 'no-public-url');
+		noAckLink = false;
+	}
 
 	function firstPage(): Promise<NotificationPage> {
 		return api<NotificationPage>('GET', `/api/notifications?${stateQuery(tab)}limit=${PAGE_SIZE}`);
@@ -100,6 +116,16 @@
 	A notification is what one route tells one connection about: a single event, or several counted or collected
 	into one message. Acknowledge one to say someone is on it; reminders stop, and one still waiting is not sent.
 </p>
+
+{#if noAckLink}
+	<p class="hint mb-4 flex max-w-2xl flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="no-ack-link">
+		<span>
+			Messages will have no acknowledgement link until the address of this ramzes instance is set under
+			<a href={resolve('/settings')}>Settings</a>.
+		</span>
+		<button type="button" class="btn btn-quiet h-7 px-2" onclick={dismissAckHint}>Dismiss</button>
+	</p>
+{/if}
 
 <nav class="mb-4 flex flex-wrap gap-1" aria-label="Notifications to show">
 	{#each TABS as item (item.key)}

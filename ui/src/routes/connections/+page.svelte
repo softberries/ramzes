@@ -4,7 +4,8 @@
 	import Confirm from '#lib/components/Confirm.svelte';
 	import ConnectionForm, { type ConnectionValues } from '#lib/components/ConnectionForm.svelte';
 	import ConnectorDefinitions from '#lib/components/ConnectorDefinitions.svelte';
-	import { groupConnectors, healthWords } from '#lib/connectors.ts';
+	import SlackSetup from '#lib/components/SlackSetup.svelte';
+	import { capabilityWords, groupConnectors, healthWords } from '#lib/connectors.ts';
 	import { ago, timeOfDay } from '#lib/format.ts';
 	import { routesUsing } from '#lib/routes.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
@@ -19,6 +20,8 @@
 	let problem = $state('');
 	let busy = $state(false);
 	let deleting = $state<ConnectionView | null>(null);
+	/** A Slack app connection that was just saved: Slack still has to be told where to send button presses. */
+	let justSaved = $state<ConnectionView | null>(null);
 	/** The latest test result per connection id. */
 	let tests = $state<Record<string, TestResult>>({});
 	let now = $state(Date.now());
@@ -71,9 +74,11 @@
 		busy = true;
 		problem = '';
 		try {
-			if (editing) await api('PUT', `/api/connections/${editing.id}`, values);
-			else await api('POST', '/api/connections', { kind: adding, ...values });
+			const saved = editing
+				? await api<ConnectionView>('PUT', `/api/connections/${editing.id}`, values)
+				: await api<ConnectionView>('POST', '/api/connections', { kind: adding, ...values });
 			toasts.ok(editing ? 'Connection saved.' : 'Connection added.');
+			justSaved = saved.kind === 'slack_app' ? saved : null;
 			close();
 			await load();
 		} catch (error) {
@@ -112,6 +117,14 @@
 	which events go to which connection.
 </p>
 
+{#if justSaved}
+	<div class="panel border-gold mb-5 flex max-w-3xl flex-col gap-3 p-4" data-testid="slack-setup">
+		<h2>One more step in Slack for {justSaved.name}</h2>
+		<SlackSetup connectionId={justSaved.id} />
+		<div><button type="button" class="btn" onclick={() => (justSaved = null)}>Done</button></div>
+	</div>
+{/if}
+
 {#if loaded && connections.length === 0}
 	<p class="hint pb-4">No connections yet. Add one below.</p>
 {/if}
@@ -135,19 +148,25 @@
 					</div>
 				{/if}
 				{#if connection.health}
-						<div class="text-muted">
-							Last 24 hours: <span class={connection.health.failed > 0 ? 'problem' : ''}
-								>{healthWords(connection.health)}</span
-							>
-						</div>
-						{#if connection.health.last_error}
-							<div class="problem break-words">Last error: {connection.health.last_error}</div>
-						{/if}
+					<div class="text-muted">
+						Last 24 hours: <span class={connection.health.failed > 0 ? 'problem' : ''}
+							>{healthWords(connection.health)}</span
+						>
+					</div>
+					{#if connection.health.last_error}
+						<div class="problem break-words">Last error: {connection.health.last_error}</div>
 					{/if}
-					{#if tests[connection.id]?.ok}
+				{/if}
+				{#if tests[connection.id]?.ok}
 					<div class="text-ok">Test message delivered.</div>
 				{:else if tests[connection.id]}
-					<div class="problem">Test failed: {tests[connection.id].detail}</div>
+					<div class="problem break-words">Test failed: {tests[connection.id].detail}</div>
+				{/if}
+				{#if connection.kind === 'slack_app'}
+					<details class="mt-1">
+						<summary class="text-muted cursor-pointer">Setup</summary>
+						<div class="mt-2"><SlackSetup connectionId={connection.id} /></div>
+					</details>
 				{/if}
 			</div>
 			<div class="flex flex-wrap gap-1 md:justify-end">
@@ -210,6 +229,12 @@
 								<span class="font-medium">{connector.name}</span>
 								{#if connector.custom}<span class="tag ml-2">your own</span>{/if}
 								<span class="text-muted block">{connector.description}</span>
+								{#if capabilityWords(connector.capabilities)}
+									<span class="text-muted mt-1 block" data-testid="capabilities">
+										<span class="text-faint">Can do:</span>
+										{capabilityWords(connector.capabilities)}
+									</span>
+								{/if}
 							</button>
 						</li>
 					{/each}
