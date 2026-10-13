@@ -60,4 +60,5 @@
 3. **Noise control** — silences, dedup, grouping, quiet hours, rate limit.
 4. **Urgency** — escalation, acknowledgements, paging, Slack buttons.
 
-Public launch follows milestone 4. Milestone 1 is built; 2–4 are not.
+All four milestones are built. The public launch still needs the checks in
+[05-next-steps.md](05-next-steps.md).

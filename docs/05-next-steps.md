@@ -1,17 +1,23 @@
 # 05 — Next steps
 
-Milestone 1 (Core) is built: see the README for what works and
-`superpowers/plans/2026-10-13-milestone-1-core.md` for how it was built.
+All four milestones of the design are built: see the README for what exists and
+`superpowers/plans/` for how each was built.
 
-1. **Try it** — run it, go through setup, point one real service at it.
-2. **Check Slack for real** — the Slack connector is tested against a mock
-   server only. Send through a real incoming webhook before relying on it.
-3. **Dogfood** milestone 1 in one real project.
-4. **Plan milestone 2 (Breadth)** — its own implementation plan, starting with
-   the declarative connector and adapter formats.
-5. **Milestones 3–4**, each with its own plan, then the public launch.
+Before a public launch:
 
-Still open, in parallel with the build:
+1. **Run every connector against its live service.** None has been. Formats
+   follow the documentation as read on 13 October 2026 and are pinned by
+   snapshot tests, which proves they have not changed, not that the services
+   accept them. Order by likely use: Slack (webhook and app), email through a
+   real provider with TLS, Teams, Discord, PagerDuty, Telegram, ntfy, Pushover.
+2. **Receive from every live source**: Alertmanager, Grafana, GitHub, GitLab,
+   Sentry.
+3. **Dogfood** it in one real project for a few weeks.
+4. **Run the release workflow** once; it has never run.
+5. **Install the Helm chart** on a cluster; it has only been linted.
+6. **Go through the UI by hand** on a phone and in the light theme.
+
+Still open:
 
 - **Verify the landscape** — fresh competitor scan (Novu self-host, Keep,
   Grafana OnCall, apprise-api, anything new in 2026). Update
@@ -20,3 +26,4 @@ Still open, in parallel with the build:
   they send internal notifications today, what hurts?
 - **Contributor License Agreement** — set one up before accepting outside
   contributions (see `LICENSING.md`).
+- **Opsgenie** shuts down on 5 April 2027; decide whether the connector ships.
