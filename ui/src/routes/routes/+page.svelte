@@ -5,9 +5,11 @@
 	import Confirm from '#lib/components/Confirm.svelte';
 	import MatchEditor from '#lib/components/MatchEditor.svelte';
 	import RouteTester from '#lib/components/RouteTester.svelte';
+	import ShapingEditor from '#lib/components/ShapingEditor.svelte';
 	import { ago } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
-	import { cleanMatch, cleanTargets, moved, routesForTest, summarize } from '#lib/routes.ts';
+	import { cleanMatch, cleanTargets, inputOfRoute, moved, routesForTest, summarize } from '#lib/routes.ts';
+	import { formToShaping, shapingToForm, summarizeShaping, type ShapingForm } from '#lib/shaping.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
 	/** The route being created or edited. `id` is null for a new one. */
@@ -19,7 +21,11 @@
 		match: RouteMatch;
 		/** One row per target. Empty strings stand for "not chosen" and are cleaned before sending. */
 		targets: Required<Target>[];
+		shaping: ShapingForm;
 	}
+
+	/** Quiet hours start in the time zone of whoever sets them up. */
+	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 	let routes = $state<Route[]>([]);
 	let templates = $state<Template[]>([]);
@@ -45,7 +51,8 @@
 			enabled: from.enabled,
 			stop: from.stop,
 			match: cleanMatch(from.match),
-			targets: cleanTargets(from.targets, (id) => destinationLabel(id) !== null)
+			targets: cleanTargets(from.targets, (id) => destinationLabel(id) !== null),
+			shaping: formToShaping(from.shaping)
 		};
 	}
 
@@ -83,7 +90,8 @@
 			enabled: true,
 			stop: false,
 			match: {},
-			targets: [emptyTarget(lookups.connections[0]?.id)]
+			targets: [emptyTarget(lookups.connections[0]?.id)],
+			shaping: shapingToForm(undefined, browserZone)
 		};
 	}
 
@@ -99,7 +107,8 @@
 				connection_id: t.connection_id,
 				destination: t.destination ?? '',
 				template_id: t.template_id ?? ''
-			}))
+			})),
+			shaping: shapingToForm($state.snapshot(route.shaping), browserZone)
 		};
 	}
 
@@ -139,14 +148,7 @@
 
 	async function toggle(route: Route) {
 		try {
-			const input: RouteInput = {
-				name: route.name,
-				enabled: !route.enabled,
-				stop: route.stop,
-				match: route.match,
-				targets: route.targets
-			};
-			await api('PUT', `/api/routes/${route.id}`, input);
+			await api('PUT', `/api/routes/${route.id}`, { ...inputOfRoute(route), enabled: !route.enabled });
 			await load();
 		} catch (error) {
 			toasts.problem(error);
@@ -209,6 +211,9 @@
 									? ` worded by ${templateNames[target.template_id] ?? 'a deleted template'}`
 									: ''}{/each}
 						</div>
+						{#if summarizeShaping(route.shaping)}
+							<div class="text-muted break-words" data-testid="shaping-summary">{summarizeShaping(route.shaping)}</div>
+						{/if}
 						{#if route.last_error}
 							<div class="problem break-words">
 								Expression failed{route.last_error_at ? ` ${ago(route.last_error_at)}` : ''}: {route.last_error}
@@ -305,6 +310,17 @@
 							To word messages differently, write a template under <a href={resolve('/templates')}>Templates</a>.
 						</p>
 					{/if}
+				</fieldset>
+
+				<fieldset class="flex flex-col gap-3">
+					<legend class="mb-1 font-medium">Noise control</legend>
+					<p class="hint max-w-2xl">
+						Without any of these, every matching event is sent at once.
+						{#if summarizeShaping(formToShaping(draft.shaping))}
+							<span class="text-fg">Now: {summarizeShaping(formToShaping(draft.shaping))}.</span>
+						{/if}
+					</p>
+					<ShapingEditor bind:form={draft.shaping} />
 				</fieldset>
 
 				<div class="flex flex-col gap-2">

@@ -4,6 +4,7 @@
 	import { debounced } from '#lib/debounce.ts';
 	import { clock } from '#lib/format.ts';
 	import { SAMPLE_EVENT, outcomeWords, parseSampleEvent } from '#lib/routes.ts';
+	import { outcomeTone, stepWords } from '#lib/shaping.ts';
 
 	/** How long editing must pause before the routes are tried again. */
 	const TEST_DELAY_MS = 400;
@@ -74,6 +75,9 @@
 		return runSoon.cancel;
 	});
 
+	/** The colour of what noise control would do with a target. */
+	const TONES = { sends: 'text-ok', waits: 'text-gold', quiet: 'text-muted' } as const;
+
 	function tone(result: RouteResult): string {
 		if (result.outcome === 'matched') return 'text-ok';
 		return result.outcome === 'error' ? 'problem' : 'text-muted';
@@ -117,7 +121,11 @@
 						</div>
 						<div class="{tone(result)} break-words">{outcomeWords(result)}</div>
 						{#each result.targets as target, i (i)}
-							<div class="mt-1 break-words">
+							{@const explained = target.steps.filter((step) => step.step !== 'send')}
+							<div class="border-line mt-2 border-l-2 pl-2 break-words" data-testid="target">
+								<div class="font-medium {TONES[outcomeTone(target.outcome)]}" data-testid="target-outcome">
+									{target.outcome}
+								</div>
 								<span class="text-muted">
 									to
 									<span class={target.connection_name ? 'text-fg' : 'problem'}
@@ -126,6 +134,14 @@
 								</span>
 								{target.title}
 								{#if target.warning}<div class="text-gold">{target.warning}</div>{/if}
+								{#if explained.length > 0}
+									<!-- Not a list: the rows of the result list are counted by their list items. -->
+									<div class="text-muted" data-testid="target-steps">
+										{#each explained as step, at (at)}
+											<div><span class="text-faint">{stepWords(step.step)}:</span> {step.outcome}</div>
+										{/each}
+									</div>
+								{/if}
 							</div>
 						{/each}
 						{#if result.outcome === 'matched' && result.targets.length === 0}

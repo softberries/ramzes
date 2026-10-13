@@ -55,17 +55,25 @@ export function cleanTargets(draft: Target[], takesDestination: (connectionId: s
 		});
 }
 
+/** A stored route as the API takes it back, for saving it with one thing changed. */
+export function inputOfRoute(route: Route): RouteInput {
+	return {
+		name: route.name,
+		enabled: route.enabled,
+		stop: route.stop,
+		match: route.match,
+		targets: route.targets,
+		...(route.shaping ? { shaping: route.shaping } : {})
+	};
+}
+
 /**
  * The routes to try an event against: the stored routes in list order, with the route being edited
  * replaced by its unsaved draft, or a new draft added at the end.
  */
 export function routesForTest(routes: Route[], draft: { id: string | null; input: RouteInput } | null): RouteInput[] {
 	const named = draft && { ...draft.input, name: draft.input.name.trim() || 'New route' };
-	const sent: RouteInput[] = routes.map((route) =>
-		named && route.id === draft.id
-			? named
-			: { name: route.name, enabled: route.enabled, stop: route.stop, match: route.match, targets: route.targets }
-	);
+	const sent: RouteInput[] = routes.map((route) => (named && route.id === draft.id ? named : inputOfRoute(route)));
 	if (named && draft.id === null) sent.push(named);
 	return sent;
 }
