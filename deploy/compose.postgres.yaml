@@ -1,0 +1,40 @@
+# ramzes storing its data in Postgres. Run from the repository root:
+#   docker compose -f deploy/compose.postgres.yaml up --build
+# then open http://localhost:7269
+#
+# Change POSTGRES_PASSWORD (in both places) before using this anywhere real.
+services:
+  ramzes:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      RAMZES_DATABASE_URL: postgres://ramzes:ramzes@postgres:5432/ramzes
+    ports:
+      - "7269:7269"
+    volumes:
+      # Still needed: the generated secret key lives here.
+      - ramzes-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ramzes
+      POSTGRES_PASSWORD: ramzes
+      POSTGRES_DB: ramzes
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ramzes"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  ramzes-data:
+  postgres-data:

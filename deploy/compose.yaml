@@ -1,0 +1,16 @@
+# ramzes with its built-in SQLite database. Run from the repository root:
+#   docker compose -f deploy/compose.yaml up --build
+# then open http://localhost:7269
+services:
+  ramzes:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "7269:7269"
+    volumes:
+      - ramzes-data:/data
+    restart: unless-stopped
+
+volumes:
+  ramzes-data:

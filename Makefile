@@ -2,7 +2,7 @@ PG_PORT := 55432
 PG_NAME := ramzes-test-pg
 PG_URL := postgres://postgres:ramzes@127.0.0.1:$(PG_PORT)/postgres
 
-.PHONY: test test-pg pg-up pg-down lint ui build run
+.PHONY: test test-pg pg-up pg-down lint ui ui-test e2e build run
 
 # SQLite only. Postgres tests print a skip notice.
 test:
@@ -27,6 +27,16 @@ lint:
 ui:
 	npm --prefix ui ci
 	npm --prefix ui run build
+
+# Lint, type check and unit tests of the web UI.
+ui-test:
+	npm --prefix ui run lint
+	npm --prefix ui run check
+	npm --prefix ui test
+
+# Browser tests against the real binary.
+e2e:
+	npm --prefix ui run e2e
 
 build: ui
 	cargo build --release -p ramzes-server

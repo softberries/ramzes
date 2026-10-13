@@ -1,0 +1,9 @@
+target
+**/node_modules
+ui/build
+ui/.svelte-kit
+ui/e2e-shots
+ui/test-results
+.git
+.superpowers
+data

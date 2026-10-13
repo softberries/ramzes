@@ -4,7 +4,7 @@ Lightweight, self-hosted notification router for microservices
 ("Alertmanager for any event"). Single Rust binary. Router only: no pub/sub,
 no NATS protocol.
 
-**Status:** design written, awaiting Kris's review. No code yet.
+**Status:** milestone 1 of 4 (Core) is built and tested. Milestones 2–4 are designed, not built.
 
 ## Read first
 - `docs/superpowers/specs/2026-10-13-ramzes-design.md` — the agreed design, source of truth
@@ -19,4 +19,13 @@ no NATS protocol.
 - Update the docs when decisions are made (answers → architecture/scope).
 - Stack: Rust (Axum, Tokio), SQLite by default or Postgres, MiniJinja, SvelteKit UI embedded in the binary.
 - Licence: core AGPL-3.0-only, commercial enterprise edition, CLA (same model as Tayga).
-- Don't start coding until the design is approved and the milestone's implementation plan is written.
+- Each milestone gets its own implementation plan under `docs/superpowers/plans/` before it is coded.
+- Storage rules: one migration set for SQLite and Postgres, only `TEXT` and `BIGINT` columns, SQL written once with `$N` placeholders (see `crates/ramzes-store/src/lib.rs`).
+- Pure logic (matching, routing, backoff) lives in `ramzes-core` and takes the time as an argument.
+- UI colours come only from the tokens in `ui/src/app.css`.
+
+## Commands
+- `make test` — Rust tests on SQLite; `make test-pg` — also on a throwaway Postgres (Docker)
+- `make lint` — rustfmt + clippy with warnings as errors
+- `make ui-test` — UI lint, type check, unit tests; `make e2e` — browser tests against the real binary
+- `npm --prefix ui run gen:api` — regenerate UI types after changing the admin API
