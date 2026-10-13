@@ -25,6 +25,7 @@ utoipa.workspace = true
 minijinja.workspace = true
 serde_norway = "0.9"
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+percent-encoding = "2.3.2"
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }

@@ -15,5 +15,5 @@ expression: "preview(kind, &full(), None)"
       "Bearer ••••"
     ]
   ],
-  "body": "{\n  \"topic\": \"ops\",\n  \"title\": \"Charge failed: card network timeout\",\n  \"message\": \"14 charges failed in the last 30 s\",\n  \"priority\": 5,\n  \"tags\": [\n    \"rotating_light\"\n  ],\n  \"click\": \"https://ramzes.example.com/events/0199\"\n}"
+  "body": "{\n  \"topic\": \"ops\",\n  \"title\": \"Charge failed: card network timeout\",\n  \"message\": \"14 charges failed in the last 30 s\",\n  \"priority\": 5,\n  \"tags\": [\n    \"rotating_light\"\n  ],\n  \"click\": \"https://ramzes.example.com/events/0199\",\n  \"actions\": [\n    {\n      \"action\": \"view\",\n      \"label\": \"Acknowledge\",\n      \"url\": \"https://ramzes.example.com/ack/n1?t=abc\"\n    }\n  ]\n}"
 }

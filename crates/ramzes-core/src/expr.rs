@@ -23,9 +23,15 @@ static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
     env.set_undefined_behavior(UndefinedBehavior::Chainable);
     env.set_auto_escape_callback(|_| AutoEscape::None);
     env.add_filter("cut", cut);
+    env.add_filter("urlpath", urlpath);
     env.add_test("digits", digits);
     env
 });
+
+/// `{{ text | urlpath }}`: percent-encoded so it is one segment of a URL path, whatever it holds.
+fn urlpath(text: String) -> String {
+    percent_encoding::utf8_percent_encode(&text, percent_encoding::NON_ALPHANUMERIC).to_string()
+}
 
 /// `{% if text is digits %}`: a whole number, optionally negative.
 fn digits(text: String) -> bool {

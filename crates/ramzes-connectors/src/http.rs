@@ -100,6 +100,24 @@ pub(crate) struct Outgoing<'a> {
     pub retry_after_header: &'a str,
 }
 
+/// What a service answered.
+pub(crate) struct Answer {
+    pub status: u16,
+    pub retry_after: Option<String>,
+    pub body: String,
+}
+
+impl Answer {
+    /// The outcome the status alone amounts to.
+    pub fn classified(&self) -> SendOutcome {
+        classify(
+            self.status,
+            self.retry_after.as_deref(),
+            truncate(self.body.trim(), EXCERPT_CHARS),
+        )
+    }
+}
+
 /// The HTTP client shared by connectors.
 #[derive(Clone)]
 pub(crate) struct Http {
@@ -145,23 +163,24 @@ impl Http {
         }
     }
 
-    /// Sends the request and classifies the answer. Network failures and timeouts are retryable.
-    pub async fn send(&self, out: Outgoing<'_>) -> SendOutcome {
+    /// Sends the request and returns the answer as it came. A request that could not be made
+    /// is returned as the outcome it amounts to: network failures and timeouts are retryable.
+    pub async fn call(&self, out: &Outgoing<'_>) -> Result<Answer, SendOutcome> {
         let permanent = |detail: String| SendOutcome::Permanent {
             status: None,
             detail,
         };
         let url = match reqwest::Url::parse(out.url) {
             Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => url,
-            _ => return permanent("the address is not an http or https URL".into()),
+            _ => return Err(permanent("the address is not an http or https URL".into())),
         };
         let Ok(method) = reqwest::Method::from_bytes(out.method.as_bytes()) else {
-            return permanent(format!("{:?} is not an HTTP method", out.method));
+            return Err(permanent(format!("{:?} is not an HTTP method", out.method)));
         };
         if self.block_private && Self::points_inwards(&url).await {
-            return permanent(PRIVATE_REFUSED.into());
+            return Err(permanent(PRIVATE_REFUSED.into()));
         }
-        let mut request = self.client.request(method, url).body(out.body);
+        let mut request = self.client.request(method, url).body(out.body.clone());
         for (name, value) in out.headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -173,18 +192,18 @@ impl Http {
                 } else if e.is_connect() {
                     "could not connect to the service".to_owned()
                 } else if e.is_builder() {
-                    return permanent(format!(
+                    return Err(permanent(format!(
                         "the request could not be built: {}",
                         e.without_url()
-                    ));
+                    )));
                 } else {
                     format!("the request failed: {}", e.without_url())
                 };
-                return SendOutcome::Retry {
+                return Err(SendOutcome::Retry {
                     after_ms: None,
                     status: None,
                     detail,
-                };
+                });
             }
         };
         let status = response.status().as_u16();
@@ -195,7 +214,20 @@ impl Http {
             .map(str::to_owned);
         // A NUL cannot be stored as text in Postgres; binary answers are kept without them.
         let body = response.text().await.unwrap_or_default().replace('\0', "");
-        let excerpt = truncate(body.trim(), EXCERPT_CHARS);
+        Ok(Answer {
+            status,
+            retry_after,
+            body,
+        })
+    }
+
+    /// Sends the request and classifies the answer by its status.
+    pub async fn send(&self, out: Outgoing<'_>) -> SendOutcome {
+        let answer = match self.call(&out).await {
+            Ok(answer) => answer,
+            Err(outcome) => return outcome,
+        };
+        let status = answer.status;
         if !out.success.is_empty() && (200..300).contains(&status) && !out.success.contains(&status)
         {
             return SendOutcome::Permanent {
@@ -209,7 +241,7 @@ impl Http {
                 status: Some(status),
             };
         }
-        classify(status, retry_after.as_deref(), excerpt)
+        answer.classified()
     }
 
     /// Posts a JSON body; any 2xx counts as delivered.

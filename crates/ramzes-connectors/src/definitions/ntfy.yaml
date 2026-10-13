@@ -33,5 +33,6 @@ request:
       "priority": {{ priority }},
       "tags": [{{ tag | tojson }}]
       {% if message.link %},"click": {{ message.link | tojson }}{% endif %}
+      {% if message.ack_link %},"actions": [{"action": "view", "label": "Acknowledge", "url": {{ message.ack_link | tojson }}}]{% endif %}
     }
 max_len: 1000

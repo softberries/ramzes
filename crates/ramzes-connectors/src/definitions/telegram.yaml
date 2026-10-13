@@ -21,7 +21,8 @@ request:
     <i>{{ f.key | cut(40) | e }}</i>: {{ f.value | cut(100) | e }}{% endfor %}
 
     <code>{{ message.topic | cut(100) | e }}</code> · {{ message.status }} · {{ message.severity }}{% if message.link %}
-    <a href="{{ message.link | e }}">Open in ramzes</a>{% endif %}{% endset %}
+    <a href="{{ message.link | e }}">Open in ramzes</a>{% endif %}{% if message.ack_link %}
+    <a href="{{ message.ack_link | e }}">Acknowledge</a>{% endif %}{% endset %}
     {
       "chat_id": {% if chat is digits %}{{ chat }}{% else %}{{ chat | tojson }}{% endif %},
       "text": {{ text | tojson }},

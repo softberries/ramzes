@@ -1,0 +1,43 @@
+kind: opsgenie
+name: Opsgenie
+description: Create Opsgenie alerts and close them when the event is resolved. Atlassian shuts Opsgenie down on 5 April 2027.
+fields:
+  - key: api_key
+    label: API key
+    help: "The key of an API integration: Teams, your team, Integrations, add API."
+    secret: true
+    required: true
+  - key: region
+    label: Region
+    help: "Leave empty for the US instance; write eu for the EU one."
+request:
+  url: >-
+    https://api.{{ 'eu.' if (settings.region | default('') | lower) == 'eu' else '' }}opsgenie.com/v2/alerts{% if message.status == 'resolved' %}/{{ message.dedup_key | default('ramzes-test') | cut(512) | urlpath }}/close?identifierType=alias{% endif %}
+  headers:
+    Authorization: "GenieKey {{ credentials.api_key }}"
+  body: |
+    {% if message.status == 'resolved' %}
+    {"source": "ramzes", "note": "Resolved in ramzes"}
+    {% else %}
+    {% if message.severity == 'critical' %}{% set priority = 'P1' %}
+    {% elif message.severity == 'error' %}{% set priority = 'P2' %}
+    {% elif message.severity == 'warning' %}{% set priority = 'P3' %}
+    {% elif message.severity == 'info' %}{% set priority = 'P4' %}
+    {% else %}{% set priority = 'P5' %}{% endif %}
+    {
+      "message": {{ message.title | cut(130) | tojson }},
+      "alias": {{ message.dedup_key | default('ramzes-test') | cut(512) | tojson }},
+      "description": {{ ((message.body | default('')) ~ ('\n\nAcknowledge: ' ~ message.ack_link if message.ack_link else '')) | cut(15000) | tojson }},
+      "priority": {{ priority | tojson }},
+      "source": "ramzes",
+      "entity": {{ message.topic | cut(512) | tojson }},
+      "tags": [{{ message.severity | tojson }}],
+      "details": {
+        {% for f in message.fields[:20] %}
+        {{ f.key | cut(100) | tojson }}: {{ f.value | cut(300) | tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+      }
+    }
+    {% endif %}
+success: [202]
+max_len: 15000

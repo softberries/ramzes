@@ -1,0 +1,15 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &bare(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://events.pagerduty.com/v2/enqueue",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ]
+  ],
+  "body": "{\n  \"routing_key\": \"••••\",\n  \"event_action\": \"resolve\",\n  \"dedup_key\": \"ramzes-test\",\n  \"payload\": {\n    \"summary\": \"Deploy finished\",\n    \"source\": \"deploy.finished\",\n    \"severity\": \"info\",\n    \"custom_details\": {\n      \"body\": \"\",\n      \"labels\": {}\n    }\n  },\n  \"client\": \"ramzes\"\n}"
+}

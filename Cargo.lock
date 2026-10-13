@@ -1922,6 +1922,7 @@ dependencies = [
  "insta",
  "jiff",
  "minijinja",
+ "percent-encoding",
  "rand",
  "regex",
  "serde",

@@ -27,6 +27,9 @@ request:
           {% for f in message.fields[:8] %}
           {"name": {{ f.key | cut(100) | tojson }}, "value": {{ (f.value or '-') | cut(200) | tojson }}, "inline": true}{% if not loop.last %},{% endif %}
           {% endfor %}
+          {% if message.ack_link %}{% if message.fields %},{% endif %}
+          {"name": "Acknowledge", "value": {{ ('[Open the confirmation page](' ~ message.ack_link ~ ')') | tojson }}, "inline": false}
+          {% endif %}
         ],
         "footer": {"text": {{ (message.topic ~ ' · ' ~ message.status ~ ' · ' ~ message.severity) | cut(300) | tojson }}}
       }]

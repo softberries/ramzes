@@ -140,6 +140,9 @@ fn plain(m: &Message) -> String {
     if let Some(link) = &m.link {
         out.push_str(&format!("Open in ramzes: {link}\n"));
     }
+    if let Some(link) = &m.ack_link {
+        out.push_str(&format!("Acknowledge: {link}\n"));
+    }
     out
 }
 
@@ -184,6 +187,9 @@ fn html(m: &Message) -> String {
             " · <a href=\"{}\">Open in ramzes</a>",
             escape(link)
         ));
+    }
+    if let Some(link) = &m.ack_link {
+        out.push_str(&format!(" · <a href=\"{}\">Acknowledge</a>", escape(link)));
     }
     out.push_str("</p></div>");
     out

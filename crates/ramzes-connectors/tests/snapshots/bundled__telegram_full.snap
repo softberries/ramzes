@@ -11,5 +11,5 @@ expression: "preview(kind, &full(), None)"
       "application/json"
     ]
   ],
-  "body": "{\n  \"chat_id\": -1001234567890,\n  \"text\": \"<b>Charge failed: card network timeout</b>\\n14 charges failed in the last 30 s\\n\\n<i>env</i>: prod\\n<i>service</i>: payments\\n\\n<code>payments.charge.failed</code> · firing · critical\\n<a href=\\\"https:&#x2f;&#x2f;ramzes.example.com&#x2f;events&#x2f;0199\\\">Open in ramzes</a>\",\n  \"parse_mode\": \"HTML\",\n  \"link_preview_options\": {\n    \"is_disabled\": true\n  }\n}"
+  "body": "{\n  \"chat_id\": -1001234567890,\n  \"text\": \"<b>Charge failed: card network timeout</b>\\n14 charges failed in the last 30 s\\n\\n<i>env</i>: prod\\n<i>service</i>: payments\\n\\n<code>payments.charge.failed</code> · firing · critical\\n<a href=\\\"https:&#x2f;&#x2f;ramzes.example.com&#x2f;events&#x2f;0199\\\">Open in ramzes</a>\\n<a href=\\\"https:&#x2f;&#x2f;ramzes.example.com&#x2f;ack&#x2f;n1?t=abc\\\">Acknowledge</a>\",\n  \"parse_mode\": \"HTML\",\n  \"link_preview_options\": {\n    \"is_disabled\": true\n  }\n}"
 }

@@ -13,6 +13,8 @@ expression: body
     "service": "payments"
   },
   "link": "https://ramzes.example.com/events/0199",
+  "ack_link": null,
+  "dedup_key": null,
   "event_ids": [
     "0199"
   ],

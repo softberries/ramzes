@@ -14,8 +14,9 @@ use crate::{
 };
 
 /// Kinds that are compiled in; a definition added by a user may not take one of these.
-const RESERVED: [&str; 10] = [
+const RESERVED: [&str; 11] = [
     "slack",
+    "slack_app",
     "webhook",
     "email",
     "discord",
@@ -70,7 +71,7 @@ pub struct RequestDef {
 /// A connector as data: its settings and the HTTP request that delivers a message.
 ///
 /// Templates see `message` (`title`, `body`, `severity`, `status`, `topic`, `labels`, `fields`,
-/// `link`, `event_ids`, `count`), `settings`, `credentials`, `destination` and `now_ms`.
+/// `link`, `ack_link`, `dedup_key`, `event_ids`, `count`), `settings`, `credentials`, `destination` and `now_ms`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -191,6 +192,9 @@ pub(crate) fn message_context(m: &Message) -> Value {
         "link": m.link,
         "event_ids": m.event_ids,
         "count": m.event_ids.len(),
+        "dedup_key": m.dedup_key,
+        "ack_link": m.ack_link,
+        "notification_id": m.notification_id,
     })
 }
 

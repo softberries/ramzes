@@ -1,0 +1,19 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &full(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://api.eu.opsgenie.com/v2/alerts",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ],
+    [
+      "Authorization",
+      "GenieKey ••••"
+    ]
+  ],
+  "body": "{\n  \"message\": \"Charge failed: card network timeout\",\n  \"alias\": \"payments/charge\",\n  \"description\": \"14 charges failed in the last 30 s\\n\\nAcknowledge: https://ramzes.example.com/ack/n1?t=abc\",\n  \"priority\": \"P1\",\n  \"source\": \"ramzes\",\n  \"entity\": \"payments.charge.failed\",\n  \"tags\": [\n    \"critical\"\n  ],\n  \"details\": {\n    \"env\": \"prod\",\n    \"service\": \"payments\"\n  }\n}"
+}

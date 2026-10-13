@@ -19,6 +19,9 @@ fn full() -> Message {
         ],
         link: Some("https://ramzes.example.com/events/0199".into()),
         event_ids: vec!["0199".into()],
+        dedup_key: Some("payments/charge".into()),
+        ack_link: Some("https://ramzes.example.com/ack/n1?t=abc".into()),
+        notification_id: Some("n1".into()),
         ..Message::default()
     }
 }
@@ -84,6 +87,14 @@ fn config(kind: &str) -> ConnectionConfig {
             json!({}),
             json!({"token": "app-secret-token", "user": "user-secret-key"}),
         ),
+        "pagerduty" => (
+            json!({}),
+            json!({"routing_key": "secret-routing-key-0123456789abc"}),
+        ),
+        "opsgenie" => (
+            json!({"region": "eu"}),
+            json!({"api_key": "secret-genie-key"}),
+        ),
         other => panic!("no config for {other}"),
     };
     ConnectionConfig {
@@ -92,7 +103,15 @@ fn config(kind: &str) -> ConnectionConfig {
     }
 }
 
-const KINDS: [&str; 5] = ["discord", "teams", "ntfy", "telegram", "pushover"];
+const KINDS: [&str; 7] = [
+    "discord",
+    "teams",
+    "ntfy",
+    "telegram",
+    "pushover",
+    "pagerduty",
+    "opsgenie",
+];
 
 fn preview(kind: &str, m: &Message, destination: Option<&str>) -> Preview {
     let registry = Registry::builtin(Duration::from_secs(1));
@@ -172,11 +191,22 @@ fn awkward_text_still_produces_valid_json_within_the_services_limits() {
                 assert!(body["message"].as_str().unwrap().len() <= 4096);
                 assert!(body["title"].as_str().unwrap().len() <= 1024);
             }
-            _ => assert!(
+            "pagerduty" => {
+                assert!(body["payload"]["summary"].as_str().unwrap().chars().count() <= 1024);
+                assert_eq!(body["event_action"], "trigger");
+                assert_eq!(body["payload"]["severity"], "warning");
+            }
+            "opsgenie" => {
+                assert!(body["message"].as_str().unwrap().chars().count() <= 130);
+                assert!(body["description"].as_str().unwrap().chars().count() <= 15_000);
+                assert!(body["details"].as_object().unwrap().len() <= 20);
+            }
+            "teams" => assert!(
                 p.body.len() < 28_000,
                 "teams message is {} bytes",
                 p.body.len()
             ),
+            other => panic!("no limits are checked for {other}"),
         }
     }
 }
@@ -212,5 +242,67 @@ fn secrets_never_appear_in_a_preview() {
     for kind in KINDS {
         let shown = format!("{:?}", preview(kind, &full(), None));
         assert!(!shown.contains("secret"), "{kind}: {shown}");
+    }
+}
+
+fn resolved() -> Message {
+    Message {
+        status: EventStatus::Resolved,
+        dedup_key: Some("acme/shop CI".into()),
+        ack_link: None,
+        ..full()
+    }
+}
+
+#[test]
+fn pagerduty_and_opsgenie_close_what_they_opened() {
+    let pagerduty = preview("pagerduty", &resolved(), None);
+    let body: Value = serde_json::from_str(&pagerduty.body).unwrap();
+    assert_eq!(pagerduty.url, "https://events.pagerduty.com/v2/enqueue");
+    assert_eq!(
+        (body["event_action"].as_str(), body["dedup_key"].as_str()),
+        (Some("resolve"), Some("acme/shop CI"))
+    );
+    let trigger: Value = serde_json::from_str(&preview("pagerduty", &full(), None).body).unwrap();
+    assert_eq!(
+        (
+            trigger["event_action"].as_str(),
+            trigger["dedup_key"].as_str()
+        ),
+        (Some("trigger"), Some("payments/charge"))
+    );
+    assert_eq!(trigger["payload"]["severity"], "critical");
+
+    let opsgenie = preview("opsgenie", &resolved(), None);
+    // The alias is one path segment, whatever characters the key has.
+    assert_eq!(
+        opsgenie.url,
+        "https://api.eu.opsgenie.com/v2/alerts/acme%2Fshop%20CI/close?identifierType=alias"
+    );
+    let created = preview("opsgenie", &full(), None);
+    assert_eq!(created.url, "https://api.eu.opsgenie.com/v2/alerts");
+    let body: Value = serde_json::from_str(&created.body).unwrap();
+    assert_eq!(
+        (body["alias"].as_str(), body["priority"].as_str()),
+        (Some("payments/charge"), Some("P1"))
+    );
+}
+
+#[test]
+fn the_acknowledgement_link_is_offered_where_the_service_can_show_one() {
+    for kind in [
+        "discord",
+        "teams",
+        "ntfy",
+        "telegram",
+        "pagerduty",
+        "opsgenie",
+    ] {
+        let body = preview(kind, &full(), None).body;
+        assert!(body.contains("n1?t=abc"), "{kind}: {body}");
+    }
+    for kind in KINDS {
+        let body = preview(kind, &bare(), None).body;
+        assert!(!body.contains("Acknowledge"), "{kind}: {body}");
     }
 }

@@ -4,6 +4,7 @@ mod declarative;
 mod email;
 mod http;
 mod slack;
+mod slack_app;
 mod webhook;
 
 use std::collections::BTreeMap;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 pub use declarative::{BodyFormat, Definition, RequestDef};
 pub use http::{HttpOptions, classify};
+pub use slack_app::{ACK_ACTION, SILENCE_ACTION};
 
 /// What a connector is and which settings it needs. Drives the setup form in the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
@@ -186,6 +188,8 @@ pub struct Registry {
 const BUNDLED: &[&str] = &[
     include_str!("definitions/discord.yaml"),
     include_str!("definitions/ntfy.yaml"),
+    include_str!("definitions/opsgenie.yaml"),
+    include_str!("definitions/pagerduty.yaml"),
     include_str!("definitions/pushover.yaml"),
     include_str!("definitions/teams.yaml"),
     include_str!("definitions/telegram.yaml"),
@@ -208,6 +212,7 @@ impl Registry {
             http: http.clone(),
         };
         registry.add(Arc::new(slack::Slack::new(http.clone())));
+        registry.add(Arc::new(slack_app::SlackApp::new(http.clone())));
         registry.add(Arc::new(webhook::Webhook::new(http.clone())));
         registry.add(Arc::new(email::Email::new(options.timeout)));
         for text in BUNDLED {

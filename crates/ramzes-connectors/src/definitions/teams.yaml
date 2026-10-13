@@ -34,7 +34,11 @@ request:
             ]}{% endif %}
             ,{"type": "TextBlock", "text": {{ (message.topic ~ ' · ' ~ message.status ~ ' · ' ~ message.severity) | cut(300) | tojson }}, "isSubtle": true, "size": "Small", "wrap": true}
           ]
-          {% if message.link %},"actions": [{"type": "Action.OpenUrl", "title": "Open in ramzes", "url": {{ message.link | tojson }}}]{% endif %}
+          {% if message.link or message.ack_link %},"actions": [
+            {% if message.ack_link %}{"type": "Action.OpenUrl", "title": "Acknowledge", "url": {{ message.ack_link | tojson }}}{% endif %}
+            {% if message.link and message.ack_link %},{% endif %}
+            {% if message.link %}{"type": "Action.OpenUrl", "title": "Open in ramzes", "url": {{ message.link | tojson }}}{% endif %}
+          ]{% endif %}
         }
       }]
     }

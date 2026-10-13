@@ -40,6 +40,8 @@ fn body(m: &Message, now_ms: i64) -> Vec<u8> {
         "topic": m.topic,
         "labels": labels,
         "link": m.link,
+        "ack_link": m.ack_link,
+        "dedup_key": m.dedup_key,
         "event_ids": m.event_ids,
         "sent_at": now_ms,
     })

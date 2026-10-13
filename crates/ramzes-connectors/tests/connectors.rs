@@ -137,7 +137,17 @@ fn registry_describes_the_builtin_connectors() {
     assert_eq!(
         kinds,
         vec![
-            "discord", "email", "ntfy", "pushover", "slack", "teams", "telegram", "webhook"
+            "discord",
+            "email",
+            "ntfy",
+            "opsgenie",
+            "pagerduty",
+            "pushover",
+            "slack",
+            "slack_app",
+            "teams",
+            "telegram",
+            "webhook"
         ]
     );
     assert!(registry().get("slack").is_some());

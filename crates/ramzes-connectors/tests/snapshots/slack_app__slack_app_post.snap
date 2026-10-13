@@ -1,0 +1,77 @@
+---
+source: crates/ramzes-connectors/tests/slack_app.rs
+expression: body
+---
+{
+  "channel": "C0OPS",
+  "text": "🔴 Database down",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "🔴 Database down",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "plain_text",
+        "text": "db-1 does not answer",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*host*\ndb-1"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "`infra.db` · firing · critical · <https://ramzes.example.com/events/1|Open in ramzes>"
+        }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "action_id": "ramzes_ack",
+          "value": "n1",
+          "style": "primary",
+          "text": {
+            "type": "plain_text",
+            "text": "Acknowledge"
+          }
+        },
+        {
+          "type": "button",
+          "action_id": "ramzes_silence",
+          "value": "n1",
+          "text": {
+            "type": "plain_text",
+            "text": "Silence for 1 hour"
+          }
+        },
+        {
+          "type": "button",
+          "action_id": "ramzes_open",
+          "url": "https://ramzes.example.com/events/1",
+          "text": {
+            "type": "plain_text",
+            "text": "Open in ramzes"
+          }
+        }
+      ]
+    }
+  ]
+}

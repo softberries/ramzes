@@ -1,0 +1,35 @@
+kind: pagerduty
+name: PagerDuty
+description: Trigger PagerDuty alerts through an Events API v2 integration, and resolve them when the event is resolved.
+fields:
+  - key: routing_key
+    label: Integration key
+    help: "In PagerDuty: the service, Integrations, add an Events API v2 integration, copy its Integration Key."
+    secret: true
+    required: true
+  - key: region
+    label: Region
+    help: "Leave empty for the US service region; write eu for the EU one."
+request:
+  url: "https://events.{{ 'eu.' if (settings.region | default('') | lower) == 'eu' else '' }}pagerduty.com/v2/enqueue"
+  body: |
+    {% if message.severity in ['critical', 'error', 'warning'] %}{% set severity = message.severity %}{% else %}{% set severity = 'info' %}{% endif %}
+    {
+      "routing_key": {{ credentials.routing_key | tojson }},
+      "event_action": {{ ('resolve' if message.status == 'resolved' else 'trigger') | tojson }},
+      "dedup_key": {{ message.dedup_key | default('ramzes-test') | cut(255) | tojson }},
+      "payload": {
+        "summary": {{ message.title | cut(1000) | tojson }},
+        "source": {{ message.topic | tojson }},
+        "severity": {{ severity | tojson }},
+        "custom_details": {
+          "body": {{ message.body | default('') | cut(4000) | tojson }},
+          "labels": {{ message.labels | tojson }}
+        }
+      },
+      "client": "ramzes"
+      {% if message.link %},"client_url": {{ message.link | tojson }}{% endif %}
+      {% if message.ack_link %},"links": [{"href": {{ message.ack_link | tojson }}, "text": "Acknowledge in ramzes"}]{% endif %}
+    }
+success: [202]
+max_len: 1000

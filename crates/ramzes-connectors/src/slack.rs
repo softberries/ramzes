@@ -42,7 +42,14 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-fn payload(m: &Message) -> Value {
+/// The message's heading as fallback text. It is parsed as mrkdwn, so it is escaped.
+pub(crate) fn fallback(m: &Message) -> String {
+    truncate(&escape(&format!("{} {}", marker(m), m.title)), SECTION_MAX)
+}
+
+/// The Block Kit blocks of a message. `with_ack_link` adds the acknowledgement link to the
+/// last line, for messages that have no buttons.
+pub(crate) fn blocks(m: &Message, with_ack_link: bool) -> Vec<Value> {
     let heading = format!("{} {}", marker(m), m.title);
     let mut blocks = vec![json!({
         "type": "header",
@@ -81,9 +88,15 @@ fn payload(m: &Message) -> Value {
     if let Some(link) = &m.link {
         context.push_str(&format!(" · <{}|Open in ramzes>", escape(link)));
     }
+    if let (true, Some(link)) = (with_ack_link, &m.ack_link) {
+        context.push_str(&format!(" · <{}|Acknowledge>", escape(link)));
+    }
     blocks.push(json!({"type": "context", "elements": [{"type": "mrkdwn", "text": truncate(&context, SECTION_MAX)}]}));
-    // The fallback text is parsed as mrkdwn, so it is escaped; the header block is plain text.
-    json!({"text": truncate(&escape(&heading), SECTION_MAX), "blocks": blocks})
+    blocks
+}
+
+fn payload(m: &Message) -> Value {
+    json!({"text": fallback(m), "blocks": blocks(m, true)})
 }
 
 #[async_trait]

@@ -1,0 +1,15 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &full(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://events.pagerduty.com/v2/enqueue",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ]
+  ],
+  "body": "{\n  \"routing_key\": \"••••\",\n  \"event_action\": \"trigger\",\n  \"dedup_key\": \"payments/charge\",\n  \"payload\": {\n    \"summary\": \"Charge failed: card network timeout\",\n    \"source\": \"payments.charge.failed\",\n    \"severity\": \"critical\",\n    \"custom_details\": {\n      \"body\": \"14 charges failed in the last 30 s\",\n      \"labels\": {\n        \"env\": \"prod\",\n        \"service\": \"payments\"\n      }\n    }\n  },\n  \"client\": \"ramzes\",\n  \"client_url\": \"https://ramzes.example.com/events/0199\",\n  \"links\": [\n    {\n      \"href\": \"https://ramzes.example.com/ack/n1?t=abc\",\n      \"text\": \"Acknowledge in ramzes\"\n    }\n  ]\n}"
+}
