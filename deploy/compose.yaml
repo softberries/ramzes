@@ -10,6 +10,8 @@ services:
       - "7269:7269"
     volumes:
       - ramzes-data:/data
+    # ramzes finishes the deliveries in flight before it exits; Docker's default of 10 s is too short.
+    stop_grace_period: 30s
     restart: unless-stopped
 
 volumes:

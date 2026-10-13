@@ -94,6 +94,22 @@ async fn a_template_in_use_cannot_be_deleted_and_a_route_cannot_name_a_missing_o
     let (status, error) = api.delete(&format!("/api/templates/{t}")).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(error["message"].as_str().unwrap().contains("r"), "{error}");
+
+    // A template used only by an escalation step is in use too.
+    let (_, later) = api
+        .post(
+            "/api/templates",
+            json!({"name": "Later", "title": "{{ title }}", "body": ""}),
+        )
+        .await;
+    let later = later["id"].as_str().unwrap();
+    let escalating = json!({"name": "paged", "match": {}, "targets": [{"connection_id": c}],
+        "escalation": [{"after_s": 60, "targets": [{"connection_id": c, "template_id": later}]}]});
+    let (status, created) = api.post("/api/routes", escalating).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let (status, error) = api.delete(&format!("/api/templates/{later}")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{error}");
+    assert!(error["message"].as_str().unwrap().contains("paged"), "{error}");
 }
 
 #[tokio::test]

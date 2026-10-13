@@ -149,6 +149,7 @@ pub(crate) async fn remove(
         .filter(|r| {
             r.targets
                 .iter()
+                .chain(r.escalation.iter().flat_map(|step| step.targets.iter()))
                 .any(|t| t.template_id.as_deref() == Some(id.as_str()))
         })
         .map(|r| r.name.as_str())

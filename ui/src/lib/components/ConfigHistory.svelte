@@ -132,7 +132,8 @@
 	oncancel={() => (rollingBack = null)}
 >
 	Routes, templates, connections and connectors go back to how they were after “{rollingBack?.summary}”.
-	Connections keep or regain the credentials they had at that time. Source keys are not touched. The
+	A connection that still exists keeps the credentials it has now; one that had been deleted comes back with the
+	credentials it had then. Source keys are not touched. The
 	rollback is itself recorded, so it can be undone.
 </Confirm>
 
