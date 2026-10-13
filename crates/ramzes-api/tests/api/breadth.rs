@@ -109,7 +109,10 @@ async fn a_template_in_use_cannot_be_deleted_and_a_route_cannot_name_a_missing_o
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let (status, error) = api.delete(&format!("/api/templates/{later}")).await;
     assert_eq!(status, StatusCode::CONFLICT, "{error}");
-    assert!(error["message"].as_str().unwrap().contains("paged"), "{error}");
+    assert!(
+        error["message"].as_str().unwrap().contains("paged"),
+        "{error}"
+    );
 }
 
 #[tokio::test]

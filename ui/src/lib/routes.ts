@@ -132,9 +132,13 @@ export function moved(ids: string[], id: string, step: 1 | -1): string[] | null 
 	return next;
 }
 
-/** The routes that send to a connection. */
+/** The routes that send to a connection, at once or in a step of their escalation chain. */
 export function routesUsing(routes: Route[], connectionId: string): Route[] {
-	return routes.filter((route) => route.targets.some((target) => target.connection_id === connectionId));
+	return routes.filter((route) =>
+		[...route.targets, ...(route.escalation ?? []).flatMap((step) => step.targets)].some(
+			(target) => target.connection_id === connectionId
+		)
+	);
 }
 
 /** A stored route with its place in the evaluation order, counted from 1. */

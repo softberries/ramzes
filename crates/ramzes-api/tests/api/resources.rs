@@ -354,6 +354,27 @@ async fn connection_credentials_never_leave_and_survive_an_update_without_them()
 }
 
 #[tokio::test]
+async fn replacing_one_secret_of_a_connection_keeps_its_others() {
+    let api = Api::signed_in().await;
+    let body = json!({"kind": "scripted", "name": "two secrets", "settings": {"room": "ops"},
+        "credentials": {"token": "first", "signing": "kept"}});
+    let (status, created) = api.post("/api/connections", body).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().unwrap();
+
+    let update = json!({"name": "two secrets", "settings": {"room": "ops"}, "credentials": {"token": "second"}});
+    let (status, updated) = api.put(&format!("/api/connections/{id}"), update).await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    api.post(&format!("/api/connections/{id}/test"), json!({}))
+        .await;
+    let sent = api.connector.sent.lock().unwrap().clone();
+    assert_eq!(
+        sent[0].1.credentials,
+        json!({"token": "second", "signing": "kept"})
+    );
+}
+
+#[tokio::test]
 async fn connections_are_validated() {
     let api = Api::signed_in().await;
     let cases = [

@@ -55,7 +55,8 @@ pub(crate) struct ConnectionUpdate {
     name: String,
     #[schema(value_type = Object)]
     settings: Value,
-    /// Leave out to keep the stored credentials.
+    /// Leave out to keep the stored credentials. Secrets that are given replace the stored ones of
+    /// the same name; the others are kept.
     #[serde(default)]
     #[schema(value_type = Option<Object>)]
     credentials: Option<Value>,
@@ -209,13 +210,18 @@ pub(crate) async fn update(
         .await?
         .ok_or_else(ApiError::not_found)?;
     let name = clean_name(&body.name)?;
-    let credentials = match body.credentials {
-        Some(credentials) => credentials,
-        None => state
-            .key
-            .open(&connection.credentials)
-            .map_err(|e| ApiError::internal("stored credentials could not be opened", e))?,
-    };
+    // Secrets that are given replace the stored ones of the same name; the others are kept, so
+    // changing one secret of a connection that has several does not lose the rest.
+    let mut credentials = state
+        .key
+        .open(&connection.credentials)
+        .map_err(|e| ApiError::internal("stored credentials could not be opened", e))?;
+    if let Some(given) = body.credentials {
+        match (credentials.as_object_mut(), given) {
+            (Some(stored), serde_json::Value::Object(given)) => stored.extend(given),
+            (_, given) => credentials = given,
+        }
+    }
     validate(&state, &connection.kind, &body.settings, &credentials)?;
     connection.name = name;
     connection.settings = body.settings;

@@ -229,6 +229,11 @@ describe('routesUsing', () => {
 		expect(routesUsing(routes, 'c1').map((r) => r.id)).toEqual(['1', '3']);
 		expect(routesUsing(routes, 'c9')).toEqual([]);
 	});
+
+	it('counts a route that reaches the connection only through an escalation step', () => {
+		const escalating = { ...route('7', ['c1']), escalation: [{ after_s: 60, targets: [{ connection_id: 'c9' }] }] };
+		expect(routesUsing([route('1', ['c1']), escalating], 'c9').map((r) => r.id)).toEqual(['7']);
+	});
 });
 
 describe('findRoutes', () => {
