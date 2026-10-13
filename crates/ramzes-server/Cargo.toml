@@ -19,6 +19,7 @@ ramzes-ingest.workspace = true
 ramzes-store.workspace = true
 anyhow.workspace = true
 axum.workspace = true
+subtle.workspace = true
 clap.workspace = true
 prometheus-client.workspace = true
 rust-embed.workspace = true

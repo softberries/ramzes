@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use prometheus_client::encoding::EncodeLabelSet;
@@ -16,6 +16,7 @@ use prometheus_client::registry::Registry;
 use ramzes_engine::{Change, Engine};
 use ramzes_ingest::IngestState;
 use ramzes_store::Store;
+use subtle::ConstantTimeEq;
 use tokio::sync::broadcast::error::RecvError;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -36,10 +37,12 @@ pub struct Ops {
     delivery_seconds: Histogram,
     queue_unrouted: Gauge,
     queue_pending: Gauge,
+    /// When set, `/metrics` answers only requests that carry it.
+    metrics_token: Option<String>,
 }
 
 impl Ops {
-    pub fn new(store: Store, ingest: IngestState) -> Arc<Ops> {
+    pub fn new(store: Store, ingest: IngestState, metrics_token: Option<String>) -> Arc<Ops> {
         let mut registry = Registry::default();
         let ingested = Counter::default();
         let deliveries = Family::<DeliveryLabels, Counter>::default();
@@ -81,6 +84,7 @@ impl Ops {
             delivery_seconds,
             queue_unrouted,
             queue_pending,
+            metrics_token,
         })
     }
 
@@ -138,7 +142,22 @@ async fn ready(State(ops): State<Arc<Ops>>) -> Response {
     }
 }
 
-async fn metrics(State(ops): State<Arc<Ops>>) -> Response {
+async fn metrics(State(ops): State<Arc<Ops>>, headers: HeaderMap) -> Response {
+    if let Some(token) = &ops.metrics_token {
+        let given = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or_default();
+        if !bool::from(given.trim().as_bytes().ct_eq(token.as_bytes())) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "send the metrics token as: Authorization: Bearer <token>",
+            )
+                .into_response();
+        }
+    }
     let total = ops.ingest.ingested();
     let seen = ops.ingested_seen.swap(total, Ordering::Relaxed);
     ops.ingested.inc_by(total.saturating_sub(seen));

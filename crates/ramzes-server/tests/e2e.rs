@@ -753,3 +753,21 @@ async fn the_link_in_a_message_acknowledges_and_stops_the_escalation() {
     let acknowledged = ramzes.get("/api/notifications?state=acknowledged").await;
     assert_eq!(acknowledged["notifications"][0]["acked_by"], "link");
 }
+
+#[tokio::test]
+async fn metrics_ask_for_the_token_when_one_is_set() {
+    let data = tempfile::tempdir().unwrap();
+    let env = [("RAMZES_METRICS_TOKEN", "scrape-me".to_string())];
+    let ramzes = Ramzes::start(data.path(), free_port(), &env, &[]).await;
+    let url = format!("{}/metrics", ramzes.base);
+    let open = ramzes.http.get(&url).send().await.unwrap();
+    assert_eq!(open.status(), StatusCode::UNAUTHORIZED);
+    let wrong = ramzes.http.get(&url).bearer_auth("guess").send().await.unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+    let right = ramzes.http.get(&url).bearer_auth("scrape-me").send().await.unwrap();
+    assert_eq!(right.status(), StatusCode::OK);
+    assert!(right.text().await.unwrap().contains("ramzes_queue_unrouted"));
+    // Health checks stay open: an orchestrator has no token.
+    let health = ramzes.http.get(format!("{}/healthz", ramzes.base)).send().await.unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+}

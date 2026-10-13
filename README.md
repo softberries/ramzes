@@ -177,6 +177,7 @@ passed with `--config`. A flag or environment variable overrides the file.
 | `--public-url` | `RAMZES_PUBLIC_URL` | none | Address people reach ramzes at, for the link in each message |
 | `--secure-cookies true` | `RAMZES_SECURE_COOKIES=true` | `false` | Mark the session cookie `Secure`; set when serving over HTTPS |
 | `--block-private-addresses true` | `RAMZES_BLOCK_PRIVATE_ADDRESSES=true` | `false` | Refuse to deliver to loopback, private and link-local addresses |
+| `--metrics-token` | `RAMZES_METRICS_TOKEN` | none | Ask for this token on `/metrics`, as `Authorization: Bearer <token>` |
 
 The TOML file uses the same names with underscores, for example
 `listen = "0.0.0.0:7269"`.
@@ -213,7 +214,7 @@ timestamp, a dot, and the raw request body.
   new file. For Postgres use `pg_dump`.
 - `ramzes export [file]` and `ramzes import <file>` move the configuration
   between instances.
-- `/metrics` needs no sign-in. Do not expose it to the internet.
+- `/metrics` is open unless a metrics token is set. Set one, or do not expose it to the internet.
 - Sign-in is refused for 15 minutes after 10 wrong passwords for an email.
 - ramzes runs as one instance. It does not yet coordinate several.
 - Events are kept for 30 days by default. Change this, or set it per topic,

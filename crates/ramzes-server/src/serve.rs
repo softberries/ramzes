@@ -112,7 +112,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         clock.clone(),
         key.clone(),
     );
-    let ops = Ops::new(store.clone(), ingest.clone());
+    let ops = Ops::new(store.clone(), ingest.clone(), config.metrics_token.clone());
     let (api, _) = ramzes_api::router(AppState {
         store: store.clone(),
         engine: engine.clone(),

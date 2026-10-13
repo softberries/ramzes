@@ -64,6 +64,9 @@ pub struct Options {
     /// Refuse to deliver to loopback, private and link-local addresses.
     #[arg(long, env = "RAMZES_BLOCK_PRIVATE_ADDRESSES", global = true)]
     pub block_private_addresses: Option<bool>,
+    /// Ask for this token on /metrics, as `Authorization: Bearer <token>`.
+    #[arg(long, env = "RAMZES_METRICS_TOKEN", global = true, hide_env_values = true)]
+    pub metrics_token: Option<String>,
     /// Milliseconds a worker may hold a claimed item before another may take it.
     #[arg(long, env = "RAMZES_LEASE_MS", global = true, hide = true)]
     pub lease_ms: Option<i64>,
@@ -80,6 +83,7 @@ pub struct FileConfig {
     public_url: Option<String>,
     secure_cookies: Option<bool>,
     block_private_addresses: Option<bool>,
+    metrics_token: Option<String>,
     lease_ms: Option<i64>,
 }
 
@@ -92,6 +96,7 @@ pub struct Config {
     pub public_url: Option<String>,
     pub secure_cookies: bool,
     pub block_private_addresses: bool,
+    pub metrics_token: Option<String>,
     pub lease_ms: i64,
 }
 
@@ -143,6 +148,10 @@ impl Config {
                 .block_private_addresses
                 .or(file.block_private_addresses)
                 .unwrap_or(false),
+            metrics_token: options
+                .metrics_token
+                .or(file.metrics_token)
+                .filter(|token| !token.is_empty()),
             lease_ms,
             data_dir,
         })
