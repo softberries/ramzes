@@ -66,7 +66,7 @@ async fn only_the_newest_twenty_requests_are_kept(store: Store) {
     for i in 0..25 {
         let error = (i % 2 == 0).then_some("bad");
         store
-            .record_source_request(&ws, &source, &format!("body {i}"), error, i)
+            .record_source_request(&ws, &source, &format!("body {i}"), None, error, i)
             .await
             .unwrap();
     }

@@ -36,7 +36,7 @@ fn route(name: &str) -> Route {
         r#match: RouteMatch::default(),
         targets: vec![Target {
             connection_id: "c1".into(),
-            destination: None,
+            ..Target::default()
         }],
     }
 }
@@ -121,15 +121,17 @@ async fn a_route_survives_a_round_trip_unchanged(store: Store) {
             },
             LabelCond::Exists { key: "team".into() },
         ],
+        expr: None,
     };
     r.targets = vec![
         Target {
             connection_id: "c1".into(),
             destination: Some("#payments".into()),
+            template_id: Some("t1".into()),
         },
         Target {
             connection_id: "c2".into(),
-            destination: None,
+            ..Target::default()
         },
     ];
     store.create_route(&ws, &r, 1).await.unwrap();

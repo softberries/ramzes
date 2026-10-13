@@ -156,4 +156,39 @@ impl Store {
             Ok(())
         })
     }
+
+    /// Records why a route's expression failed, or clears the record with `None`.
+    pub async fn set_route_error(
+        &self,
+        route_id: &str,
+        error: Option<&str>,
+        now_ms: i64,
+    ) -> Result<()> {
+        let sql = self.sql("UPDATE routes SET last_error = $1, last_error_at = $2 WHERE id = $3");
+        with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*sql))
+                .bind(error)
+                .bind(error.map(|_| now_ms))
+                .bind(route_id)
+                .execute(pool)
+                .await
+                .map(|_| ())
+        })?;
+        Ok(())
+    }
+
+    /// Routes whose expression last failed: `(route id, reason, when)`.
+    pub async fn route_errors(&self, workspace_id: &str) -> Result<Vec<(String, String, i64)>> {
+        let sql = self.sql(
+            "SELECT id, last_error, last_error_at FROM routes WHERE workspace_id = $1 AND last_error IS NOT NULL \
+             ORDER BY position, id",
+        );
+        let rows: Vec<(String, String, i64)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(workspace_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows)
+    }
 }

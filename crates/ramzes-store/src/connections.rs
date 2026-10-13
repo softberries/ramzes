@@ -15,6 +15,19 @@ pub struct Connection {
     pub updated_at: i64,
 }
 
+/// How a connection's deliveries went over a period.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+pub struct ConnectionHealth {
+    pub connection_id: String,
+    pub delivered: i64,
+    /// Rejected or given up.
+    pub failed: i64,
+    /// Waiting or being retried.
+    pub pending: i64,
+    /// The most recent failure in the period.
+    pub last_error: Option<String>,
+}
+
 const CONNECTION_COLS: &str =
     "id, workspace_id, kind, name, settings, credentials, created_at, updated_at";
 
@@ -131,5 +144,52 @@ impl Store {
         } else {
             Ok(())
         }
+    }
+
+    /// Delivery counts per connection for deliveries created at or after `since_ms`.
+    pub async fn connection_health(
+        &self,
+        workspace_id: &str,
+        since_ms: i64,
+    ) -> Result<Vec<ConnectionHealth>> {
+        let counts = self.sql(
+            "SELECT connection_id, \
+             COUNT(CASE WHEN state = 'delivered' THEN 1 END) AS delivered, \
+             COUNT(CASE WHEN state IN ('failed', 'dead') THEN 1 END) AS failed, \
+             COUNT(CASE WHEN state IN ('pending', 'in_progress') THEN 1 END) AS pending \
+             FROM deliveries WHERE workspace_id = $1 AND created_at >= $2 GROUP BY connection_id ORDER BY connection_id",
+        );
+        let errors = self.sql(
+            "SELECT d.connection_id, d.last_error FROM deliveries d WHERE d.id IN \
+             (SELECT MAX(x.id) FROM deliveries x WHERE x.workspace_id = $1 AND x.created_at >= $2 \
+              AND x.state IN ('failed', 'dead') GROUP BY x.connection_id)",
+        );
+        with_db!(self, |pool| {
+            let rows = sqlx::query(AssertSqlSafe(&*counts))
+                .bind(workspace_id)
+                .bind(since_ms)
+                .fetch_all(pool)
+                .await?;
+            let last: Vec<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(&*errors))
+                .bind(workspace_id)
+                .bind(since_ms)
+                .fetch_all(pool)
+                .await?;
+            rows.iter()
+                .map(|row| {
+                    let connection_id: String = row.try_get("connection_id")?;
+                    Ok(ConnectionHealth {
+                        delivered: row.try_get("delivered")?,
+                        failed: row.try_get("failed")?,
+                        pending: row.try_get("pending")?,
+                        last_error: last
+                            .iter()
+                            .find(|(id, _)| *id == connection_id)
+                            .and_then(|(_, error)| error.clone()),
+                        connection_id,
+                    })
+                })
+                .collect()
+        })
     }
 }

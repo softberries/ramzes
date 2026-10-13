@@ -45,7 +45,7 @@ fn route(id: &str, position: i64, m: RouteMatch, targets: &[&str]) -> Route {
             .iter()
             .map(|c| Target {
                 connection_id: c.to_string(),
-                destination: None,
+                ..Target::default()
             })
             .collect(),
     }
@@ -142,11 +142,11 @@ fn all_conditions_must_hold() {
     let m = RouteMatch {
         topic: Some("orders.*".into()),
         min_severity: Some(Severity::Error),
-        source_id: None,
         labels: vec![LabelCond::Equals {
             key: "env".into(),
             value: "prod".into(),
         }],
+        ..RouteMatch::default()
     };
     assert!(m.matches(&event("orders.failed", Severity::Error, &[("env", "prod")])));
     assert!(!m.matches(&event("orders.failed", Severity::Info, &[("env", "prod")])));
@@ -186,7 +186,6 @@ fn match_serialises_with_op_tags() {
     let m = RouteMatch {
         topic: Some("a.*".into()),
         min_severity: Some(Severity::Warning),
-        source_id: None,
         labels: vec![
             LabelCond::Equals {
                 key: "env".into(),
@@ -194,6 +193,7 @@ fn match_serialises_with_op_tags() {
             },
             LabelCond::Exists { key: "team".into() },
         ],
+        ..RouteMatch::default()
     };
     let j = serde_json::to_value(&m).unwrap();
     assert_eq!(
@@ -216,6 +216,7 @@ fn routes_fire_in_position_order_with_every_target() {
     ];
     let e = event("orders.failed", Severity::Info, &[]);
     let got: Vec<(String, String)> = route_event(&e, &routes)
+        .matched
         .iter()
         .map(|m| (m.route.id.clone(), m.target.connection_id.clone()))
         .collect();
@@ -233,7 +234,11 @@ fn routes_fire_in_position_order_with_every_target() {
 fn disabled_routes_are_skipped() {
     let mut r = route("r", 1, topic("*"), &["c1"]);
     r.enabled = false;
-    assert!(route_event(&event("a", Severity::Info, &[]), &[r]).is_empty());
+    assert!(
+        route_event(&event("a", Severity::Info, &[]), &[r])
+            .matched
+            .is_empty()
+    );
 }
 
 #[test]
@@ -241,7 +246,7 @@ fn a_matching_stop_route_ends_evaluation() {
     let mut first = route("first", 1, topic("orders.*"), &["c1"]);
     first.stop = true;
     let routes = vec![first, route("second", 2, topic("*"), &["c2"])];
-    let got = route_event(&event("orders.failed", Severity::Info, &[]), &routes);
+    let got = route_event(&event("orders.failed", Severity::Info, &[]), &routes).matched;
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].route.id, "first");
 }
@@ -251,7 +256,7 @@ fn a_non_matching_stop_route_does_not_stop() {
     let mut first = route("first", 1, topic("billing.*"), &["c1"]);
     first.stop = true;
     let routes = vec![first, route("second", 2, topic("*"), &["c2"])];
-    let got = route_event(&event("orders.failed", Severity::Info, &[]), &routes);
+    let got = route_event(&event("orders.failed", Severity::Info, &[]), &routes).matched;
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].route.id, "second");
 }
@@ -259,5 +264,9 @@ fn a_non_matching_stop_route_does_not_stop() {
 #[test]
 fn no_match_returns_empty() {
     let routes = vec![route("r", 1, topic("billing.*"), &["c1"])];
-    assert!(route_event(&event("orders.failed", Severity::Info, &[]), &routes).is_empty());
+    assert!(
+        route_event(&event("orders.failed", Severity::Info, &[]), &routes)
+            .matched
+            .is_empty()
+    );
 }

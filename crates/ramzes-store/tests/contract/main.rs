@@ -4,6 +4,7 @@
 //! notice and pass without running.
 
 mod auth;
+mod breadth;
 mod config;
 mod deliveries;
 mod events;

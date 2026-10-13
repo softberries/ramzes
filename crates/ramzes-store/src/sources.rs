@@ -11,6 +11,8 @@ pub struct Source {
     pub name: String,
     pub kind: String,
     pub key_prefix: String,
+    /// The mapping of an any-JSON source, as YAML. Bundled kinds carry their own.
+    pub mapping: Option<String>,
     pub created_at: i64,
 }
 
@@ -20,10 +22,12 @@ pub struct SourceRequest {
     pub id: String,
     pub received_at: i64,
     pub body: String,
+    /// The request's headers as a JSON object, without credentials. Kept for adapter sources.
+    pub headers: Option<String>,
     pub error: Option<String>,
 }
 
-const SOURCE_COLS: &str = "id, workspace_id, name, kind, key_prefix, created_at";
+const SOURCE_COLS: &str = "id, workspace_id, name, kind, key_prefix, mapping, created_at";
 const KEPT_REQUESTS: i64 = 20;
 
 macro_rules! source_from {
@@ -34,6 +38,7 @@ macro_rules! source_from {
             name: $row.try_get("name")?,
             kind: $row.try_get("kind")?,
             key_prefix: $row.try_get("key_prefix")?,
+            mapping: $row.try_get("mapping")?,
             created_at: $row.try_get("created_at")?,
         }
     };
@@ -55,6 +60,7 @@ impl Store {
             name: name.to_owned(),
             kind: kind.to_owned(),
             key_prefix: key_prefix.to_owned(),
+            mapping: None,
             created_at: now_ms,
         };
         let sql = self.sql(
@@ -158,18 +164,19 @@ impl Store {
         }
     }
 
-    /// Records a rejected request and trims the source's history to the newest 20.
+    /// Records a request and trims the source's history to the newest 20.
     pub async fn record_source_request(
         &self,
         workspace_id: &str,
         source_id: &str,
         body: &str,
+        headers: Option<&str>,
         error: Option<&str>,
         now_ms: i64,
     ) -> Result<()> {
         let insert = self.sql(
-            "INSERT INTO source_requests (id, workspace_id, source_id, received_at, body, error) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO source_requests (id, workspace_id, source_id, received_at, body, error, headers) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         );
         let trim = self.sql(
             "DELETE FROM source_requests WHERE source_id = $1 AND id NOT IN \
@@ -184,6 +191,7 @@ impl Store {
                 .bind(now_ms)
                 .bind(body)
                 .bind(error)
+                .bind(headers)
                 .execute(pool)
                 .await?;
             sqlx::query(AssertSqlSafe(&*trim))
@@ -196,14 +204,14 @@ impl Store {
         Ok(())
     }
 
-    /// The source's recent rejected requests, newest first.
+    /// The source's recent recorded requests, newest first.
     pub async fn list_source_requests(
         &self,
         workspace_id: &str,
         source_id: &str,
     ) -> Result<Vec<SourceRequest>> {
         let sql = self.sql(
-            "SELECT id, received_at, body, error FROM source_requests \
+            "SELECT id, received_at, body, headers, error FROM source_requests \
              WHERE workspace_id = $1 AND source_id = $2 ORDER BY id DESC",
         );
         with_db!(self, |pool| {
@@ -218,10 +226,84 @@ impl Store {
                         id: row.try_get("id")?,
                         received_at: row.try_get("received_at")?,
                         body: row.try_get("body")?,
+                        headers: row.try_get("headers")?,
                         error: row.try_get("error")?,
                     })
                 })
                 .collect()
         })
+    }
+
+    /// A source by id alone, as a per-source URL names it.
+    pub async fn get_source(&self, id: &str) -> Result<Option<Source>> {
+        let sql = self
+            .sql(&format!("SELECT {SOURCE_COLS} FROM sources WHERE id = $1"))
+            .into_owned();
+        with_db!(self, |pool| {
+            let row = sqlx::query(AssertSqlSafe(sql.as_str()))
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+            row.map(|row| Ok(source_from!(row))).transpose()
+        })
+    }
+
+    /// The source's key, sealed by the caller. Needed to check signatures made with it.
+    pub async fn source_secret(&self, id: &str) -> Result<Option<String>> {
+        let sql = self.sql("SELECT key_sealed FROM sources WHERE id = $1");
+        let row: Option<(Option<String>,)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+        })?;
+        Ok(row.and_then(|(sealed,)| sealed))
+    }
+
+    pub async fn set_source_secret(
+        &self,
+        workspace_id: &str,
+        id: &str,
+        sealed: &str,
+    ) -> Result<()> {
+        let sql =
+            self.sql("UPDATE sources SET key_sealed = $1 WHERE workspace_id = $2 AND id = $3");
+        let changed = with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*sql))
+                .bind(sealed)
+                .bind(workspace_id)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map(|r| r.rows_affected())
+        })?;
+        if changed == 0 {
+            Err(StoreError::NotFound)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn set_source_mapping(
+        &self,
+        workspace_id: &str,
+        id: &str,
+        mapping: Option<&str>,
+    ) -> Result<()> {
+        let sql = self.sql("UPDATE sources SET mapping = $1 WHERE workspace_id = $2 AND id = $3");
+        let changed = with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*sql))
+                .bind(mapping)
+                .bind(workspace_id)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map(|r| r.rows_affected())
+        })?;
+        if changed == 0 {
+            Err(StoreError::NotFound)
+        } else {
+            Ok(())
+        }
     }
 }

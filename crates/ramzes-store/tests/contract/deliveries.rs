@@ -34,6 +34,7 @@ fn dispatch(connection_id: &str) -> NewDispatch {
         route_name: "Payment failures".into(),
         connection_id: connection_id.into(),
         destination: Some("#ops".into()),
+        template_id: None,
         replay: false,
     }
 }

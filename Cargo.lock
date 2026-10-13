@@ -1363,6 +1363,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minijinja"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13345868cfa94eadafc067112ff29271380a820d5594d9ee6ba81a8d00ea5dc2"
+dependencies = [
+ "indexmap",
+ "serde",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1679,6 +1689,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "hex",
+ "minijinja",
  "rand",
  "regex",
  "serde",

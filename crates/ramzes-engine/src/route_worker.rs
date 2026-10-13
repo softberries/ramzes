@@ -10,6 +10,7 @@ const BATCH: i64 = 100;
 
 pub(crate) fn dispatches(event: &Event, routes: &[Route], replay: bool) -> Vec<NewDispatch> {
     route_event(event, routes)
+        .matched
         .into_iter()
         .map(|m| NewDispatch {
             notification_id: new_id(),
@@ -18,6 +19,7 @@ pub(crate) fn dispatches(event: &Event, routes: &[Route], replay: bool) -> Vec<N
             route_name: m.route.name.clone(),
             connection_id: m.target.connection_id.clone(),
             destination: m.target.destination.clone(),
+            template_id: m.target.template_id.clone(),
             replay,
         })
         .collect()

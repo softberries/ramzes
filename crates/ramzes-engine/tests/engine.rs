@@ -175,6 +175,7 @@ impl World {
                 .map(|(c, d)| Target {
                     connection_id: c.to_string(),
                     destination: d.map(str::to_owned),
+                    template_id: None,
                 })
                 .collect(),
         };

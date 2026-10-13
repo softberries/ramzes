@@ -171,6 +171,7 @@ async fn ingest(State(state): State<IngestState>, request: Request) -> Response 
                     &source.workspace_id,
                     &source.id,
                     &kept,
+                    None,
                     Some(&rejection.message),
                     now,
                 );

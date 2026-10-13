@@ -14,6 +14,8 @@ pub struct NewDispatch {
     pub route_name: String,
     pub connection_id: String,
     pub destination: Option<String>,
+    /// The template that words the message, when the target names one.
+    pub template_id: Option<String>,
     /// Created by replaying an event rather than by its first routing.
     pub replay: bool,
 }
@@ -68,6 +70,8 @@ pub struct Delivery {
     pub last_error: Option<String>,
     /// The service's id for the delivered message, when it gives one.
     pub external_ref: Option<String>,
+    /// Something went wrong that did not stop the send, for example a template that failed.
+    pub warning: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -113,7 +117,7 @@ pub struct QueueDepth {
 }
 
 pub(crate) const DELIVERY_COLS: &str = "id, workspace_id, notification_id, connection_id, destination, state, attempts, \
-                                        next_attempt_at, last_error, external_ref, created_at, updated_at";
+                                        next_attempt_at, last_error, external_ref, warning, created_at, updated_at";
 
 macro_rules! delivery_from {
     ($row:expr) => {{
@@ -132,6 +136,7 @@ macro_rules! delivery_from {
             next_attempt_at: $row.try_get("next_attempt_at")?,
             last_error: $row.try_get("last_error")?,
             external_ref: $row.try_get("external_ref")?,
+            warning: $row.try_get("warning")?,
             created_at: $row.try_get("created_at")?,
             updated_at: $row.try_get("updated_at")?,
         }
@@ -151,7 +156,8 @@ impl Store {
     ) -> Result<()> {
         let notification = self.sql(
             "INSERT INTO notifications (id, workspace_id, route_id, route_name, connection_id, destination, dedup_key, \
-             state, event_count, replay, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', 1, $8, $9, $9)",
+             state, event_count, replay, created_at, updated_at, template_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', 1, $8, $9, $9, $10)",
         );
         let link =
             self.sql("INSERT INTO notification_events (notification_id, event_id, workspace_id) VALUES ($1, $2, $3)");
@@ -174,6 +180,7 @@ impl Store {
                     .bind(&event.dedup_key)
                     .bind(i64::from(d.replay))
                     .bind(now_ms)
+                    .bind(&d.template_id)
                     .execute(&mut *tx)
                     .await?;
                 sqlx::query(AssertSqlSafe(&*link))
@@ -391,5 +398,30 @@ impl Store {
             unrouted_events,
             pending_deliveries,
         })
+    }
+
+    pub async fn set_delivery_warning(&self, delivery_id: &str, warning: &str) -> Result<()> {
+        let sql = self.sql("UPDATE deliveries SET warning = $1 WHERE id = $2");
+        with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*sql))
+                .bind(warning)
+                .bind(delivery_id)
+                .execute(pool)
+                .await
+                .map(|_| ())
+        })?;
+        Ok(())
+    }
+
+    /// The template a notification's messages are worded with, if any.
+    pub async fn notification_template(&self, notification_id: &str) -> Result<Option<String>> {
+        let sql = self.sql("SELECT template_id FROM notifications WHERE id = $1");
+        let row: Option<(Option<String>,)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_optional(pool)
+                .await
+        })?;
+        Ok(row.and_then(|(id,)| id))
     }
 }

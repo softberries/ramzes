@@ -5,21 +5,26 @@
 
 mod auth;
 mod connections;
+mod definitions;
 mod deliveries;
 mod events;
 mod notifications;
+mod revisions;
 mod routes;
 mod settings;
 mod sources;
 mod sql;
+mod templates;
 
 pub use auth::{ApiToken, User};
-pub use connections::Connection;
+pub use connections::{Connection, ConnectionHealth};
+pub use definitions::DefinitionRow;
 pub use deliveries::{
     Attempt, Delivery, DeliveryState, FailureRow, Finish, NewDispatch, QueueDepth,
 };
 pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
 pub use notifications::{Journey, JourneyDelivery, JourneyNotification};
+pub use revisions::{ConfigSnapshot, ConnectionSnapshot, Revision, RevisionMeta, SourceSnapshot};
 pub use sources::{Source, SourceRequest};
 
 use std::borrow::Cow;

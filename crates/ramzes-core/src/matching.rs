@@ -19,6 +19,9 @@ pub struct RouteMatch {
     pub source_id: Option<String>,
     #[serde(default)]
     pub labels: Vec<LabelCond>,
+    /// An expression over the event (`payload`, `labels`, `topic`, …) that must be true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expr: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -46,6 +49,8 @@ pub enum MatchError {
     EmptyLabelKey,
     #[error("pattern for label {key:?} is not a valid regular expression: {reason}")]
     Regex { key: String, reason: String },
+    #[error("the expression is not valid: {0}")]
+    Expression(String),
 }
 
 fn compile(pattern: &str) -> Result<Regex, regex::Error> {
@@ -112,15 +117,31 @@ impl RouteMatch {
                 })?;
             }
         }
+        if let Some(expr) = &self.expr {
+            crate::expr::check_expression(expr).map_err(MatchError::Expression)?;
+        }
         Ok(())
     }
 
-    pub fn matches(&self, e: &Event) -> bool {
-        self.topic
+    /// Whether the event satisfies every condition. An expression that fails is an error.
+    pub fn evaluate(&self, e: &Event) -> Result<bool, String> {
+        let structured = self
+            .topic
             .as_ref()
             .is_none_or(|p| glob_matches(p, &e.topic))
             && self.min_severity.is_none_or(|min| e.severity >= min)
             && self.source_id.as_ref().is_none_or(|s| *s == e.source_id)
-            && self.labels.iter().all(|c| c.holds(e))
+            && self.labels.iter().all(|c| c.holds(e));
+        match &self.expr {
+            Some(expr) if structured && !expr.trim().is_empty() => {
+                crate::expr::eval_bool(expr, &crate::expr::event_context(e))
+            }
+            _ => Ok(structured),
+        }
+    }
+
+    /// Like [`RouteMatch::evaluate`], counting a failing expression as no match.
+    pub fn matches(&self, e: &Event) -> bool {
+        self.evaluate(e).unwrap_or(false)
     }
 }
