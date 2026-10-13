@@ -42,7 +42,7 @@
 
 <ol class="path" aria-label="Escalation chain">
 	<li class={first ? '' : 'open'} style="--node: var({first ? '--accent' : waiting ? '--gold' : '--faint'})">
-		<div class="flex flex-wrap items-baseline gap-x-4">
+		<div class="flex flex-wrap items-baseline gap-x-3">
 			<span class="font-medium">First message</span>
 			<span class="text-muted break-words">
 				to {notification.connection_name ?? 'a deleted connection'}{notification.destination
@@ -58,7 +58,7 @@
 		{@const state = stepState(step)}
 		{#if stopped && index === stoppedAfter}{@render stop()}{/if}
 		<li class={state === 'sent' ? '' : 'open'} style="--node: var({TONES[state]})" data-state={state}>
-			<div class="flex flex-wrap items-baseline gap-x-4">
+			<div class="flex flex-wrap items-baseline gap-x-3">
 				<span class="font-medium">Step {index + 1}</span>
 				<span class="text-muted break-words">to {targetWords(step.targets)}, {sinceFirstWords(since[index])}</span>
 			</div>
@@ -66,3 +66,10 @@
 		</li>
 	{/each}
 </ol>
+
+<style>
+	/* The chain lies on a card, so a step that has not happened yet is hollow in the card's colour. */
+	.path > li.open::before {
+		background: var(--surface);
+	}
+</style>

@@ -30,6 +30,10 @@
 		key: (row: Row) => string;
 		/** What the table holds, for assistive technology and for the count: "connections". */
 		noun: string;
+		/** The word for one of them, for a count of one. Without it the count of one reads "1 connections". */
+		singular?: string;
+		/** A heading for the table, shown at the start of its bar. */
+		title?: string;
 		/** How one cell is drawn. */
 		cell: Snippet<[Row, Column<Row>]>;
 		/** The text of a row that the search looks in. Without it there is no search box. */
@@ -38,8 +42,11 @@
 		/** The ordering before any heading is clicked. */
 		initialSort?: Sort;
 		pageSize?: number;
-		/** Controls beside the search box: filters, or what acts on chosen rows. */
-		toolbar?: Snippet;
+		/**
+		 * Controls beside the search box: filters, or what acts on chosen rows. It is given the rows
+		 * the search found, over every page, so that "all" can mean all that is listed.
+		 */
+		toolbar?: Snippet<[Row[]]>;
 		/** What to say when there are no rows at all. */
 		empty?: Snippet;
 		/** False while the rows are still on their way. */
@@ -53,6 +60,8 @@
 		columns,
 		key,
 		noun,
+		singular,
+		title,
 		cell,
 		search,
 		searchPlaceholder,
@@ -84,6 +93,8 @@
 	const cellClass = (column: Column<Row>) =>
 		`${column.end ? 'num' : ''} ${column.from ? FROM[column.from] : ''}`;
 
+	const counted = (count: number) => `${count} ${count === 1 && singular ? singular : noun}`;
+
 	function onsort(column: string) {
 		sort = nextSort(sort, column, columns.find((c) => c.key === column)?.descendingFirst ?? false);
 		page = 1;
@@ -91,8 +102,9 @@
 </script>
 
 <div class="card overflow-hidden">
-	{#if search || toolbar}
+	{#if search || toolbar || title}
 		<div class="card-head">
+			{#if title}<h2 class="mr-2">{title}</h2>{/if}
 			{#if search}
 				<label class="search">
 					<Icon name="search" />
@@ -106,9 +118,9 @@
 					/>
 				</label>
 			{/if}
-			{#if toolbar}{@render toolbar()}{/if}
+			{#if toolbar}{@render toolbar(found)}{/if}
 			<span class="text-muted ml-auto whitespace-nowrap" data-testid="count">
-				{#if query.trim() !== ''}{found.length} of {rows.length} {noun}{:else}{rows.length} {noun}{/if}
+				{#if query.trim() !== ''}{found.length} of {counted(rows.length)}{:else}{counted(rows.length)}{/if}
 			</span>
 		</div>
 	{/if}
@@ -119,7 +131,14 @@
 				<tr>
 					{#each columns as column (column.key)}
 						{#if column.sort}
-							<SortHeader column={column.key} label={column.label} {sort} end={column.end} {onsort} />
+							<SortHeader
+								column={column.key}
+								label={column.label}
+								{sort}
+								class={cellClass(column)}
+								width={column.width}
+								{onsort}
+							/>
 						{:else}
 							<th scope="col" class={cellClass(column)} style:width={column.width}>{column.label}</th>
 						{/if}

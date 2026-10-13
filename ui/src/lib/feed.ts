@@ -61,27 +61,6 @@ export function isFiltered(filters: FeedFilters): boolean {
 	return filtersToQuery(filters) !== '';
 }
 
-/**
- * Combines the rows on screen with a freshly loaded first page (both newest first).
- *
- * Within the span the fresh page covers, the server is right: rows it no longer returns are
- * dropped (they stopped matching the filters) and unseen ones are added. Rows older than the
- * fresh page are kept as loaded. A fresh page shorter than `pageSize` is the whole result.
- * `added` counts the rows that were not on screen before.
- */
-export function mergeNewest<Row extends { id: string }>(
-	current: Row[],
-	fresh: Row[],
-	pageSize: number
-): { rows: Row[]; added: number } {
-	const known = new Set(current.map((row) => row.id));
-	const added = fresh.filter((row) => !known.has(row.id)).length;
-	if (fresh.length < pageSize) return { rows: fresh, added };
-	// Ids are time-ordered, so anything below the oldest fresh id is older than the fresh page.
-	const oldest = fresh[fresh.length - 1].id;
-	return { rows: [...fresh, ...current.filter((row) => row.id < oldest)], added };
-}
-
 /** The id selected after moving one row down (+1) or up (-1) with the keyboard. */
 export function moveSelection(rows: EventRow[], selected: string | null, step: 1 | -1): string | null {
 	if (rows.length === 0) return null;

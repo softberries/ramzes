@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { ApiError, api } from '#lib/api/client.ts';
 	import type { NotificationView } from '#lib/api/types.ts';
+	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
 	import DeliveryBlock from '#lib/components/DeliveryBlock.svelte';
 	import EscalationProgress from '#lib/components/EscalationProgress.svelte';
 	import NotificationActions from '#lib/components/NotificationActions.svelte';
@@ -13,6 +14,11 @@
 	import { lookups } from '#lib/lookups.svelte.ts';
 	import { live } from '#lib/stream.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
+
+	type NotificationEvent = NotificationView['events'][number];
+
+	/** From this many events on, the list of events gets a search box. */
+	const SEARCH_FROM = 10;
 
 	const id = $derived(page.params.id ?? '');
 
@@ -59,9 +65,16 @@
 			toasts.problem(error);
 		}
 	}
+
+	const columns: Column<NotificationEvent>[] = [
+		{ key: 'received', label: 'Received', sort: (event) => event.received_at, descendingFirst: true, from: 'md' },
+		{ key: 'event', label: 'Event', sort: (event) => event.title },
+		{ key: 'topic', label: 'Topic', sort: (event) => event.topic, from: 'md' },
+		{ key: 'role', label: 'Role', sort: (event) => event.role, end: true }
+	];
 </script>
 
-<p class="mb-3">
+<p class="text-muted mb-3">
 	<a href={resolve('/notifications')}>Notifications</a> <span class="text-faint">/</span> Notification
 </p>
 
@@ -72,12 +85,12 @@
 		<a href={resolve('/notifications?view=all')}>Notifications</a>.
 	</p>
 {:else if notification}
-	<header class="mb-6 flex flex-wrap items-start gap-x-6 gap-y-3">
+	<header class="mb-5 flex flex-wrap items-start gap-x-6 gap-y-3">
 		<div class="mr-auto min-w-0">
 			<h1 class="break-words">{notification.title}</h1>
 			<div class="text-muted mt-1 flex flex-wrap gap-x-5 gap-y-1">
 				<SeverityMark severity={notification.severity} label />
-				<span>
+				<span class="break-words">
 					{notification.route_name} to
 					<span class={notification.connection_name ? '' : 'problem'}
 						>{notification.connection_name ?? 'a deleted connection'}</span
@@ -88,82 +101,148 @@
 		<NotificationActions {notification} onchange={load} />
 	</header>
 
-	<dl class="text-muted mb-8 grid max-w-3xl grid-cols-[auto_1fr] gap-x-6 gap-y-1">
-		<dt>State</dt>
-		<dd class="text-fg"><NotificationState {notification} {now} /></dd>
-		<dt>Opened</dt>
-		<dd class="text-fg">{clock(notification.created_at, now)}</dd>
-		<dt>Events</dt>
-		<dd class="text-fg">{notification.event_count}</dd>
-		<dt>Messages sent</dt>
-		<dd class="text-fg">{notification.sent_count}</dd>
+	<dl class="facts card mb-4">
+		<div class="wide">
+			<dt>State</dt>
+			<dd><NotificationState {notification} {now} /></dd>
+		</div>
+		<div>
+			<dt>Opened</dt>
+			<dd><time>{clock(notification.created_at, now)}</time></dd>
+		</div>
+		<div>
+			<dt>Events</dt>
+			<dd class="tabular-nums">{notification.event_count}</dd>
+		</div>
+		<div>
+			<dt>Messages sent</dt>
+			<dd class="tabular-nums">{notification.sent_count}</dd>
+		</div>
 		{#if notification.acked_by}
-			<dt>Acknowledged by</dt>
-			<dd class="text-fg break-all">{notification.acked_by}</dd>
+			<div class="wide">
+				<dt>Acknowledged by</dt>
+				<dd class="break-all">{notification.acked_by}</dd>
+			</div>
 		{/if}
 	</dl>
 
-	<section class="mb-8" aria-label="Events">
-		<h2 class="mb-2">Events</h2>
-		<ul class="border-line border-t">
-			{#each notification.events as event (event.id)}
-				<li class="event-row border-line grid items-baseline gap-x-3 border-b px-2 py-1.5">
-					<time class="text-muted whitespace-nowrap">{clock(event.received_at, now)}</time>
-					<SeverityMark severity={event.severity} />
-					<span class="min-w-0 break-words">
-						<a href={resolve('/events/[id]', { id: event.id })}>{event.title}</a>
-						<span class="text-faint block break-all md:ml-2 md:inline">{event.topic}</span>
-					</span>
-					<span class="tag justify-self-end" data-testid="event-role">{event.role}</span>
-				</li>
-			{:else}
-				<li class="hint border-line border-b px-2 py-2">Its events have been removed after their retention period.</li>
-			{/each}
-		</ul>
-	</section>
-
-	{#if notification.escalation.length > 0}
-		<section class="mb-8" aria-label="If nobody acknowledges">
-			<h2 class="mb-1">If nobody acknowledges</h2>
-			<p class="hint mb-3 max-w-2xl">
-				The escalation chain of {notification.route_name} as it is set up now. A step goes out only while the
-				notification is sent and not acknowledged.
-			</p>
-			<EscalationProgress {notification} {now} />
-		</section>
-	{/if}
-
-	<section aria-label="Deliveries">
-		<h2 class="mb-2">Deliveries</h2>
-		{#if notification.deliveries.length === 0}
-			<p class="hint max-w-2xl">
-				{#if notification.state === 'grouping' || notification.state === 'held'}
-					Nothing has been sent yet. A delivery appears here when the wait is over.
-				{:else if notification.state === 'suppressed'}
-					Nothing was sent, and nothing will be.
-				{:else}
-					Nothing was sent for this notification.
-				{/if}
-			</p>
+	{#snippet cell(event: NotificationEvent, column: Column<NotificationEvent>)}
+		{#if column.key === 'received'}
+			<time class="text-muted whitespace-nowrap">{clock(event.received_at, now)}</time>
+		{:else if column.key === 'event'}
+			<div class="flex items-baseline gap-2.5">
+				<SeverityMark severity={event.severity} />
+				<span class="min-w-0 break-words">
+					<a href={resolve('/events/[id]', { id: event.id })}>{event.title}</a>
+					<!-- The topic and the time are columns of their own from a tablet up. -->
+					<span class="mono text-muted block break-all md:hidden">{event.topic}</span>
+					<time class="text-faint block md:hidden">{clock(event.received_at, now)}</time>
+				</span>
+			</div>
+		{:else if column.key === 'topic'}
+			<span class="mono text-muted break-all">{event.topic}</span>
 		{:else}
-			<ul class="border-line flex flex-col border-t">
-				{#each notification.deliveries as delivery (delivery.id)}
-					<li class="border-line border-b px-2 py-2.5">
-						<DeliveryBlock
-							{delivery}
-							{now}
-							onreplay={replayDelivery}
-							label={stepLabel(delivery, lookups.connectionNames)}
-						/>
-					</li>
-				{/each}
-			</ul>
+			<span class="tag" data-testid="event-role">{event.role}</span>
 		{/if}
-	</section>
+	{/snippet}
+
+	{@const chained = notification.escalation.length > 0}
+	<!-- On a wide screen the chain stands beside the other two; on a narrow one it follows what was sent. -->
+	<div class="grid items-start gap-4 {chained ? 'xl:grid-cols-3' : ''}">
+		<section class="card min-w-0 {chained ? 'xl:col-span-2' : ''}" aria-label="Deliveries">
+			<div class="card-head"><h2>Deliveries</h2></div>
+			{#if notification.deliveries.length === 0}
+				<p class="card-body hint">
+					{#if notification.state === 'grouping' || notification.state === 'held'}
+						Nothing has been sent yet. A delivery appears here when the wait is over.
+					{:else if notification.state === 'suppressed'}
+						Nothing was sent, and nothing will be.
+					{:else}
+						Nothing was sent for this notification.
+					{/if}
+				</p>
+			{:else}
+				<ul class="divide-line divide-y">
+					{#each notification.deliveries as delivery (delivery.id)}
+						<li class="px-[1.1rem] py-3.5">
+							<DeliveryBlock
+								{delivery}
+								{now}
+								onreplay={replayDelivery}
+								label={stepLabel(delivery, lookups.connectionNames)}
+							/>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+
+		{#if chained}
+			<section class="card xl:row-span-2" aria-label="If nobody acknowledges">
+				<div class="card-head"><h2>If nobody acknowledges</h2></div>
+				<div class="card-body">
+					<p class="hint mb-4">
+						The escalation chain of {notification.route_name} as it is set up now. A step goes out only while the
+						notification is sent and not acknowledged.
+					</p>
+					<EscalationProgress {notification} {now} />
+				</div>
+			</section>
+		{/if}
+
+		<section class="events min-w-0 {chained ? 'xl:col-span-2' : ''}" aria-label="Events">
+			<!-- A notification that collected many events is searched; a short list needs no search box. -->
+			<DataTable
+				rows={notification.events}
+				{columns}
+				key={(event) => event.id}
+				noun="events"
+				singular="event"
+				{cell}
+				search={notification.events.length > SEARCH_FROM
+					? (event) => `${event.title} ${event.topic} ${event.severity} ${event.role}`
+					: undefined}
+				searchPlaceholder="Search title or topic"
+			>
+				{#snippet toolbar()}<h2 class="-order-1">Events</h2>{/snippet}
+				{#snippet empty()}Its events have been removed after their retention period.{/snippet}
+			</DataTable>
+		</section>
+
+	</div>
 {/if}
 
 <style>
-	.event-row {
-		grid-template-columns: 5.5rem 0.6rem minmax(0, 1fr) auto;
+	/* What the notification is, in a row of figures: two to a line on a phone, all on one from a tablet up. */
+	.facts {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1rem 1.5rem;
+		padding: 1rem 1.1rem;
+	}
+
+	.facts .wide {
+		grid-column: 1 / -1;
+	}
+
+	.facts dt {
+		margin-bottom: 0.15rem;
+		color: var(--muted);
+		font-size: 0.93rem;
+	}
+
+	@media (width < 48rem) {
+		.events :global(:is(th, td)) {
+			padding-right: 0.75rem;
+			padding-left: 0.75rem;
+		}
+	}
+
+	@media (min-width: 48rem) {
+		.facts {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 1rem 3rem;
+		}
 	}
 </style>

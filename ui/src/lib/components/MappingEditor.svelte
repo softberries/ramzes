@@ -92,8 +92,8 @@
 				bind:value={mapping}
 			></textarea>
 			<p class="hint mt-1">
-				Each field is an expression over the request: payload is its JSON body, headers its headers by
-				lower-case name. Text goes in quotes, as in 'shop.' ~ payload.kind.
+				Each field is an expression over the request: <code>payload</code> is its JSON body, <code>headers</code>
+				its headers by lower-case name. Text goes in quotes, as in <code>'shop.' ~ payload.kind</code>
 			</p>
 		</div>
 		{#if problem}<p class="problem break-words" role="alert">{problem}</p>{/if}
@@ -137,12 +137,12 @@
 				<h3 class="field-label">
 					{preview.events.length === 1 ? 'The event it makes' : `The ${preview.events.length} events it makes`}
 				</h3>
-				<ul class="border-line border-t" aria-label="Events the mapping makes">
+				<ul class="flex flex-col gap-2" aria-label="Events the mapping makes">
 					{#each preview.events as event, index (index)}
-						<li class="border-line border-b py-2">
+						<li class="panel px-3.5 py-3">
 							<div class="font-medium break-words">{event.title}</div>
-							<div class="text-muted flex flex-wrap gap-x-4">
-								<span class="break-all">{event.topic}</span>
+							<div class="text-muted flex flex-wrap items-center gap-x-4">
+								<span class="mono break-all">{event.topic}</span>
 								<SeverityMark severity={event.severity ?? 'info'} label />
 								<span>{event.status ?? 'firing'}</span>
 							</div>
@@ -150,7 +150,7 @@
 							{#if Object.keys(event.labels ?? {}).length > 0}
 								<div class="mt-1 flex flex-wrap gap-1">
 									{#each Object.entries(event.labels ?? {}) as [key, value] (key)}
-										<span class="tag max-w-full truncate">{key}={value}</span>
+										<span class="tag mono max-w-full truncate">{key}={value}</span>
 									{/each}
 								</div>
 							{/if}

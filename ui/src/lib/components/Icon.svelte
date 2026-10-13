@@ -25,7 +25,11 @@
 		close: 'M6 6l12 12M18 6 6 18',
 		pause: 'M9 5v14M15 5v14',
 		play: 'M7 5l12 7-12 7V5Z',
-		plus: 'M12 5v14M5 12h14'
+		plus: 'M12 5v14M5 12h14',
+		edit: 'M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4',
+		trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 11v6M14 11v6',
+		copy: 'M9 9h10v11H9V9ZM15 9V4H5v11h4',
+		check: 'M5 12.5l4.5 4.5L19 7.5'
 	} as const;
 
 	export type IconName = keyof typeof PATHS;

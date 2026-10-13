@@ -4,9 +4,13 @@
 	import Confirm from '#lib/components/Confirm.svelte';
 	import ConnectionForm, { type ConnectionValues } from '#lib/components/ConnectionForm.svelte';
 	import ConnectorDefinitions from '#lib/components/ConnectorDefinitions.svelte';
+	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import SlackSetup from '#lib/components/SlackSetup.svelte';
-	import { capabilityWords, groupConnectors, healthWords } from '#lib/connectors.ts';
+	import { capabilityWords, groupConnectors } from '#lib/connectors.ts';
 	import { ago, timeOfDay } from '#lib/format.ts';
+	import { proportion, shareWords } from '#lib/overview.ts';
 	import { reveal } from '#lib/reveal.ts';
 	import { routesUsing } from '#lib/routes.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
@@ -21,8 +25,11 @@
 	let problem = $state('');
 	let busy = $state(false);
 	let deleting = $state<ConnectionView | null>(null);
-	/** A Slack app connection that was just saved: Slack still has to be told where to send button presses. */
-	let justSaved = $state<ConnectionView | null>(null);
+	/**
+	 * The Slack app connection whose setup is shown. One that was just saved is `fresh`: Slack still
+	 * has to be told where to send button presses.
+	 */
+	let slack = $state<{ connection: ConnectionView; fresh: boolean } | null>(null);
 	/** The latest test result per connection id. */
 	let tests = $state<Record<string, TestResult>>({});
 	let now = $state(Date.now());
@@ -30,6 +37,19 @@
 	const byKind = $derived(Object.fromEntries(connectors.map((c) => [c.kind, c])));
 	const groups = $derived(groupConnectors(connectors));
 	const dependents = $derived(deleting ? routesUsing(routes, deleting.id) : []);
+
+	const kindName = (connection: ConnectionView) => byKind[connection.kind]?.name ?? connection.kind;
+
+	const columns: Column<ConnectionView>[] = [
+		{ key: 'name', label: 'Name', sort: (c) => c.name },
+		{ key: 'kind', label: 'Kind', sort: kindName, from: 'md' },
+		{ key: 'delivered', label: 'Delivered, 24 h', sort: (c) => c.health?.delivered ?? 0, descendingFirst: true, end: true, from: 'md' },
+		{ key: 'failed', label: 'Failed, 24 h', sort: (c) => c.health?.failed ?? 0, descendingFirst: true, end: true, from: 'md' },
+		// Paused connections first: they are the ones that need someone.
+		{ key: 'state', label: 'State', sort: (c) => (pausedUntil(c) ? 0 : 1) },
+		{ key: 'changed', label: 'Changed', sort: (c) => c.updated_at, descendingFirst: true, from: 'lg' },
+		{ key: 'actions', label: 'Actions', end: true }
+	];
 
 	async function loadConnectors() {
 		connectors = await api<ConnectorDescriptor[]>('GET', '/api/connectors');
@@ -79,7 +99,7 @@
 				? await api<ConnectionView>('PUT', `/api/connections/${editing.id}`, values)
 				: await api<ConnectionView>('POST', '/api/connections', { kind: adding, ...values });
 			toasts.ok(editing ? 'Connection saved.' : 'Connection added.');
-			justSaved = saved.kind === 'slack_app' ? saved : null;
+			slack = saved.kind === 'slack_app' ? { connection: saved, fresh: true } : null;
 			close();
 			await load();
 		} catch (error) {
@@ -102,146 +122,186 @@
 		try {
 			await api('DELETE', `/api/connections/${deleting.id}`);
 			toasts.ok('Connection deleted.');
+			if (slack?.connection.id === deleting.id) slack = null;
 			deleting = null;
 			await load();
 		} catch (error) {
 			toasts.problem(error);
 		}
 	}
+
+	function edit(connection: ConnectionView) {
+		close();
+		editing = connection;
+		reveal('connection-form');
+	}
+
+	function add(kind: string) {
+		close();
+		adding = kind;
+		reveal('connection-form');
+	}
 </script>
 
-<div class="mb-2 flex items-center gap-3">
-	<h1 class="mr-auto">Connections</h1>
-</div>
-<p class="hint mb-5 max-w-2xl">
-	A connection is one place messages can go: a Slack channel, a mailbox, a webhook URL. Routes decide
-	which events go to which connection.
-</p>
+<PageHeader title="Connections">
+	A connection is one place messages can go: a Slack channel, a mailbox, a webhook URL. Routes decide which
+	events go to which connection.
+</PageHeader>
 
-{#if justSaved}
-	<div class="panel border-gold mb-5 flex max-w-3xl flex-col gap-3 p-4" data-testid="slack-setup">
-		<h2>One more step in Slack for {justSaved.name}</h2>
-		<SlackSetup connectionId={justSaved.id} />
-		<div><button type="button" class="btn" onclick={() => (justSaved = null)}>Done</button></div>
+{#if slack}
+	<div id="slack-setup" class="card mb-5 max-w-3xl scroll-mt-16 {slack.fresh ? 'border-gold' : ''}" data-testid="slack-setup">
+		<div class="card-head">
+			<h2>{slack.fresh ? 'One more step in Slack for' : 'Slack setup for'} {slack.connection.name}</h2>
+		</div>
+		<div class="card-body flex flex-col gap-3">
+			{#key slack.connection.id}<SlackSetup connectionId={slack.connection.id} />{/key}
+			<div><button type="button" class="btn" onclick={() => (slack = null)}>Done</button></div>
+		</div>
 	</div>
 {/if}
 
-{#if loaded && connections.length === 0}
-	<p class="hint pb-4">No connections yet. Add one below.</p>
-{/if}
-
-<ul class="border-line border-t">
-	{#each connections as connection (connection.id)}
-		<li class="border-line grid items-baseline gap-x-3 gap-y-2 border-b px-2 py-2.5 md:grid-cols-[1fr_auto]">
-			<div class="min-w-0">
-				<div class="flex flex-wrap items-baseline gap-x-3">
-					<span class="font-medium">{connection.name}</span>
-					<span class="tag">{byKind[connection.kind]?.name ?? connection.kind}</span>
-					<span class="text-faint">changed {ago(connection.updated_at)}</span>
-				</div>
-				{#if pausedUntil(connection)}
-					<div class="problem flex flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="paused">
-						<span>
-							Paused until {timeOfDay(pausedUntil(connection) ?? now, now)} after {connection.failure_streak} failed
-							{connection.failure_streak === 1 ? 'attempt' : 'attempts'} in a row
-						</span>
-						<button type="button" class="btn h-7 px-2" onclick={() => resume(connection)}>Resume now</button>
-					</div>
-				{/if}
-				{#if connection.health}
-					<div class="text-muted">
-						Last 24 hours: <span class={connection.health.failed > 0 ? 'problem' : ''}
-							>{healthWords(connection.health)}</span
-						>
-					</div>
-					{#if connection.health.last_error}
-						<div class="problem break-words">Last error: {connection.health.last_error}</div>
-					{/if}
+<DataTable
+	rows={connections}
+	{columns}
+	key={(connection) => connection.id}
+	noun="connections"
+	singular="connection"
+	search={(c) => `${c.name} ${kindName(c)} ${c.kind} ${c.health?.last_error ?? ''}`}
+	initialSort={{ key: 'name', descending: false }}
+	{loaded}
+>
+	{#snippet cell(connection, column)}
+		{@const health = connection.health}
+		{@const until = pausedUntil(connection)}
+		{#if column.key === 'name'}
+			<div class="md:min-w-32">
+				<div class="font-medium break-words">{connection.name}</div>
+				<!-- The kind has a column of its own from a tablet up. -->
+				<div class="text-muted md:hidden">{kindName(connection)}</div>
+				{#if health?.last_error}
+					<div class="problem max-w-md break-words">Last error: {health.last_error}</div>
 				{/if}
 				{#if tests[connection.id]?.ok}
 					<div class="text-ok">Test message delivered.</div>
 				{:else if tests[connection.id]}
-					<div class="problem break-words">Test failed: {tests[connection.id].detail}</div>
-				{/if}
-				{#if connection.kind === 'slack_app'}
-					<details class="mt-1">
-						<summary class="text-muted cursor-pointer">Setup</summary>
-						<div class="mt-2"><SlackSetup connectionId={connection.id} /></div>
-					</details>
+					<div class="problem max-w-md break-words">Test failed: {tests[connection.id].detail}</div>
 				{/if}
 			</div>
-			<div class="flex flex-wrap gap-1 md:justify-end">
-				<button type="button" class="btn h-7 px-2" onclick={() => test(connection)}>Send test message</button>
-				<button
-					type="button"
-					class="btn h-7 px-2"
-					onclick={() => {
-						close();
-						editing = connection;
-						reveal('connection-form');
-					}}>Edit</button
+		{:else if column.key === 'kind'}
+			<span class="tag">{kindName(connection)}</span>
+		{:else if column.key === 'delivered'}
+			{@const settled = (health?.delivered ?? 0) + (health?.failed ?? 0)}
+			<div>{health?.delivered ?? 0}</div>
+			{#if health && settled > 0}
+				<div
+					class="rate"
+					role="img"
+					aria-label="{shareWords(health.delivered, settled)} of {settled} arrived"
+					title="{shareWords(health.delivered, settled)} arrived"
 				>
-				<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = connection)}>Delete</button>
+					<div style="width: {proportion(health.delivered, settled)}%"></div>
+				</div>
+			{/if}
+		{:else if column.key === 'failed'}
+			<div class={health && health.failed > 0 ? 'problem' : 'text-muted'}>{health?.failed ?? 0}</div>
+			{#if health && health.pending > 0}<div class="text-muted whitespace-nowrap">{health.pending} waiting</div>{/if}
+		{:else if column.key === 'state'}
+			{#if until}
+				<div class="flex max-w-64 flex-wrap items-center gap-x-2 gap-y-1.5" data-testid="paused">
+					<span class="badge" style="--tone: var(--st-failed)">Paused until {timeOfDay(until, now)}</span>
+					<span class="text-muted">
+						after {connection.failure_streak} failed
+						{connection.failure_streak === 1 ? 'attempt' : 'attempts'} in a row
+					</span>
+					<button type="button" class="btn btn-sm" onclick={() => resume(connection)}>Resume now</button>
+				</div>
+			{:else}
+				<span class="badge" style="--tone: var(--st-delivered)">Active</span>
+			{/if}
+		{:else if column.key === 'changed'}
+			<time class="text-muted whitespace-nowrap">{ago(connection.updated_at, now)}</time>
+		{:else}
+			<div class="flex flex-wrap justify-end gap-1 xl:flex-nowrap">
+				<button type="button" class="btn btn-sm" onclick={() => test(connection)}>
+					Send test <span class="max-md:sr-only">message</span>
+				</button>
+				{#if connection.kind === 'slack_app'}
+					<button
+						type="button"
+						class="btn btn-sm"
+						aria-expanded={slack?.connection.id === connection.id}
+						onclick={() => {
+							slack = slack?.connection.id === connection.id ? null : { connection, fresh: false };
+							reveal('slack-setup');
+						}}>Setup</button
+					>
+				{/if}
+				<button type="button" class="btn btn-sm" onclick={() => edit(connection)}>Edit</button>
+				<button type="button" class="btn btn-sm btn-danger" onclick={() => (deleting = connection)}>Delete</button>
 			</div>
-		</li>
-	{/each}
-</ul>
+		{/if}
+	{/snippet}
+	{#snippet empty()}
+		No connections yet. Add one below.
+	{/snippet}
+</DataTable>
 
 {#if editing && byKind[editing.kind]}
-	<div id="connection-form" class="panel mt-6 max-w-xl scroll-mt-16 p-4">
-		<h2 class="mb-4">Edit {editing.name}</h2>
-		{#key editing.id}
-			<ConnectionForm
-				descriptor={byKind[editing.kind]}
-				initial={{ name: editing.name, settings: editing.settings as Record<string, unknown> }}
-				onsubmit={save}
-				submitLabel="Save connection"
-				oncancel={close}
-				{busy}
-				{problem}
-			/>
-		{/key}
+	<div id="connection-form" class="card mt-5 max-w-xl scroll-mt-16">
+		<div class="card-head"><h2>Edit {editing.name}</h2></div>
+		<div class="card-body">
+			{#key editing.id}
+				<ConnectionForm
+					descriptor={byKind[editing.kind]}
+					initial={{ name: editing.name, settings: editing.settings as Record<string, unknown> }}
+					onsubmit={save}
+					submitLabel="Save connection"
+					oncancel={close}
+					{busy}
+					{problem}
+				/>
+			{/key}
+		</div>
 	</div>
 {:else if adding && byKind[adding]}
-	<div id="connection-form" class="panel mt-6 max-w-xl scroll-mt-16 p-4">
-		<h2 class="mb-1">New {byKind[adding].name} connection</h2>
-		<p class="hint mb-4">{byKind[adding].description}</p>
-		{#key adding}
-			<ConnectionForm
-				descriptor={byKind[adding]}
-				onsubmit={save}
-				submitLabel="Add connection"
-				oncancel={close}
-				{busy}
-				{problem}
-			/>
-		{/key}
+	<div id="connection-form" class="card mt-5 max-w-xl scroll-mt-16">
+		<div class="card-head">
+			<div>
+				<h2>New {byKind[adding].name} connection</h2>
+				<p class="hint">{byKind[adding].description}</p>
+			</div>
+		</div>
+		<div class="card-body">
+			{#key adding}
+				<ConnectionForm
+					descriptor={byKind[adding]}
+					onsubmit={save}
+					submitLabel="Add connection"
+					oncancel={close}
+					{busy}
+					{problem}
+				/>
+			{/key}
+		</div>
 	</div>
 {:else}
 	<h2 class="mt-8 mb-3">Add a connection</h2>
-	<div class="flex max-w-3xl flex-col gap-4">
+	<div class="flex flex-col gap-5">
 		{#each groups as group (group.title)}
 			<section aria-label={group.title}>
-				<h3 class="text-muted mb-2">{group.title}</h3>
-				<ul class="grid gap-2 md:grid-cols-2">
+				<h3 class="text-muted mb-2 font-medium">{group.title}</h3>
+				<ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 					{#each group.connectors as connector (connector.kind)}
 						<li>
-							<button
-								type="button"
-								class="panel hover:border-muted flex h-full w-full flex-col items-start p-3 text-left"
-								onclick={() => {
-									close();
-									adding = connector.kind;
-									reveal('connection-form');
-								}}
-							>
-								<span class="font-medium">
-									{connector.name}
-									{#if connector.custom}<span class="tag ml-2 font-normal">your own</span>{/if}
+							<button type="button" class="card connector" onclick={() => add(connector.kind)}>
+								<span class="flex w-full items-center gap-2 font-medium">
+									<span class="mr-auto">{connector.name}</span>
+									{#if connector.custom}<span class="tag font-normal">your own</span>{/if}
+									<span class="add"><Icon name="plus" /></span>
 								</span>
 								<span class="text-muted block">{connector.description}</span>
 								{#if capabilityWords(connector.capabilities)}
-									<span class="text-muted mt-1 block" data-testid="capabilities">
+									<span class="text-muted mt-auto block pt-1" data-testid="capabilities">
 										<span class="text-faint">Can do:</span>
 										{capabilityWords(connector.capabilities)}
 									</span>
@@ -255,7 +315,7 @@
 	</div>
 {/if}
 
-<div class="mt-10">
+<div class="mt-8">
 	<ConnectorDefinitions onchange={() => loadConnectors().catch((error) => toasts.problem(error))} />
 </div>
 
@@ -276,3 +336,48 @@
 		No route sends to it.
 	{/if}
 </Confirm>
+
+<style>
+	/* How much of what ended arrived: the track is what failed. */
+	.rate {
+		width: 4.5rem;
+		height: 0.3rem;
+		margin: 0.3rem 0 0 auto;
+		overflow: hidden;
+		border-radius: 999px;
+		background: var(--fill-failed);
+	}
+
+	.rate > div {
+		height: 100%;
+		background: var(--fill-delivered);
+	}
+
+	.connector {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.25rem;
+		width: 100%;
+		height: 100%;
+		padding: 0.9rem 1rem;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			border-color 120ms,
+			background-color 120ms;
+	}
+
+	.connector:hover {
+		border-color: var(--faint);
+		background: var(--raised);
+	}
+
+	.add {
+		color: var(--faint);
+	}
+
+	.connector:hover .add {
+		color: var(--accent);
+	}
+</style>

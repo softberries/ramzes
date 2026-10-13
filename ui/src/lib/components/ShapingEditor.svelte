@@ -50,7 +50,9 @@
 						spellcheck="false"
 						bind:value={form.dedup.key}
 					/>
-					<p class="hint mt-1">Optional. An expression such as labels.order or payload.host.</p>
+					<p class="hint mt-1">
+						Optional. An expression such as <code>labels.order</code> or <code>payload.host</code>
+					</p>
 				</div>
 			</div>
 		{/if}
@@ -121,7 +123,7 @@
 							{@const on = form.quiet.days.includes(day.key)}
 							<button
 								type="button"
-								class="btn h-8 px-2.5 {on ? 'border-accent text-accent' : 'text-muted'}"
+								class="btn btn-sm {on ? 'border-accent text-accent' : 'text-muted'}"
 								aria-pressed={on}
 								onclick={() => toggleDay(day.key)}
 							>

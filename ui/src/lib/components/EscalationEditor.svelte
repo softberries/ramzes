@@ -2,6 +2,7 @@
 	import type { ConnectionView, Template } from '#lib/api/types.ts';
 	import { cumulativeSeconds, delaysOf, emptyStep, sinceFirstWords, type StepForm } from '#lib/escalation.ts';
 	import { UNITS } from '#lib/shaping.ts';
+	import Icon from './Icon.svelte';
 	import TargetRows from './TargetRows.svelte';
 
 	interface Props {
@@ -24,11 +25,11 @@
 		from the step before it, and the first from the first message.
 	</p>
 	{#if steps.length > 0}
-		<ol class="flex flex-col gap-4" aria-label="Escalation steps">
+		<ol class="flex flex-col gap-3" aria-label="Escalation steps">
 			{#each steps as step, index (index)}
-				<li class="flex flex-col gap-2" aria-label="Step {index + 1}">
+				<li class="panel flex flex-col gap-3 p-3.5" aria-label="Step {index + 1}">
 					<div class="flex flex-wrap items-center gap-2">
-						<span class="font-medium">{index + 1}.</span>
+						<span class="number">{index + 1}</span>
 						<span>after</span>
 						<input
 							class="input w-20"
@@ -48,7 +49,7 @@
 						{/if}
 						<button
 							type="button"
-							class="btn btn-quiet ml-auto"
+							class="btn btn-sm btn-quiet ml-auto"
 							aria-label="Remove step {index + 1}"
 							onclick={() => (steps = steps.filter((_, i) => i !== index))}
 						>
@@ -71,7 +72,23 @@
 	{/if}
 	<div>
 		<button type="button" class="btn" onclick={() => (steps = [...steps, emptyStep()])}>
+			<Icon name="plus" />
 			{steps.length === 0 ? 'Add a step' : 'Add another step'}
 		</button>
 	</div>
 </div>
+
+<style>
+	.number {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		background: var(--raised);
+		color: var(--muted);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+</style>

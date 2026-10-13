@@ -42,7 +42,7 @@
 -->
 <ol class="path">
 	<li style="--node: var(--accent)">
-		<div class="flex flex-wrap items-baseline gap-x-4">
+		<div class="flex flex-wrap items-baseline gap-x-3">
 			<span class="font-medium">Received from {sources[event.source_id] ?? 'a deleted source'}</span>
 			<time class="text-muted">{clock(event.received_at, now)}</time>
 		</div>
@@ -67,7 +67,7 @@
 		{@const words = journeyWords(notification, now)}
 		{@const role = sentence(roleWords(notification.role, notification.event_count))}
 		<li class={words.text ? 'open' : ''} style="--node: var({words.text ? '--gold' : '--accent'})">
-			<div class="flex flex-wrap items-baseline gap-x-4">
+			<div class="flex flex-wrap items-baseline gap-x-3">
 				<span class="font-medium">Matched route {notification.route_name}</span>
 				<span class="text-muted">
 					to {connections[notification.connection_id] ?? 'a deleted connection'}{notification.destination
@@ -76,7 +76,7 @@
 				</span>
 				{#if notification.replay}<span class="tag">replayed</span>{/if}
 			</div>
-			<div class="flex flex-wrap items-baseline gap-x-4">
+			<div class="flex flex-wrap items-baseline gap-x-3">
 				{#if words.text}
 					<span>
 						<span class="text-gold font-medium">{words.text}</span>
@@ -87,14 +87,14 @@
 				<a href={resolve('/notifications/[id]', { id: notification.id })}>Open the notification</a>
 			</div>
 			{#if preview}
-				<div class="panel mt-2 max-w-3xl p-3" data-testid="message">
+				<div class="message mt-2 max-w-3xl" data-testid="message">
 					<div class="font-medium break-words">{preview.title}</div>
 					{#if preview.body}<p class="text-muted mt-1 break-words whitespace-pre-wrap">{preview.body}</p>{/if}
 					{#if preview.warning}<p class="text-gold mt-1 break-words">{preview.warning}</p>{/if}
 					{#if preview.request}
 						<details class="mt-2">
 							<summary class="text-muted cursor-pointer">Request</summary>
-							<div class="mt-1"><RequestBlock request={preview.request} /></div>
+							<div class="mt-2"><RequestBlock request={preview.request} /></div>
 						</details>
 					{:else if preview.request_error}
 						<p class="hint mt-1">The request cannot be shown: {preview.request_error}</p>
@@ -110,3 +110,19 @@
 		{/each}
 	{/each}
 </ol>
+
+<style>
+	/* The path lies on a card, so a step that has not happened yet is hollow in the card's colour. */
+	.path > li.open::before {
+		background: var(--surface);
+	}
+
+	/* The message as its reader got it: set apart from the account of how it was sent. */
+	.message {
+		padding: 0.75rem 0.9rem;
+		border: 1px solid var(--line);
+		border-left: 2px solid var(--accent);
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--raised) 45%, transparent);
+	}
+</style>

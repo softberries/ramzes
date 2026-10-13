@@ -12,7 +12,7 @@
 
 <div class="relative">
 	<pre class="code pr-20" data-testid={testid}>{text}</pre>
-	<button type="button" class="btn absolute top-2 right-2 h-7 px-2" onclick={copy}>
+	<button type="button" class="btn btn-sm absolute top-1.5 right-1.5" onclick={copy}>
 		{copied ? 'Copied' : 'Copy'}
 	</button>
 </div>

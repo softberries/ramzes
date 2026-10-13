@@ -86,7 +86,7 @@
 	}
 </script>
 
-<p class="mb-3"><a href={resolve('/')}>Feed</a> <span class="text-faint">/</span> Event</p>
+<p class="text-muted mb-3"><a href={resolve('/')}>Feed</a> <span class="text-faint">/</span> Event</p>
 
 {#if missing}
 	<h1>This event does not exist</h1>
@@ -96,73 +96,81 @@
 	</p>
 {:else if journey}
 	{@const event = journey.event}
-	<header class="mb-6 flex flex-wrap items-start gap-x-6 gap-y-3">
+	<header class="mb-5 flex flex-wrap items-start gap-x-6 gap-y-3">
 		<div class="mr-auto min-w-0">
 			<h1 class="break-words">{event.title}</h1>
-			<div class="text-muted mt-1 flex flex-wrap gap-x-5 gap-y-1">
+			<div class="text-muted mt-1 flex flex-wrap items-baseline gap-x-5 gap-y-1">
 				<SeverityMark severity={event.severity} label />
-				<span>{event.topic}</span>
-				{#if event.status === 'resolved'}<span>resolved</span>{/if}
+				<span class="mono break-all">{event.topic}</span>
+				{#if event.status === 'resolved'}<span class="tag">resolved</span>{/if}
 				<time>{clock(event.received_at, now)}</time>
 			</div>
 		</div>
 		<button type="button" class="btn" disabled={busy} onclick={replayEvent}>Run through routes again</button>
 	</header>
 
-	<section class="mb-8" aria-label="What happened">
-		<Timeline
-			{journey}
-			connections={lookups.connectionNames}
-			sources={lookups.sourceNames}
-			{previews}
-			{now}
-			onreplay={replayDelivery}
-		/>
+	<section class="card mb-4" aria-label="What happened">
+		<div class="card-head"><h2>What happened</h2></div>
+		<div class="card-body">
+			<Timeline
+				{journey}
+				connections={lookups.connectionNames}
+				sources={lookups.sourceNames}
+				{previews}
+				{now}
+				onreplay={replayDelivery}
+			/>
+		</div>
 	</section>
 
-	<section class="grid gap-6 xl:grid-cols-2" aria-label="Event content">
-		<div class="flex flex-col gap-4">
+	<section class="grid items-start gap-4 xl:grid-cols-2" aria-label="Event content">
+		<div class="flex min-w-0 flex-col gap-4">
+			<div class="card">
+				<div class="card-head"><h2>Details</h2></div>
+				<dl class="card-body text-muted grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
+					<dt>Event id</dt>
+					<dd class="mono text-fg break-all">{event.id}</dd>
+					<dt>Occurred</dt>
+					<dd class="text-fg"><time>{clock(event.occurred_at, now)}</time></dd>
+					{#if event.dedup_key}
+						<dt>Dedup key</dt>
+						<dd class="mono text-fg break-all">{event.dedup_key}</dd>
+					{/if}
+				</dl>
+			</div>
 			{#if event.body}
-				<div>
-					<h2 class="mb-1">Body</h2>
-					<p class="code">{event.body}</p>
+				<div class="card">
+					<div class="card-head"><h2>Body</h2></div>
+					<p class="card-body break-words whitespace-pre-wrap">{event.body}</p>
 				</div>
 			{/if}
-			<div>
-				<h2 class="mb-1">Labels</h2>
+			<div class="card overflow-hidden">
+				<div class="card-head"><h2>Labels</h2></div>
 				{#if Object.keys(event.labels).length > 0}
-					<!-- The padding is on a wrapper: a table takes none of its own. -->
-					<div class="code">
-						<table>
-							<tbody>
-								{#each Object.entries(event.labels) as [key, value] (key)}
-									<tr><td class="text-muted pr-6 align-top whitespace-nowrap">{key}</td><td class="break-all">{value}</td></tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<table class="table">
+						<tbody>
+							{#each Object.entries(event.labels) as [key, value] (key)}
+								<tr>
+									<th scope="row" class="mono w-px">{key}</th>
+									<td class="mono break-all">{value}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
 				{:else}
-					<p class="hint">This event has no labels.</p>
+					<p class="card-body hint">This event has no labels.</p>
 				{/if}
 			</div>
-			<dl class="text-muted grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
-				<dt>Event id</dt>
-				<dd class="text-fg break-all">{event.id}</dd>
-				<dt>Occurred</dt>
-				<dd class="text-fg">{clock(event.occurred_at, now)}</dd>
-				{#if event.dedup_key}
-					<dt>Dedup key</dt>
-					<dd class="text-fg break-all">{event.dedup_key}</dd>
-				{/if}
-			</dl>
 		</div>
-		<div>
-			<h2 class="mb-1">Payload</h2>
-			{#if event.payload === null || event.payload === undefined}
-				<p class="hint">This event was sent without a payload.</p>
-			{:else}
-				<pre class="code max-h-[32rem] overflow-auto">{JSON.stringify(event.payload, null, 2)}</pre>
-			{/if}
+		<div class="card min-w-0">
+			<div class="card-head"><h2>Payload</h2></div>
+			<div class="card-body">
+				{#if event.payload === null || event.payload === undefined}
+					<p class="hint">This event was sent without a payload.</p>
+				{:else}
+					<pre class="code max-h-[32rem] overflow-auto">{JSON.stringify(event.payload, null, 2)}</pre>
+				{/if}
+			</div>
 		</div>
 	</section>
 {/if}

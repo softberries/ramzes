@@ -495,6 +495,14 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+
+	/* On a phone the cells give up some of their air to what they hold. */
+	@media (max-width: 48rem) {
+		.table :is(th, td) {
+			padding-right: 0.75rem;
+			padding-left: 0.75rem;
+		}
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

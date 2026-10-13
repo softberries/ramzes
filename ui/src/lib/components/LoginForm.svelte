@@ -40,7 +40,5 @@
 		/>
 	</div>
 	{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-	<div>
-		<button type="submit" class="btn btn-primary" disabled={busy}>Sign in</button>
-	</div>
+	<button type="submit" class="btn btn-primary w-full" disabled={busy}>Sign in</button>
 </form>

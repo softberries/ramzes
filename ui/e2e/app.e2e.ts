@@ -35,7 +35,7 @@ async function signIn(page: Page) {
 
 /** The rows of the notifications list that belong to one route. */
 function notificationsOf(page: Page, route: string): Locator {
-	return page.getByRole('list', { name: 'Notifications' }).getByRole('listitem').filter({ hasText: route });
+	return page.getByRole('table', { name: 'notifications' }).getByRole('row').filter({ hasText: route });
 }
 
 /** WCAG contrast ratio between an element's text colour and the page background. */
@@ -123,11 +123,11 @@ test('a new event appears in the feed without a reload and its journey shows the
 		labels: { env: 'prod', service: 'payments' },
 		payload: { order: 7, attempts: 3 }
 	});
-	const row = page.getByRole('link', { name: /Charge failed: card network timeout/ });
+	const row = page.getByRole('row', { name: /Charge failed: card network timeout/ });
 	await expect(row).toBeVisible();
 	await expect(row).toContainText('delivered');
 
-	await row.click();
+	await row.getByRole('link').click();
 	await expect(page.getByText('Matched route Everything')).toBeVisible();
 	await expect(page.getByText('HTTP 200')).toBeVisible();
 	await expect(page.getByText('"order": 7')).toBeVisible();
@@ -162,14 +162,14 @@ test('the light theme applies and stays readable', async ({ page }) => {
 	await signIn(page);
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 	await page.screenshot({ path: 'e2e-shots/feed-dark.png', fullPage: true });
-	const title = 'ul[aria-label="Events"] a span.truncate > span:first-child';
+	const title = 'table[aria-label="Events"] a.title';
 	expect(await contrast(page, title)).toBeGreaterThan(7);
-	expect(await contrast(page, 'ul[aria-label="Events"] a time')).toBeGreaterThan(4.5);
+	expect(await contrast(page, 'table[aria-label="Events"] time')).toBeGreaterThan(4.5);
 
 	await page.getByRole('button', { name: 'Light theme' }).click();
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 	expect(await contrast(page, title)).toBeGreaterThan(7);
-	expect(await contrast(page, 'ul[aria-label="Events"] a time')).toBeGreaterThan(4.5);
+	expect(await contrast(page, 'table[aria-label="Events"] time')).toBeGreaterThan(4.5);
 	// A field is white with an outline that stands out from it and from the page, so it does not read as switched off.
 	const field = await page.getByLabel('Find in title').evaluate((input) => {
 		const style = getComputedStyle(input);
@@ -278,7 +278,7 @@ test('a template preview shows the worded title and the request', async ({ page 
 	await page.getByLabel('Title').fill('[{{ labels.env }}] {{ title }}');
 	await page.getByRole('button', { name: 'Create template' }).click();
 	await expect(page.getByText('Template created.')).toBeVisible();
-	await expect(page.getByRole('listitem').filter({ hasText: 'With environment' })).toBeVisible();
+	await expect(page.getByRole('row').filter({ hasText: 'With environment' })).toBeVisible();
 });
 
 test('a grouped route collects two events into one notification, which is then sent and acknowledged', async ({
@@ -310,14 +310,14 @@ test('a grouped route collects two events into one notification, which is then s
 	// It appears by itself while the group is still collecting.
 	const grouped = notificationsOf(page, 'Deploys grouped');
 	await expect(grouped).toContainText('Deploy of checkout started');
-	await expect(grouped.getByTestId('event-count')).toHaveText('2 events');
+	await expect(grouped.getByTestId('event-count')).toHaveText('2');
 	await expect(grouped).toContainText('collecting');
 
 	// Two seconds later it has been sent, and it leaves this view without a reload.
 	await expect(grouped).toHaveCount(0);
 	await page.getByRole('link', { name: /^Sent/ }).click();
 	await expect(page).toHaveURL(/view=sent/);
-	await expect(grouped.getByTestId('event-count')).toHaveText('2 events');
+	await expect(grouped.getByTestId('event-count')).toHaveText('2');
 	await expect(grouped.locator('[data-state="sent"]')).toBeVisible();
 	await page.screenshot({ path: 'e2e-shots/notifications-sent.png', fullPage: true });
 	// The route sent one message for the two events. (The route "Everything" sent each on its own.)
@@ -376,7 +376,7 @@ test('a silence is refused without conditions, suppresses a matching event and c
 	await page.getByRole('link', { name: 'Silences', exact: true }).click();
 	await active.getByRole('button', { name: 'End now' }).click();
 	await expect(active).toContainText('No silence is active');
-	await page.getByText('Ended (1)').click();
+	await page.getByRole('button', { name: /^Ended/ }).click();
 	await expect(page.locator('[data-kind="ended"]')).toContainText('topic deploys.*');
 	await page.screenshot({ path: 'e2e-shots/silences.png', fullPage: true });
 });
@@ -609,10 +609,10 @@ test('a Slack app connection says where Slack must send button presses', async (
 	await saved.getByRole('button', { name: 'Done' }).click();
 	await expect(saved).toHaveCount(0);
 
-	const row = page.getByRole('listitem').filter({ hasText: 'ops chat' });
-	await expect(row.getByTestId('interactions-url')).toBeHidden();
-	await row.getByText('Setup', { exact: true }).click();
-	await expect(row.getByTestId('interactions-url')).toHaveText(address);
+	const row = page.getByRole('row').filter({ hasText: 'ops chat' });
+	await expect(page.getByTestId('interactions-url')).toBeHidden();
+	await row.getByRole('button', { name: 'Setup' }).click();
+	await expect(page.getByTestId('slack-setup').getByTestId('interactions-url')).toHaveText(address);
 });
 
 test('the notifications page says when messages have no acknowledgement link', async ({ page }) => {
@@ -628,7 +628,7 @@ test('the notifications page says when messages have no acknowledgement link', a
 	await page.getByRole('button', { name: 'Save settings' }).click();
 	await expect(page.getByText('Settings saved.')).toBeVisible();
 	await page.getByRole('link', { name: 'Notifications', exact: true }).click();
-	await expect(page.getByRole('list', { name: 'Notifications' })).toHaveAttribute('aria-busy', 'false');
+	await expect(page.getByRole('table', { name: 'notifications' })).toHaveAttribute('aria-busy', 'false');
 	await expect(hint).toHaveCount(0);
 
 	// Without the address it is back, until it is dismissed in this browser.
@@ -640,7 +640,7 @@ test('the notifications page says when messages have no acknowledgement link', a
 	await hint.getByRole('button', { name: 'Dismiss' }).click();
 	await expect(hint).toHaveCount(0);
 	await page.reload();
-	await expect(page.getByRole('list', { name: 'Notifications' })).toHaveAttribute('aria-busy', 'false');
+	await expect(page.getByRole('table', { name: 'notifications' })).toHaveAttribute('aria-busy', 'false');
 	await expect(hint).toHaveCount(0);
 });
 
@@ -694,4 +694,25 @@ test('theme and sign-out are reachable on a phone-sized screen', async ({ page }
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await expect(page).toHaveURL(/\/login$/);
 	await expect(page.getByRole('heading', { name: 'Sign in to ramzes' })).toBeVisible();
+});
+
+test('the feed can be ordered by a column and paged', async ({ page }) => {
+	await signIn(page);
+	const rows = page.getByRole('table', { name: 'Events' }).getByRole('row');
+	const total = Number((await page.getByTestId('range').innerText()).split(' of ')[1]);
+	expect(total).toBeGreaterThan(3);
+
+	// Most severe first on the first click, least severe on the second; the order lives in the URL.
+	await page.getByRole('button', { name: 'Severity' }).click();
+	await expect(page).toHaveURL(/sort=severity/);
+	await expect(rows.nth(1)).toContainText('critical');
+	await page.getByRole('button', { name: 'Severity' }).click();
+	await expect(page).toHaveURL(/order=asc/);
+	await expect(rows.nth(1)).not.toContainText('critical');
+
+	await page.goto('/?size=25&page=2');
+	await expect(page.getByLabel('Per page')).toHaveValue('25');
+	// There is no second page of so few events: the feed goes back to the last page there is.
+	if (total <= 25) await expect(page).not.toHaveURL(/page=2/);
+	await expect(page.getByTestId('range')).toContainText(`of ${total}`);
 });

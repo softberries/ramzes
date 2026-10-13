@@ -194,7 +194,7 @@
 						if (!(event.target as HTMLElement).closest('a')) goto(resolve('/events/[id]', { id: row.id }));
 					}}
 				>
-					<td><time class="text-muted whitespace-nowrap">{clock(row.received_at)}</time></td>
+					<td><time class="when text-muted">{clock(row.received_at)}</time></td>
 					<td><SeverityMark severity={row.severity} label /></td>
 					<td>
 						<a
@@ -285,6 +285,10 @@
 		cursor: pointer;
 	}
 
+	.when {
+		white-space: nowrap;
+	}
+
 	.feed tr.selected {
 		background: var(--raised);
 		box-shadow: inset 2px 0 0 var(--accent);
@@ -315,6 +319,11 @@
 
 		.feed :global(th:nth-child(1)) {
 			width: 5.5rem;
+		}
+
+		/* A time from another day carries its date, which goes on a line of its own. */
+		.when {
+			white-space: normal;
 		}
 
 		.feed :global(th:nth-child(7)) {

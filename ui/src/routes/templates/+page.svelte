@@ -3,6 +3,9 @@
 	import { api, messageOf } from '#lib/api/client.ts';
 	import type { ConnectorDescriptor, EventPage, EventRow, Template, TemplatePreview } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
+	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import RequestBlock from '#lib/components/RequestBlock.svelte';
 	import { debounced } from '#lib/debounce.ts';
 	import { clock } from '#lib/format.ts';
@@ -146,81 +149,113 @@
 		['| tojson', 'Writes a value as JSON.']
 	];
 	const EXAMPLE = "[{{ labels.env | default('dev') }}] {{ title | cut(80) }}";
+
+	const columns: Column<Template>[] = [
+		{ key: 'name', label: 'Name', sort: (t) => t.name },
+		{ key: 'title', label: 'Title', sort: (t) => t.title, from: 'md' },
+		{ key: 'body', label: 'Body', sort: (t) => t.body || null, from: 'lg' },
+		{ key: 'actions', label: 'Actions', end: true }
+	];
 </script>
 
-<div class="mb-2 flex items-center gap-3">
-	<h1 class="mr-auto">Templates</h1>
-	<button type="button" class="btn btn-primary" onclick={startNew}>New template</button>
-</div>
-<p class="hint mb-5 max-w-2xl">
+<PageHeader title="Templates">
 	A template words the message for an event. Choose one per connection on a route under
 	<a href={resolve('/routes')}>Routes</a>; without one the event's own title and body are sent.
-</p>
+	{#snippet actions()}
+		<button type="button" class="btn btn-primary" onclick={startNew}>
+			<Icon name="plus" />
+			New template
+		</button>
+	{/snippet}
+</PageHeader>
 
-{#if loaded && templates.length === 0 && !draft}
-	<p class="hint py-8">
-		No templates yet, so every message uses the event's own title and body.
-		<button type="button" class="text-accent underline" onclick={startNew}>Create the first template.</button>
-	</p>
-{/if}
-
-<ul class="border-line border-t">
-	{#each templates as template (template.id)}
-		<li class="border-line grid grid-cols-[1fr_auto] items-baseline gap-x-3 border-b px-2 py-2.5">
-			<div class="min-w-0">
-				<div class="font-medium">{template.name}</div>
-				<div class="text-muted truncate">{template.title}</div>
-			</div>
+<DataTable
+	rows={templates}
+	{columns}
+	key={(template) => template.id}
+	noun="templates"
+	singular="template"
+	search={(t) => `${t.name} ${t.title} ${t.body}`}
+	initialSort={{ key: 'name', descending: false }}
+	{loaded}
+>
+	{#snippet cell(template, column)}
+		{#if column.key === 'name'}
+			<div class="font-medium break-words">{template.name}</div>
+			<!-- The title has a column of its own from a tablet up. -->
+			<div class="mono text-muted break-all md:hidden">{template.title}</div>
+		{:else if column.key === 'title'}
+			<span class="mono text-muted block max-w-md truncate" title={template.title}>{template.title}</span>
+		{:else if column.key === 'body'}
+			{#if template.body}
+				<span class="mono text-muted block max-w-sm truncate" title={template.body}>{template.body}</span>
+			{:else}
+				<span class="text-faint">the title alone</span>
+			{/if}
+		{:else}
 			<div class="flex flex-wrap justify-end gap-1">
-				<button type="button" class="btn h-7 px-2" onclick={() => open({ ...template })}>Edit</button>
+				<button type="button" class="btn btn-sm" onclick={() => open({ ...template })}>Edit</button>
 				<button
 					type="button"
-					class="btn btn-danger h-7 px-2"
+					class="btn btn-sm btn-danger"
 					onclick={() => {
 						deleteProblem = '';
 						deleting = template;
 					}}>Delete</button
 				>
 			</div>
-		</li>
-	{/each}
-</ul>
+		{/if}
+	{/snippet}
+	{#snippet empty()}
+		No templates yet, so every message uses the event's own title and body.
+		<button type="button" class="text-accent underline" onclick={startNew}>Create the first template.</button>
+	{/snippet}
+</DataTable>
 
 {#if draft}
-	<div id="template-form" class="mt-6 grid scroll-mt-16 items-start gap-6 xl:grid-cols-2">
-		<form class="panel flex min-w-0 flex-col gap-4 p-4" onsubmit={save}>
-			<h2>{draft.id ? 'Edit template' : 'New template'}</h2>
-			<div class="max-w-md">
-				<label class="field-label" for="template-name">Name</label>
-				<input id="template-name" class="input" required maxlength="100" bind:value={draft.name} />
-			</div>
-			<div>
-				<label class="field-label" for="template-title">Title</label>
-				<input id="template-title" class="input" required autocomplete="off" spellcheck="false" bind:value={draft.title} />
-			</div>
-			<div>
-				<label class="field-label" for="template-body">Body</label>
-				<textarea
-					id="template-body"
-					class="input h-40 py-2"
-					spellcheck="false"
-					bind:value={draft.body}
-				></textarea>
-				<p class="hint mt-1">Leave empty to send the title alone.</p>
-			</div>
-			{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-			<div class="flex gap-2">
-				<button type="submit" class="btn btn-primary" disabled={busy}>
-					{draft.id ? 'Save template' : 'Create template'}
-				</button>
-				<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
+	<div id="template-form" class="mt-5 grid scroll-mt-16 items-start gap-5 xl:grid-cols-2">
+		<form class="card min-w-0" onsubmit={save}>
+			<div class="card-head"><h2>{draft.id ? 'Edit template' : 'New template'}</h2></div>
+			<div class="card-body flex flex-col gap-4">
+				<div class="max-w-md">
+					<label class="field-label" for="template-name">Name</label>
+					<input id="template-name" class="input" required maxlength="100" bind:value={draft.name} />
+				</div>
+				<div>
+					<label class="field-label" for="template-title">Title</label>
+					<input
+						id="template-title"
+						class="input mono"
+						required
+						autocomplete="off"
+						spellcheck="false"
+						bind:value={draft.title}
+					/>
+				</div>
+				<div>
+					<label class="field-label" for="template-body">Body</label>
+					<textarea
+						id="template-body"
+						class="input h-40 py-2"
+						spellcheck="false"
+						bind:value={draft.body}
+					></textarea>
+					<p class="hint mt-1">Leave empty to send the title alone.</p>
+				</div>
+				{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+				<div class="flex gap-2">
+					<button type="submit" class="btn btn-primary" disabled={busy}>
+						{draft.id ? 'Save template' : 'Create template'}
+					</button>
+					<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
+				</div>
 			</div>
 
-			<details class="border-line border-t pt-3">
-				<summary class="cursor-pointer">What a template can use</summary>
+			<details class="border-line border-t px-[1.1rem] py-3.5">
+				<summary class="cursor-pointer font-medium">What a template can use</summary>
 				<dl class="mt-3 grid gap-x-6 gap-y-1 md:grid-cols-[auto_1fr]">
 					{#each REFERENCE as [name, meaning] (name)}
-						<dt class="whitespace-nowrap">{name}</dt>
+						<dt class="mono whitespace-nowrap">{name}</dt>
 						<dd class="text-muted mb-1 md:mb-0">{meaning}</dd>
 					{/each}
 				</dl>
@@ -229,67 +264,69 @@
 			</details>
 		</form>
 
-		<section class="flex min-w-0 flex-col gap-4" aria-label="Preview">
-			<h2>Preview</h2>
-			<div class="grid gap-4 md:grid-cols-2">
-				<div>
-					<label class="field-label" for="preview-event">With the event</label>
-					<select id="preview-event" class="input" bind:value={eventId}>
-						<option value="">A sample event</option>
-						{#each events as event (event.id)}
-							<option value={event.id}>{clock(event.received_at)} {event.title}</option>
-						{/each}
-					</select>
-				</div>
-				<div>
-					<label class="field-label" for="preview-connection">As sent to</label>
-					<select id="preview-connection" class="input" bind:value={connectionId}>
-						<option value="">No connection</option>
-						{#each lookups.connections as connection (connection.id)}
-							<option value={connection.id}>{connection.name}</option>
-						{/each}
-					</select>
-				</div>
-				{#if destinationLabel}
-					<div class="md:col-start-2">
-						<label class="field-label" for="preview-destination">{destinationLabel}</label>
-						<input
-							id="preview-destination"
-							class="input"
-							placeholder="The connection's own"
-							autocomplete="off"
-							bind:value={destination}
-						/>
+		<section class="card min-w-0" aria-label="Preview">
+			<div class="card-head"><h2>Preview</h2></div>
+			<div class="card-body flex flex-col gap-4">
+				<div class="grid gap-4 md:grid-cols-2">
+					<div>
+						<label class="field-label" for="preview-event">With the event</label>
+						<select id="preview-event" class="input" bind:value={eventId}>
+							<option value="">A sample event</option>
+							{#each events as event (event.id)}
+								<option value={event.id}>{clock(event.received_at)} {event.title}</option>
+							{/each}
+						</select>
 					</div>
-				{/if}
-			</div>
-
-			{#if previewProblem}
-				<p class="problem" role="alert">{previewProblem}</p>
-			{:else if preview}
-				{#if preview.error}
-					<p class="problem" role="alert">
-						{preview.error}
-						<span class="text-muted block">Until this is fixed, the event's own title and body are sent:</span>
-					</p>
-				{/if}
-				<div class="panel p-3">
-					<div class="font-medium break-words" data-testid="preview-title">{preview.title}</div>
-					{#if preview.body}
-						<p class="text-muted mt-1 break-words whitespace-pre-wrap" data-testid="preview-body">{preview.body}</p>
+					<div>
+						<label class="field-label" for="preview-connection">As sent to</label>
+						<select id="preview-connection" class="input" bind:value={connectionId}>
+							<option value="">No connection</option>
+							{#each lookups.connections as connection (connection.id)}
+								<option value={connection.id}>{connection.name}</option>
+							{/each}
+						</select>
+					</div>
+					{#if destinationLabel}
+						<div class="md:col-start-2">
+							<label class="field-label" for="preview-destination">{destinationLabel}</label>
+							<input
+								id="preview-destination"
+								class="input"
+								placeholder="The connection's own"
+								autocomplete="off"
+								bind:value={destination}
+							/>
+						</div>
 					{/if}
 				</div>
-				{#if preview.request}
-					<div>
-						<h3 class="field-label">The request this connection sends</h3>
-						<RequestBlock request={preview.request} />
+
+				{#if previewProblem}
+					<p class="problem" role="alert">{previewProblem}</p>
+				{:else if preview}
+					{#if preview.error}
+						<p class="problem" role="alert">
+							{preview.error}
+							<span class="text-muted block">Until this is fixed, the event's own title and body are sent:</span>
+						</p>
+					{/if}
+					<div class="message">
+						<div class="font-medium break-words" data-testid="preview-title">{preview.title}</div>
+						{#if preview.body}
+							<p class="text-muted mt-1 break-words whitespace-pre-wrap" data-testid="preview-body">{preview.body}</p>
+						{/if}
 					</div>
-				{:else if preview.request_error}
-					<p class="problem">The request could not be built: {preview.request_error}</p>
-				{:else if !connectionId}
-					<p class="hint">Choose a connection to see the exact request it would send.</p>
+					{#if preview.request}
+						<div>
+							<h3 class="field-label">The request this connection sends</h3>
+							<RequestBlock request={preview.request} />
+						</div>
+					{:else if preview.request_error}
+						<p class="problem">The request could not be built: {preview.request_error}</p>
+					{:else if !connectionId}
+						<p class="hint">Choose a connection to see the exact request it would send.</p>
+					{/if}
 				{/if}
-			{/if}
+			</div>
 		</section>
 	</div>
 {/if}
@@ -307,3 +344,14 @@
 		A template that a route still uses cannot be deleted.
 	{/if}
 </Confirm>
+
+<style>
+	/* The message as its reader gets it: set apart from the form around it like a quotation. */
+	.message {
+		padding: 0.75rem 0.9rem;
+		border: 1px solid var(--line);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--radius-control);
+		background: var(--bg);
+	}
+</style>

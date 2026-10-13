@@ -25,9 +25,9 @@
 	let { delivery, now, onreplay, label = '' }: Props = $props();
 </script>
 
-<div class="flex flex-wrap items-baseline gap-x-4">
-	{#if label}<span class="break-words" data-testid="delivery-step">{label}</span>{/if}
-	<span class="font-medium"><StateTag state={delivery.state} /></span>
+<div class="flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-1">
+	{#if label}<span class="font-medium break-words" data-testid="delivery-step">{label}</span>{/if}
+	<StateTag state={delivery.state} />
 	{#if delivery.attempts.length > 0}
 		<span class="text-muted">
 			{delivery.attempts.length}
@@ -38,28 +38,59 @@
 		<span class="text-gold">Next attempt {until(delivery.next_attempt_at, now)}</span>
 	{/if}
 	{#if !waiting(delivery)}
-		<button type="button" class="btn h-7 px-2" onclick={() => onreplay(delivery.id)}>Send again</button>
+		<button type="button" class="btn btn-sm ml-auto" onclick={() => onreplay(delivery.id)}>Send again</button>
 	{/if}
 </div>
 
-{#if delivery.warning}<p class="text-gold break-words">{delivery.warning}</p>{/if}
+{#if delivery.warning}<p class="text-gold mt-1 break-words">{delivery.warning}</p>{/if}
 {#if delivery.attempts.length > 0}
-	<table class="mt-1 w-full max-w-3xl">
-		<tbody>
-			{#each delivery.attempts as attempt (attempt.id)}
-				<tr class="align-baseline">
-					<td class="text-muted w-24 py-0.5 pr-4 whitespace-nowrap">{clock(attempt.started_at, now)}</td>
-					<td class="w-20 py-0.5 pr-4 whitespace-nowrap">
-						{attempt.status === null || attempt.status === undefined ? 'no answer' : `HTTP ${attempt.status}`}
-					</td>
-					<td class="text-muted w-20 py-0.5 pr-4 whitespace-nowrap">{duration(attempt.duration_ms)}</td>
-					<td class="py-0.5 {attempt.outcome === 'delivered' ? 'text-muted' : 'problem'} break-words">
-						{attempt.detail ?? ''}
-					</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
+	<!-- One grid for every attempt, so the columns line up; on a phone the answer drops to a line of its own. -->
+	<div class="attempts mt-2 max-w-3xl">
+		{#each delivery.attempts as attempt (attempt.id)}
+			<time class="text-muted whitespace-nowrap">{clock(attempt.started_at, now)}</time>
+			<span class="mono whitespace-nowrap">
+				{attempt.status === null || attempt.status === undefined ? 'no answer' : `HTTP ${attempt.status}`}
+			</span>
+			<span class="mono text-muted whitespace-nowrap">{duration(attempt.duration_ms)}</span>
+			<span class="detail {attempt.outcome === 'delivered' ? 'text-muted' : 'problem'} break-words" class:blank={!attempt.detail}>
+				{attempt.detail ?? ''}
+			</span>
+		{/each}
+	</div>
 {:else if delivery.last_error}
-	<p class="problem">{delivery.last_error}</p>
+	<p class="problem mt-1 break-words">{delivery.last_error}</p>
 {/if}
+
+<style>
+	.attempts {
+		display: grid;
+		grid-template-columns: auto auto 1fr;
+		gap: 0.15rem 1.25rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--raised) 45%, transparent);
+	}
+
+	.detail {
+		grid-column: 1 / -1;
+	}
+
+	.detail.blank {
+		display: none;
+	}
+
+	@media (min-width: 48rem) {
+		.attempts {
+			grid-template-columns: auto auto auto 1fr;
+		}
+
+		.detail {
+			grid-column: auto;
+		}
+
+		/* It still takes its cell, so the next attempt starts on a new row. */
+		.detail.blank {
+			display: block;
+		}
+	}
+</style>

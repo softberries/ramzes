@@ -76,54 +76,63 @@
 	});
 
 	/** The colour of what noise control would do with a target. */
-	const TONES = { sends: 'text-ok', waits: 'text-gold', quiet: 'text-muted' } as const;
-
-	function tone(result: RouteResult): string {
-		if (result.outcome === 'matched') return 'text-ok';
-		return result.outcome === 'error' ? 'problem' : 'text-muted';
-	}
+	const TONES = { sends: 'var(--st-delivered)', waits: 'var(--gold)', quiet: 'var(--muted)' } as const;
 </script>
 
-<section class="panel flex flex-col gap-3 p-4" aria-label="Try an event">
-	<h2>Try an event</h2>
-	<p class="hint">
-		What these routes would do with one event, including changes you have not saved. Nothing is sent.
-	</p>
-	<div>
-		<label class="field-label" for="tester-event">Event</label>
-		<select id="tester-event" class="input" bind:value={choice}>
-			<option value={WRITTEN}>An event I write here</option>
-			{#each events as event (event.id)}
-				<option value={event.id}>{clock(event.received_at)} {event.title}</option>
-			{/each}
-		</select>
-	</div>
-	{#if choice === WRITTEN}
+<section class="card overflow-hidden" aria-label="Try an event">
+	<div class="card-head">
 		<div>
-			<label class="field-label" for="tester-sample">Event as JSON</label>
-			<textarea id="tester-sample" class="input h-48 py-2" spellcheck="false" bind:value={written}></textarea>
+			<h2>Try an event</h2>
+			<p class="hint">
+				What these routes would do with one event, including changes you have not saved. Nothing is sent.
+			</p>
 		</div>
-	{/if}
+	</div>
+	<div class="card-body flex flex-col gap-3">
+		<div>
+			<label class="field-label" for="tester-event">Event</label>
+			<select id="tester-event" class="input" bind:value={choice}>
+				<option value={WRITTEN}>An event I write here</option>
+				{#each events as event (event.id)}
+					<option value={event.id}>{clock(event.received_at)} {event.title}</option>
+				{/each}
+			</select>
+		</div>
+		{#if choice === WRITTEN}
+			<div>
+				<label class="field-label" for="tester-sample">Event as JSON</label>
+				<textarea id="tester-sample" class="input h-48 py-2" spellcheck="false" bind:value={written}></textarea>
+			</div>
+		{/if}
 
-	{#if problem}
-		<p class="problem" role="alert">{problem}</p>
-	{:else if results && results.length === 0}
-		<p class="hint">There are no routes, so this event would not be sent anywhere.</p>
-	{:else if results}
-		<ol class="border-line border-t" aria-label="Result for each route">
+		{#if problem}
+			<p class="problem" role="alert">{problem}</p>
+		{:else if results && results.length === 0}
+			<p class="hint">There are no routes, so this event would not be sent anywhere.</p>
+		{/if}
+	</div>
+
+	{#if !problem && results && results.length > 0}
+		<ol class="results border-line border-t" aria-label="Result for each route">
 			{#each results as result, index (index)}
-				<li class="border-line grid grid-cols-[1.5rem_1fr] gap-x-2 border-b py-2" data-outcome={result.outcome}>
-					<span class="text-faint">{index + 1}</span>
+				<li class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-2 px-[1.1rem] py-2.5" data-outcome={result.outcome}>
+					<span class="text-faint tabular-nums">{index + 1}</span>
 					<div class="min-w-0">
-						<div class="flex flex-wrap items-baseline gap-x-3">
+						<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
 							<span class="font-medium break-words">{result.name}</span>
 							{#if index === draftIndex}<span class="tag">being edited</span>{/if}
 						</div>
-						<div class="{tone(result)} break-words">{outcomeWords(result)}</div>
+						{#if result.outcome === 'matched'}
+							<span class="badge mt-1" style="--tone: var(--st-delivered)">{outcomeWords(result)}</span>
+						{:else if result.outcome === 'not_matched' || result.outcome === 'disabled'}
+							<span class="badge mt-1">{outcomeWords(result)}</span>
+						{:else}
+							<div class="{result.outcome === 'error' ? 'problem' : 'text-muted'} break-words">{outcomeWords(result)}</div>
+						{/if}
 						{#each result.targets as target, i (i)}
 							{@const explained = target.steps.filter((step) => step.step !== 'send')}
-							<div class="border-line mt-2 border-l-2 pl-2 break-words" data-testid="target">
-								<div class="font-medium {TONES[outcomeTone(target.outcome)]}" data-testid="target-outcome">
+							<div class="target mt-2 break-words" style="--tone: {TONES[outcomeTone(target.outcome)]}" data-testid="target">
+								<div class="outcome font-medium" data-testid="target-outcome">
 									{target.outcome}
 								</div>
 								<span class="text-muted">
@@ -153,3 +162,19 @@
 		</ol>
 	{/if}
 </section>
+
+<style>
+	.results > li + li {
+		border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+	}
+
+	/* One message that would go out, marked on its edge with what noise control would do with it. */
+	.target {
+		padding-left: 0.6rem;
+		border-left: 2px solid var(--tone);
+	}
+
+	.outcome {
+		color: var(--tone);
+	}
+</style>

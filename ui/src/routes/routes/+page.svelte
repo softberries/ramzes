@@ -4,7 +4,9 @@
 	import type { ConnectorDescriptor, Route, RouteInput, RouteMatch, Template } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
 	import EscalationEditor from '#lib/components/EscalationEditor.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import MatchEditor from '#lib/components/MatchEditor.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import RouteTester from '#lib/components/RouteTester.svelte';
 	import ShapingEditor from '#lib/components/ShapingEditor.svelte';
 	import TargetRows from '#lib/components/TargetRows.svelte';
@@ -20,7 +22,15 @@
 	import { ago } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
 	import { reveal } from '#lib/reveal.ts';
-	import { cleanMatch, cleanTargets, inputOfRoute, moved, routesForTest, summarize } from '#lib/routes.ts';
+	import {
+		cleanMatch,
+		cleanTargets,
+		findRoutes,
+		inputOfRoute,
+		moved,
+		routesForTest,
+		summarize
+	} from '#lib/routes.ts';
 	import { formToShaping, shapingToForm, summarizeShaping, type ShapingForm } from '#lib/shaping.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -49,6 +59,11 @@
 	let problem = $state('');
 	let busy = $state(false);
 	let deleting = $state<Route | null>(null);
+	let query = $state('');
+
+	/** The routes shown. A search leaves some out, so a place in this list is not a place in the order. */
+	const shown = $derived(findRoutes(routes, query, lookups.connectionNames));
+	const searching = $derived(query.trim() !== '');
 
 	const templateNames = $derived(Object.fromEntries(templates.map((t) => [t.id, t.name])));
 
@@ -181,138 +196,186 @@
 	}
 </script>
 
-<div class="mb-2 flex items-center gap-3">
-	<h1 class="mr-auto">Routes</h1>
-	<button type="button" class="btn btn-primary" onclick={startNew}>New route</button>
-</div>
-<p class="hint mb-5 max-w-2xl">
+<PageHeader title="Routes">
 	Each event is checked against these routes from the top. Every route that matches sends it to its
 	connections, unless an earlier matching route stops the evaluation.
-</p>
+	{#snippet actions()}
+		<button type="button" class="btn btn-primary" onclick={startNew}>
+			<Icon name="plus" />
+			New route
+		</button>
+	{/snippet}
+</PageHeader>
 
-<div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+<div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
 	<div class="min-w-0">
-		{#if loaded && routes.length === 0 && !draft}
-			<p class="hint py-8">
-				No routes yet, so nothing is sent anywhere.
-				{#if lookups.connections.length === 0}
-					Add a connection under <a href={resolve('/connections')}>Connections</a> first.
-				{:else}
-					<button type="button" class="text-accent underline" onclick={startNew}>Create the first route.</button>
-				{/if}
-			</p>
-		{/if}
+		<div class="card overflow-hidden">
+			<div class="card-head">
+				<label class="search">
+					<Icon name="search" />
+					<span class="sr-only">Search routes</span>
+					<input type="search" class="input" placeholder="Name, topic or connection" bind:value={query} />
+				</label>
+				<span class="text-muted ml-auto whitespace-nowrap" data-testid="count">
+					{#if searching}{shown.length} of {routes.length} routes{:else}{routes.length} routes{/if}
+				</span>
+			</div>
+			{#if searching && shown.length > 0}
+				<p class="hint border-line border-b px-[1.1rem] py-2" role="status">
+					Routes cannot be moved while the list is searched.
+					<button type="button" class="text-accent underline" onclick={() => (query = '')}>Clear the search</button>
+				</p>
+			{/if}
 
-		<ol class="border-line border-t" aria-label="Routes">
-			{#each routes as route, index (route.id)}
-				<li class="border-line grid grid-cols-[2rem_1fr] items-baseline gap-x-3 gap-y-2 border-b px-2 py-2.5 md:grid-cols-[2rem_1fr_auto]">
-					<span class="text-faint">{index + 1}</span>
-					<div class="min-w-0">
-						<div class="flex flex-wrap items-baseline gap-x-3">
-							<span class="font-medium {route.enabled ? '' : 'text-muted line-through'}">{route.name}</span>
-							{#if !route.enabled}<span class="tag">off</span>{/if}
-							{#if route.stop}<span class="tag" title="Routes below are skipped when this one matches">stops here</span>{/if}
-						</div>
-						<div class="text-muted break-words">{summarize(route.match, lookups.sourceNames)}</div>
-						<div class="text-muted break-words">
-							to
-							{#each route.targets as target, i (i)}{i > 0 ? ', ' : ''}<span
-									class={lookups.connectionNames[target.connection_id] ? 'text-fg' : 'problem'}
-									>{lookups.connectionNames[target.connection_id] ?? 'a deleted connection'}</span
-								>{target.destination ? ` (${target.destination})` : ''}{target.template_id
-									? ` worded by ${templateNames[target.template_id] ?? 'a deleted template'}`
-									: ''}{/each}
-						</div>
-						{#if summarizeChain(route.escalation, lookups.connectionNames)}
-							<div class="text-muted break-words" data-testid="chain-summary">
-								{summarizeChain(route.escalation, lookups.connectionNames)}
+			{#if loaded && routes.length === 0}
+				<p class="hint px-[1.1rem] py-10 text-center">
+					No routes yet, so nothing is sent anywhere.
+					{#if lookups.connections.length === 0}
+						Add a connection under <a href={resolve('/connections')}>Connections</a> first.
+					{:else if !draft}
+						<button type="button" class="text-accent underline" onclick={startNew}>Create the first route.</button>
+					{/if}
+				</p>
+			{:else if loaded && shown.length === 0}
+				<p class="hint px-[1.1rem] py-10 text-center">
+					No routes match “{query}”.
+					<button type="button" class="text-accent underline" onclick={() => (query = '')}>Clear the search</button>
+				</p>
+			{/if}
+
+			<ol class="routes" aria-label="Routes">
+				{#each shown as { route, position } (route.id)}
+					{@const chain = summarizeChain(route.escalation, lookups.connectionNames)}
+					{@const shaping = summarizeShaping(route.shaping)}
+					<li class="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 gap-y-2.5 px-[1.1rem] py-3.5 lg:grid-cols-[1.75rem_minmax(0,1fr)_auto]">
+						<span class="place" title="Place in the order">{position}</span>
+						<div class="min-w-0">
+							<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+								<span class="font-medium break-words {route.enabled ? '' : 'text-muted'}">{route.name}</span>
+								{#if route.enabled}
+									<span class="badge" style="--tone: var(--st-delivered)">on</span>
+								{:else}
+									<span class="badge">off</span>
+								{/if}
+								{#if route.stop}<span class="tag" title="Routes below are skipped when this one matches">stops here</span>{/if}
 							</div>
-						{/if}
-						{#if summarizeShaping(route.shaping)}
-							<div class="text-muted break-words" data-testid="shaping-summary">{summarizeShaping(route.shaping)}</div>
-						{/if}
-						{#if route.last_error}
-							<div class="problem break-words">
-								Expression failed{route.last_error_at ? ` ${ago(route.last_error_at)}` : ''}: {route.last_error}
+							<div class="text-muted mt-0.5 break-words">{summarize(route.match, lookups.sourceNames)}</div>
+							<!-- Not a list: the routes are counted by their list items. -->
+							<div class="mt-2 flex flex-wrap items-center gap-1.5">
+								<span class="text-faint">to</span>
+								{#each route.targets as target, i (i)}
+									<span class="tag whitespace-normal">
+										<span class={lookups.connectionNames[target.connection_id] ? 'text-fg' : 'problem'}
+											>{lookups.connectionNames[target.connection_id] ?? 'a deleted connection'}</span
+										>{target.destination ? ` (${target.destination})` : ''}{target.template_id
+											? ` worded by ${templateNames[target.template_id] ?? 'a deleted template'}`
+											: ''}
+									</span>
+								{/each}
 							</div>
-						{/if}
-					</div>
-					<div class="col-start-2 flex flex-wrap gap-1 md:col-start-3 md:justify-end">
-						<button type="button" class="btn h-7 px-2" disabled={index === 0} onclick={() => move(route, -1)}
-							aria-label="Move {route.name} up">Up</button
-						>
-						<button
-							type="button"
-							class="btn h-7 px-2"
-							disabled={index === routes.length - 1}
-							onclick={() => move(route, 1)}
-							aria-label="Move {route.name} down">Down</button
-						>
-						<button type="button" class="btn h-7 px-2" onclick={() => toggle(route)}>
-							{route.enabled ? 'Turn off' : 'Turn on'}
-						</button>
-						<button type="button" class="btn h-7 px-2" onclick={() => startEdit(route)}>Edit</button>
-						<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = route)}>Delete</button>
-					</div>
-				</li>
-			{/each}
-		</ol>
+							{#if chain || shaping}
+								<div class="mt-1.5 flex flex-wrap gap-1.5">
+									{#if chain}<span class="tag whitespace-normal" data-testid="chain-summary">{chain}</span>{/if}
+									{#if shaping}<span class="tag whitespace-normal" data-testid="shaping-summary">{shaping}</span>{/if}
+								</div>
+							{/if}
+							{#if route.last_error}
+								<div class="problem mt-1.5 break-words">
+									Expression failed{route.last_error_at ? ` ${ago(route.last_error_at)}` : ''}: {route.last_error}
+								</div>
+							{/if}
+						</div>
+						<div class="col-start-2 flex flex-wrap items-start gap-1 lg:col-start-3 lg:justify-end">
+							<button
+								type="button"
+								class="btn btn-sm btn-icon"
+								disabled={searching || position === 1}
+								onclick={() => move(route, -1)}
+								aria-label="Move {route.name} up"><Icon name="up" /></button
+							>
+							<button
+								type="button"
+								class="btn btn-sm btn-icon"
+								disabled={searching || position === routes.length}
+								onclick={() => move(route, 1)}
+								aria-label="Move {route.name} down"><Icon name="down" /></button
+							>
+							<button type="button" class="btn btn-sm" onclick={() => toggle(route)}>
+								{route.enabled ? 'Turn off' : 'Turn on'}
+							</button>
+							<button type="button" class="btn btn-sm" onclick={() => startEdit(route)}>Edit</button>
+							<button type="button" class="btn btn-sm btn-danger" onclick={() => (deleting = route)}>Delete</button>
+						</div>
+					</li>
+				{/each}
+			</ol>
+		</div>
 
 		{#if draft}
-			<form id="route-form" class="panel mt-6 flex scroll-mt-16 flex-col gap-5 p-4" onsubmit={save}>
-				<h2>{draft.id ? 'Edit route' : 'New route'}</h2>
-				<div class="max-w-md">
-					<label class="field-label" for="route-name">Name</label>
-					<input id="route-name" class="input" required maxlength="100" bind:value={draft.name} />
+			<form id="route-form" class="card editor mt-5 scroll-mt-16" onsubmit={save}>
+				<div class="card-head"><h2>{draft.id ? 'Edit route' : 'New route'}</h2></div>
+				<div>
+					<div class="max-w-md">
+						<label class="field-label" for="route-name">Name</label>
+						<input id="route-name" class="input" required maxlength="100" bind:value={draft.name} />
+					</div>
 				</div>
 
-				<fieldset class="flex flex-col gap-3">
-					<legend class="mb-2 font-medium">Which events</legend>
-					<MatchEditor bind:match={draft.match} sources={lookups.sources} />
-					<p class="text-muted break-words">Matches: {summarize(cleanMatch(draft.match), lookups.sourceNames)}</p>
-				</fieldset>
+				<div>
+					<fieldset class="flex flex-col gap-3">
+						<legend class="mb-3 font-semibold">Which events</legend>
+						<MatchEditor bind:match={draft.match} sources={lookups.sources} />
+						<p class="text-muted break-words">Matches: {summarize(cleanMatch(draft.match), lookups.sourceNames)}</p>
+					</fieldset>
+				</div>
 
-				<fieldset class="flex flex-col gap-2">
-					<legend class="mb-2 font-medium">Send to</legend>
-					<TargetRows
-						bind:targets={draft.targets}
-						connections={lookups.connections}
-						{templates}
-						{destinationLabel}
-						header
-					/>
-					{#if lookups.connections.length === 0}
-						<p class="hint">
-							There are no connections. Add one under <a href={resolve('/connections')}>Connections</a>.
-						</p>
-					{/if}
-					{#if templates.length === 0}
-						<p class="hint">
-							To word messages differently, write a template under <a href={resolve('/templates')}>Templates</a>.
-						</p>
-					{/if}
-				</fieldset>
-
-				<fieldset class="flex flex-col gap-3">
-					<legend class="mb-1 font-medium">If nobody acknowledges</legend>
-					<EscalationEditor
-						bind:steps={draft.escalation}
-						connections={lookups.connections}
-						{templates}
-						{destinationLabel}
-					/>
-				</fieldset>
-
-				<fieldset class="flex flex-col gap-3">
-					<legend class="mb-1 font-medium">Noise control</legend>
-					<p class="hint max-w-2xl">
-						Without any of these, every matching event is sent at once.
-						{#if summarizeShaping(formToShaping(draft.shaping))}
-							<span class="text-fg">Now: {summarizeShaping(formToShaping(draft.shaping))}.</span>
+				<div>
+					<fieldset class="flex flex-col gap-2">
+						<legend class="mb-3 font-semibold">Send to</legend>
+						<TargetRows
+							bind:targets={draft.targets}
+							connections={lookups.connections}
+							{templates}
+							{destinationLabel}
+							header
+						/>
+						{#if lookups.connections.length === 0}
+							<p class="hint">
+								There are no connections. Add one under <a href={resolve('/connections')}>Connections</a>.
+							</p>
 						{/if}
-					</p>
-					<ShapingEditor bind:form={draft.shaping} />
-				</fieldset>
+						{#if templates.length === 0}
+							<p class="hint">
+								To word messages differently, write a template under <a href={resolve('/templates')}>Templates</a>.
+							</p>
+						{/if}
+					</fieldset>
+				</div>
+
+				<div>
+					<fieldset class="flex flex-col gap-3">
+						<legend class="mb-2 font-semibold">If nobody acknowledges</legend>
+						<EscalationEditor
+							bind:steps={draft.escalation}
+							connections={lookups.connections}
+							{templates}
+							{destinationLabel}
+						/>
+					</fieldset>
+				</div>
+
+				<div>
+					<fieldset class="flex flex-col gap-3">
+						<legend class="mb-2 font-semibold">Noise control</legend>
+						<p class="hint max-w-2xl">
+							Without any of these, every matching event is sent at once.
+							{#if summarizeShaping(formToShaping(draft.shaping))}
+								<span class="text-fg">Now: {summarizeShaping(formToShaping(draft.shaping))}.</span>
+							{/if}
+						</p>
+						<ShapingEditor bind:form={draft.shaping} />
+					</fieldset>
+				</div>
 
 				<div class="flex flex-col gap-2">
 					<label class="flex items-center gap-2">
@@ -323,10 +386,12 @@
 					</label>
 				</div>
 
-				{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-				<div class="flex gap-2">
-					<button type="submit" class="btn btn-primary" disabled={busy}>{draft.id ? 'Save route' : 'Create route'}</button>
-					<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
+				<div class="foot flex flex-col gap-3">
+					{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+					<div class="flex gap-2">
+						<button type="submit" class="btn btn-primary" disabled={busy}>{draft.id ? 'Save route' : 'Create route'}</button>
+						<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
+					</div>
 				</div>
 			</form>
 		{/if}
@@ -348,3 +413,60 @@
 >
 	Events that only {deleting?.name} matched will no longer be sent anywhere.
 </Confirm>
+
+<style>
+	.search {
+		position: relative;
+		display: flex;
+		align-items: center;
+		flex: 1 1 14rem;
+		max-width: 24rem;
+		color: var(--faint);
+	}
+
+	.search :global(svg) {
+		position: absolute;
+		left: 0.65rem;
+		pointer-events: none;
+	}
+
+	.search .input {
+		padding-left: 2.1rem;
+	}
+
+	.routes > li + li {
+		border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+	}
+
+	.routes > li:hover {
+		background: color-mix(in srgb, var(--raised) 35%, transparent);
+	}
+
+	/* Where the route stands in the order, which is what decides who hears first. */
+	.place {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		background: var(--raised);
+		color: var(--muted);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* The parts of the form, one under the other with a line between them. */
+	.editor > div:not(.card-head) {
+		padding: 1.1rem;
+	}
+
+	.editor > div:not(.card-head) + div {
+		border-top: 1px solid var(--line);
+	}
+
+	.editor > .foot {
+		background: color-mix(in srgb, var(--raised) 45%, transparent);
+		border-radius: 0 0 var(--radius-card) var(--radius-card);
+	}
+</style>

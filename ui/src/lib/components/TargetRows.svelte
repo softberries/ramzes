@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ConnectionView, Template } from '#lib/api/types.ts';
 	import { emptyTarget, type TargetRow } from '#lib/escalation.ts';
+	import Icon from './Icon.svelte';
 
 	interface Props {
 		/** The rows being edited. Clean them with `cleanTargets` before sending. */
@@ -20,7 +21,7 @@
 
 <div class="flex flex-col gap-2">
 	{#if header}
-		<div class="text-muted hidden gap-2 md:grid md:grid-cols-[1fr_1fr_1fr_5rem]" aria-hidden="true">
+		<div class="field-label mb-0 hidden gap-2 md:grid md:grid-cols-[1fr_1fr_1fr_2.25rem]" aria-hidden="true">
 			<span>Connection</span>
 			<span>Destination</span>
 			<span>Wording</span>
@@ -28,7 +29,7 @@
 	{/if}
 	{#each targets as target, index (index)}
 		{@const label = destinationLabel(target.connection_id)}
-		<div class="border-line grid gap-2 border-b pb-2 md:grid-cols-[1fr_1fr_1fr_5rem] md:border-b-0 md:pb-0">
+		<div class="border-line grid gap-2 border-b pb-2 md:grid-cols-[1fr_1fr_1fr_2.25rem] md:border-b-0 md:pb-0">
 			<select class="input" aria-label="{prefix}Connection" bind:value={target.connection_id} required>
 				<option value="" disabled>Choose a connection</option>
 				{#each connections as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
@@ -45,10 +46,11 @@
 			{#if targets.length > 1}
 				<button
 					type="button"
-					class="btn btn-quiet justify-self-start"
+					class="btn btn-quiet justify-self-start md:w-9 md:px-0"
 					onclick={() => (targets = targets.filter((_, i) => i !== index))}
 				>
-					Remove
+					<span class="hidden md:block"><Icon name="close" /></span>
+					<span class="md:sr-only">Remove</span>
 				</button>
 			{/if}
 		</div>
@@ -56,6 +58,7 @@
 	{#if connections.length > 0}
 		<div>
 			<button type="button" class="btn" onclick={() => (targets = [...targets, emptyTarget()])}>
+				<Icon name="plus" />
 				Add another connection
 			</button>
 		</div>

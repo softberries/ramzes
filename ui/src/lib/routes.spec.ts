@@ -5,6 +5,7 @@ import {
 	SAMPLE_EVENT,
 	cleanMatch,
 	cleanTargets,
+	findRoutes,
 	inputOfRoute,
 	moved,
 	outcomeWords,
@@ -227,6 +228,44 @@ describe('routesUsing', () => {
 		const routes = [route('1', ['c1']), route('2', ['c2']), route('3', ['c2', 'c1'])];
 		expect(routesUsing(routes, 'c1').map((r) => r.id)).toEqual(['1', '3']);
 		expect(routesUsing(routes, 'c9')).toEqual([]);
+	});
+});
+
+describe('findRoutes', () => {
+	const names = { c1: 'ops chat', c2: 'On-call pager' };
+	const routes: Route[] = [
+		{ ...route('1', ['c1']), name: 'Payment failures', match: { topic: 'payments.*' } },
+		{ ...route('2', ['c2']), name: 'Everything' },
+		{
+			...route('3', ['c9']),
+			name: 'Database paged',
+			match: { topic: 'infra.db' },
+			escalation: [{ after_s: 600, targets: [{ connection_id: 'c1' }] }]
+		}
+	];
+	const found = (query: string) => findRoutes(routes, query, names).map((placed) => placed.position);
+
+	it('gives every route its place when nothing is searched for', () => {
+		expect(found('')).toEqual([1, 2, 3]);
+		expect(found('   ')).toEqual([1, 2, 3]);
+	});
+
+	it('finds by name and by topic, in any case, keeping each place in the order', () => {
+		expect(found('everything')).toEqual([2]);
+		expect(found('INFRA')).toEqual([3]);
+		expect(found('pa')).toEqual([1, 2, 3]);
+		expect(found('payment')).toEqual([1]);
+	});
+
+	it('finds by the connections of the targets and of the escalation steps', () => {
+		expect(found('ops chat')).toEqual([1, 3]);
+		expect(found('pager')).toEqual([2]);
+	});
+
+	it('wants every word, and finds nothing for a deleted connection', () => {
+		expect(found('ops payment')).toEqual([1]);
+		expect(found('c9')).toEqual([]);
+		expect(found('zzz')).toEqual([]);
 	});
 });
 

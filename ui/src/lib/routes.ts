@@ -1,4 +1,5 @@
 import type { LabelCond, NewEvent, Route, RouteInput, RouteMatch, RouteResult, Target } from './api/types.ts';
+import { searchRows } from './table.ts';
 
 /** A route's conditions in plain words, for lists. */
 export function summarize(match: RouteMatch, sourceNames: Record<string, string>): string {
@@ -134,4 +135,27 @@ export function moved(ids: string[], id: string, step: 1 | -1): string[] | null 
 /** The routes that send to a connection. */
 export function routesUsing(routes: Route[], connectionId: string): Route[] {
 	return routes.filter((route) => route.targets.some((target) => target.connection_id === connectionId));
+}
+
+/** A stored route with its place in the evaluation order, counted from 1. */
+export interface PlacedRoute {
+	route: Route;
+	position: number;
+}
+
+/**
+ * The routes whose name, topic or connections contain every word of the search, each with the place
+ * it has among all of them. The connections are those of its targets and of its escalation steps.
+ */
+export function findRoutes(routes: Route[], query: string, connectionNames: Record<string, string>): PlacedRoute[] {
+	const placed = routes.map((route, index) => ({ route, position: index + 1 }));
+	return searchRows(
+		placed,
+		({ route }) => {
+			const targets = [...route.targets, ...(route.escalation ?? []).flatMap((step) => step.targets)];
+			const connections = targets.map((target) => connectionNames[target.connection_id] ?? '');
+			return [route.name, route.match.topic ?? '', ...connections].join(' ');
+		},
+		query
+	);
 }

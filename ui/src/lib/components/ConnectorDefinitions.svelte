@@ -5,6 +5,7 @@
 	import { ago } from '#lib/format.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 	import Confirm from './Confirm.svelte';
+	import Icon from './Icon.svelte';
 
 	/** Called after a definition was added, changed or deleted, so the catalogue can be reloaded. */
 	let { onchange }: { onchange: () => void } = $props();
@@ -66,44 +67,68 @@
 	}
 </script>
 
-<section class="flex max-w-3xl flex-col gap-3" aria-label="Your own connectors">
-	<h2>Your own connectors</h2>
-	<p class="hint">
-		For a service ramzes does not ship a connector for: describe the request to send as YAML, and it appears
-		in the list above.
-	</p>
+<section class="card max-w-4xl overflow-hidden" aria-label="Your own connectors">
+	<div class="card-head">
+		<div class="mr-auto min-w-0">
+			<h2>Your own connectors</h2>
+			<p class="hint">
+				For a service ramzes does not ship a connector for: describe the request to send as YAML, and it appears
+				in the list above.
+			</p>
+		</div>
+		{#if !draft}
+			<button type="button" class="btn" onclick={() => open({ id: null, text: EXAMPLE_DEFINITION })}>
+				<Icon name="plus" />
+				Write a connector
+			</button>
+		{/if}
+	</div>
 
 	{#if definitions.length > 0}
-		<ul class="border-line border-t">
-			{#each definitions as definition (definition.id)}
-				<li class="border-line grid grid-cols-[1fr_auto] items-baseline gap-x-3 border-b px-2 py-2.5">
-					<div class="flex min-w-0 flex-wrap items-baseline gap-x-3">
-						<span class="font-medium">{definition.name}</span>
-						<span class="tag">{definition.kind}</span>
-						<span class="text-faint">added {ago(definition.created_at)}</span>
-					</div>
-					<div class="flex flex-wrap justify-end gap-1">
-						<button
-							type="button"
-							class="btn h-7 px-2"
-							onclick={() => open({ id: definition.id, text: definition.definition })}>Edit</button
-						>
-						<button
-							type="button"
-							class="btn btn-danger h-7 px-2"
-							onclick={() => {
-								deleteProblem = '';
-								deleting = definition;
-							}}>Delete</button
-						>
-					</div>
-				</li>
-			{/each}
-		</ul>
+		<div class="overflow-x-auto">
+			<table class="table" aria-label="Your own connectors">
+				<thead>
+					<tr>
+						<th scope="col">Name</th>
+						<th scope="col">Kind</th>
+						<th scope="col" class="hidden md:table-cell">Added</th>
+						<th scope="col" class="num">Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each definitions as definition (definition.id)}
+						<tr>
+							<td class="font-medium break-words">{definition.name}</td>
+							<td><span class="mono text-muted break-all">{definition.kind}</span></td>
+							<td class="hidden md:table-cell">
+								<time class="text-muted whitespace-nowrap">{ago(definition.created_at)}</time>
+							</td>
+							<td class="num">
+								<div class="flex flex-wrap justify-end gap-1">
+									<button
+										type="button"
+										class="btn btn-sm"
+										onclick={() => open({ id: definition.id, text: definition.definition })}>Edit</button
+									>
+									<button
+										type="button"
+										class="btn btn-sm btn-danger"
+										onclick={() => {
+											deleteProblem = '';
+											deleting = definition;
+										}}>Delete</button
+									>
+								</div>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	{/if}
 
 	{#if draft}
-		<form class="panel flex flex-col gap-3 p-4" onsubmit={save}>
+		<form class="card-body flex flex-col gap-3 {definitions.length > 0 ? 'border-line border-t' : ''}" onsubmit={save}>
 			<label class="font-medium" for="definition-text">{draft.id ? 'Edit connector' : 'New connector'}</label>
 			<textarea
 				id="definition-text"
@@ -113,8 +138,9 @@
 				bind:value={draft.text}
 			></textarea>
 			<p class="hint">
-				The URL, headers and body are templates. They can use settings.&lt;key&gt; and credentials.&lt;key&gt; from
-				the fields, message.title, message.body, message.severity, message.link, and destination.
+				The URL, headers and body are templates. They can use <code>settings.&lt;key&gt;</code> and
+				<code>credentials.&lt;key&gt;</code> from the fields, <code>message.title</code>, <code>message.body</code>,
+				<code>message.severity</code>, <code>message.link</code>, and <code>destination</code>.
 			</p>
 			{#if problem}<p class="problem break-words" role="alert">{problem}</p>{/if}
 			<div class="flex gap-2">
@@ -124,12 +150,6 @@
 				<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
 			</div>
 		</form>
-	{:else}
-		<div>
-			<button type="button" class="btn" onclick={() => open({ id: null, text: EXAMPLE_DEFINITION })}>
-				Write a connector
-			</button>
-		</div>
 	{/if}
 </section>
 

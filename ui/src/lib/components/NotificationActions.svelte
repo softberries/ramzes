@@ -51,11 +51,11 @@
 </script>
 
 <!-- Tall enough for a thumb on a phone, compact beside a row on a wide screen. -->
-<div class="flex flex-wrap gap-1">
+<div class="flex flex-wrap gap-1.5">
 	{#if canAcknowledge(notification.state)}
 		<button
 			type="button"
-			class="btn h-10 px-3 md:h-7 md:px-2 {notification.state === 'sent' ? 'btn-primary' : ''}"
+			class="btn btn-sm max-md:h-10 max-md:px-3 {notification.state === 'sent' ? 'btn-primary' : ''}"
 			disabled={busy}
 			aria-label="Acknowledge {notification.title}"
 			onclick={() => act('acknowledge', 'Acknowledged.')}
@@ -66,7 +66,7 @@
 	{#if canResolve(notification.state)}
 		<button
 			type="button"
-			class="btn h-10 px-3 md:h-7 md:px-2"
+			class="btn btn-sm max-md:h-10 max-md:px-3"
 			disabled={busy}
 			aria-label="Resolve {notification.title}"
 			onclick={() => act('resolve', 'Resolved. Nothing was sent.')}
@@ -76,11 +76,12 @@
 	{/if}
 	<button
 		type="button"
-		class="btn h-10 px-3 md:h-7 md:px-2"
+		class="btn btn-sm max-md:h-10 max-md:px-3"
 		disabled={busy}
 		aria-label="Silence events like {notification.title}"
+		title="Silence events like this one"
 		onclick={silenceLikeThis}
 	>
-		Silence like this
+		Silence
 	</button>
 </div>

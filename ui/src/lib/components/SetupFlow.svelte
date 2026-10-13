@@ -155,13 +155,9 @@
 </script>
 
 {#snippet step(n: number, title: string, done: boolean, locked: boolean)}
-	<div class="flex items-baseline gap-3">
+	<div class="flex items-center gap-3">
 		<span
-			class="inline-flex h-6 w-6 shrink-0 items-center justify-center border {done
-				? 'border-ok text-ok'
-				: locked
-					? 'border-line text-faint'
-					: 'border-gold text-gold'}"
+			class="marker {done ? 'border-ok text-ok' : locked ? 'border-line text-faint' : 'border-gold text-gold'}"
 			aria-hidden="true">{done ? '✓' : n}</span
 		>
 		<h2 class={locked ? 'text-faint' : ''}>{title}</h2>
@@ -172,9 +168,9 @@
 	{#if problem?.step === n}<p class="problem" role="alert">{problem.text}</p>{/if}
 {/snippet}
 
-<ol class="flex flex-col gap-8">
+<ol class="card steps">
 	{#if !started}
-		<li class="flex flex-col gap-3">
+		<li class="flex flex-col gap-3 p-5">
 			{@render step(1, 'Create your account', hasAdmin, false)}
 			{#if !hasAdmin}
 				<form class="ml-9 flex max-w-md flex-col gap-4" onsubmit={createAdmin}>
@@ -203,7 +199,7 @@
 		</li>
 	{/if}
 
-	<li class="flex flex-col gap-3">
+	<li class="flex flex-col gap-3 p-5">
 		{@render step(2, 'Name a source', source !== null, !hasAdmin)}
 		{#if !source}
 			<form class="ml-9 flex max-w-md flex-col gap-4" onsubmit={createSource}>
@@ -221,7 +217,7 @@
 		{/if}
 	</li>
 
-	<li class="flex flex-col gap-3">
+	<li class="flex flex-col gap-3 p-5">
 		{@render step(3, 'Send a test event', eventId !== null, !source)}
 		{#if source}
 			<div class="ml-9 flex flex-col gap-3">
@@ -239,7 +235,7 @@
 		{/if}
 	</li>
 
-	<li class="flex flex-col gap-3">
+	<li class="flex flex-col gap-3 p-5">
 		{@render step(4, 'Connect a channel', connection !== null, !eventId)}
 		{#if eventId && descriptor}
 			<div class="ml-9 flex max-w-md flex-col gap-4">
@@ -262,7 +258,7 @@
 					{/key}
 				{:else}
 					<p>{connection.name} is saved.</p>
-					<div class="flex items-center gap-3">
+					<div class="flex flex-wrap items-center gap-3">
 						<button type="button" class="btn" disabled={busy} onclick={sendTest}>Send test message</button>
 						{#if testResult?.ok}
 							<span class="text-ok">Test message delivered.</span>
@@ -276,7 +272,7 @@
 		{/if}
 	</li>
 
-	<li class="flex flex-col gap-3">
+	<li class="flex flex-col gap-3 p-5">
 		{@render step(5, 'Route events to it', settled && delivery?.state === 'delivered', !connection)}
 		{#if connection}
 			<div class="ml-9 flex max-w-xl flex-col gap-3">
@@ -292,13 +288,16 @@
 						</button>
 					</div>
 				{:else if !delivery || !settled}
-					<p class="text-gold">Delivering your test event</p>
+					<p class="text-gold flex items-center gap-2">
+						<span class="bg-gold inline-block h-2 w-2 animate-pulse rounded-full" aria-hidden="true"></span>
+						Delivering your test event
+					</p>
 				{:else}
 					<p>
 						Your test event: <StateTag state={delivery.state} />
 						{#if delivery.last_error}<span class="problem block">{delivery.last_error}</span>{/if}
 					</p>
-					<div class="flex gap-3">
+					<div class="flex flex-wrap gap-2">
 						<a class="btn btn-primary no-underline" href={resolve('/')}>Open the feed</a>
 						{#if eventId}
 							<a class="btn no-underline" href={resolve('/events/[id]', { id: eventId })}>See what happened to it</a>
@@ -309,3 +308,23 @@
 		{/if}
 	</li>
 </ol>
+
+<style>
+	.steps > li + li {
+		border-top: 1px solid var(--line);
+	}
+
+	.marker {
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-width: 1.5px;
+		border-radius: 50%;
+		font-size: 0.86rem;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+</style>

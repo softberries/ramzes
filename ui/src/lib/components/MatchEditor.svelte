@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { SEVERITIES, type LabelCond, type RouteMatch } from '#lib/api/types.ts';
+	import Icon from './Icon.svelte';
 
 	interface Props {
 		/** The match being edited. Clean it with `cleanMatch` before sending it. */
@@ -48,7 +49,7 @@
 				value={match.topic ?? ''}
 				oninput={(e) => (match = { ...match, topic: value(e) || null })}
 			/>
-			<p class="hint mt-1">* matches any run of characters, as in orders.*</p>
+			<p class="hint mt-1"><code>*</code> matches any run of characters, as in <code>orders.*</code></p>
 		</div>
 		<div>
 			<label class="field-label" for="match-severity">Minimum severity</label>
@@ -115,13 +116,16 @@
 				{:else}
 					<span class="hidden md:block"></span>
 				{/if}
-				<button type="button" class="btn btn-quiet" aria-label="Remove condition" onclick={() => remove(index)}>
-					Remove
+				<button type="button" class="btn btn-quiet btn-icon" aria-label="Remove condition" onclick={() => remove(index)}>
+					<Icon name="close" />
 				</button>
 			</div>
 		{/each}
 		<div>
-			<button type="button" class="btn" onclick={add}>Add label condition</button>
+			<button type="button" class="btn" onclick={add}>
+				<Icon name="plus" />
+				Add label condition
+			</button>
 		</div>
 	</div>
 
@@ -129,7 +133,7 @@
 		<label class="field-label" for="match-expr">Expression</label>
 		<input
 			id="match-expr"
-			class="input"
+			class="input mono"
 			placeholder="No expression"
 			autocomplete="off"
 			spellcheck="false"
@@ -138,7 +142,7 @@
 		/>
 		<p class="hint mt-1">
 			Optional. The event must also pass this test, which can read topic, severity, status, title, labels and
-			payload. For example: payload.amount &gt; 100 and labels.env == 'prod'
+			payload. For example: <code>payload.amount &gt; 100 and labels.env == 'prod'</code>
 		</p>
 	</div>
 </div>

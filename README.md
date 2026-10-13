@@ -154,7 +154,9 @@ Besides the policy:
 
 ### Seeing what happened
 
-A web UI embedded in the binary: an overview, a live feed, the journey of each
+A web UI embedded in the binary: an overview with charts (events by severity
+and delivery results over time, compared with the period before), a live feed
+that can be sorted and paged, the journey of each
 event (routes matched, shaping decisions, each attempt with the service's
 answer, the message as it was worded), open notifications, failures with bulk
 resend, silences, and pages for routes, templates, connections, sources and
@@ -243,7 +245,7 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
 
 | Claim | How it was checked |
 |---|---|
-| Every feature listed above | Automated tests, last run on 13 October 2026: 524 Rust tests on SQLite and on Postgres 18 (including 13 that start the real binary), 275 UI unit and component tests, 21 browser tests against the real binary |
+| Every feature listed above | Automated tests, last run on 13 October 2026: 526 Rust tests on SQLite and on Postgres 18 (including 13 that start the real binary), 294 UI unit and component tests, 22 browser tests against the real binary |
 | Quickstart with Docker | The image was built from this tree and started: health check, the UI and the setup endpoint answered, and it exited with status 0 on SIGTERM. Both compose files were built and started on 13 October 2026: the health and readiness checks and the UI answered, and with the Postgres one the first user was created and found in Postgres |
 | Quickstart from source | `make build` was run on 13 October 2026; the binary started, served the UI and exited with status 0 on SIGTERM |
 | Request formats of Slack, Teams, Discord, ntfy, Telegram, Pushover, PagerDuty, Opsgenie | Written from each service's documentation as read on 13 October 2026, pinned by snapshot tests. **Not sent to the live services** |
@@ -258,7 +260,8 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
 - Several instances working together (high availability).
 - Single sign-on, roles, an audit log. Every user can change everything.
 - Full-text search; the feed filters by time, source, topic, severity, label,
-  outcome and a substring of the title.
+  outcome and a substring of the title, and sorts by arrival, severity, topic
+  or title.
 - A memory limit for templates and expressions. They are stopped after a fixed
   amount of work, but a signed-in user can still write one that builds a very
   large string. Everyone who can sign in is an administrator; do not give

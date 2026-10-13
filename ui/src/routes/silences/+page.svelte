@@ -4,7 +4,12 @@
 	import { page } from '$app/state';
 	import { api, messageOf } from '#lib/api/client.ts';
 	import type { RouteMatch, SilenceRow } from '#lib/api/types.ts';
+	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import MatchEditor from '#lib/components/MatchEditor.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Segments from '#lib/components/Segments.svelte';
+	import { clock } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
 	import { cleanMatch, summarize } from '#lib/routes.ts';
 	import {
@@ -24,6 +29,15 @@
 	/** How often the lists are sorted again, so a silence that ends moves by itself. */
 	const TICK_MS = 15_000;
 
+	/** Whether a silence applies now, later or no longer; the list shows one of these at a time. */
+	type Kind = 'active' | 'upcoming' | 'ended';
+
+	const KINDS: { key: Kind; label: string; when: string; none: string }[] = [
+		{ key: 'active', label: 'Active', when: 'Ends', none: 'No silence is active. Everything that matches a route is sent.' },
+		{ key: 'upcoming', label: 'Upcoming', when: 'Starts', none: 'No silence is set to start later.' },
+		{ key: 'ended', label: 'Ended', when: 'Ended', none: 'No silence has ended yet.' }
+	];
+
 	/** The silence being created. */
 	interface Draft {
 		match: RouteMatch;
@@ -41,7 +55,26 @@
 	let busy = $state(false);
 	let now = $state(Date.now());
 
+	let kind = $state<Kind>('active');
+
 	const groups = $derived(groupSilences(silences, now));
+	const shown = $derived(KINDS.find((k) => k.key === kind) ?? KINDS[0]);
+
+	const matchOf = (silence: SilenceRow) => summarize(silence.match, lookups.sourceNames);
+
+	const columns = $derived<Column<SilenceRow>[]>([
+		{ key: 'match', label: 'Events silenced', sort: matchOf },
+		{
+			key: 'when',
+			label: shown.when,
+			sort: (silence) => (kind === 'upcoming' ? silence.starts_at : silence.ends_at),
+			descendingFirst: kind === 'ended',
+			from: 'md'
+		},
+		{ key: 'author', label: 'Created by', sort: (silence) => silence.author, from: 'lg' },
+		{ key: 'created', label: 'Created', sort: (silence) => silence.created_at, descendingFirst: true, from: 'lg' },
+		{ key: 'actions', label: 'Actions', end: true }
+	]);
 
 	async function load() {
 		silences = await api<SilenceRow[]>('GET', '/api/silences');
@@ -81,6 +114,7 @@
 			await api('POST', '/api/silences', made.body);
 			toasts.ok('Silence created.');
 			draft = null;
+			kind = 'active';
 			// Leave the prefilled address behind, so a reload does not open the form again.
 			if (page.url.search) await goto(resolve('/silences'), { replace: true });
 			await load();
@@ -110,140 +144,157 @@
 	}
 </script>
 
-{#snippet row(silence: SilenceRow, kind: 'active' | 'upcoming' | 'ended')}
-	<li class="border-line grid items-baseline gap-x-3 gap-y-2 border-b px-2 py-2.5 md:grid-cols-[1fr_auto]" data-kind={kind}>
-		<div class="min-w-0">
-			<div class="font-medium break-words {kind === 'ended' ? 'text-muted' : ''}">
-				{summarize(silence.match, lookups.sourceNames)}
-			</div>
-			{#if silence.comment}<div class="break-words">{silence.comment}</div>{/if}
-			<div class="text-muted break-words">
-				<span class={kind === 'active' ? 'text-gold' : ''}>{silenceWhen(silence, now)}</span>
-				<span class="text-faint">by {silence.author}</span>
-			</div>
-		</div>
-		<div class="flex flex-wrap gap-1 md:justify-end">
-			{#if kind === 'active'}
-				<button type="button" class="btn h-10 px-3 md:h-7 md:px-2" onclick={() => endNow(silence)}>End now</button>
-			{:else}
-				<button type="button" class="btn btn-danger h-10 px-3 md:h-7 md:px-2" onclick={() => remove(silence)}>
-					Delete
-				</button>
-			{/if}
-		</div>
-	</li>
-{/snippet}
-
-<div class="mb-2 flex items-center gap-3">
-	<h1 class="mr-auto">Silences</h1>
-	<button type="button" class="btn btn-primary" onclick={() => start()}>New silence</button>
-</div>
-<p class="hint mb-5 max-w-2xl">
+<PageHeader title="Silences">
 	While a silence is active, the events it matches are still recorded in the feed but sent nowhere. Use one for a
 	deploy, a maintenance window, or an alert that is already being handled.
-</p>
+	{#snippet actions()}
+		<button type="button" class="btn btn-primary" onclick={() => start()}><Icon name="plus" />New silence</button>
+	{/snippet}
+</PageHeader>
 
 {#if draft}
-	<form class="panel mb-8 flex flex-col gap-5 p-4" onsubmit={create} aria-label="New silence">
-		<h2>New silence</h2>
-		<fieldset class="flex flex-col gap-3">
-			<legend class="mb-2 font-medium">Which events</legend>
-			<MatchEditor bind:match={draft.match} sources={lookups.sources} />
-			<p class="text-muted break-words">
-				{#if Object.keys(cleanMatch(draft.match)).length === 0}
-					Add at least one condition: a silence cannot cover every event.
-				{:else}
-					Silences: {summarize(cleanMatch(draft.match), lookups.sourceNames)}
-				{/if}
-			</p>
-		</fieldset>
+	<form class="card mb-5" onsubmit={create} aria-label="New silence">
+		<div class="card-head"><h2>New silence</h2></div>
+		<div class="card-body flex flex-col gap-6">
+			<fieldset class="flex flex-col gap-3">
+				<legend class="mb-2 font-medium">Which events</legend>
+				<MatchEditor bind:match={draft.match} sources={lookups.sources} />
+				<p class="text-muted break-words">
+					{#if Object.keys(cleanMatch(draft.match)).length === 0}
+						Add at least one condition: a silence cannot cover every event.
+					{:else}
+						Silences: {summarize(cleanMatch(draft.match), lookups.sourceNames)}
+					{/if}
+				</p>
+			</fieldset>
 
-		<fieldset class="flex flex-col gap-3">
-			<legend class="mb-2 font-medium">For how long</legend>
-			<div class="flex flex-wrap gap-1" role="group" aria-label="For how long">
-				{#each DURATIONS as choice (choice.seconds)}
+			<fieldset class="flex flex-col gap-3">
+				<legend class="mb-2 font-medium">For how long</legend>
+				<div class="flex flex-wrap gap-1.5" role="group" aria-label="For how long">
+					{#each DURATIONS as choice (choice.seconds)}
+						<button
+							type="button"
+							class="btn {draft.seconds === choice.seconds ? 'chosen' : 'text-muted'}"
+							aria-pressed={draft.seconds === choice.seconds}
+							onclick={() => draft && (draft.seconds = choice.seconds)}
+						>
+							{choice.label}
+						</button>
+					{/each}
 					<button
 						type="button"
-						class="btn {draft.seconds === choice.seconds ? 'border-accent text-accent' : 'text-muted'}"
-						aria-pressed={draft.seconds === choice.seconds}
-						onclick={() => draft && (draft.seconds = choice.seconds)}
+						class="btn {draft.seconds === UNTIL ? 'chosen' : 'text-muted'}"
+						aria-pressed={draft.seconds === UNTIL}
+						onclick={() => draft && (draft.seconds = UNTIL)}
 					>
-						{choice.label}
+						Until a date and time
 					</button>
-				{/each}
-				<button
-					type="button"
-					class="btn {draft.seconds === UNTIL ? 'border-accent text-accent' : 'text-muted'}"
-					aria-pressed={draft.seconds === UNTIL}
-					onclick={() => draft && (draft.seconds = UNTIL)}
-				>
-					Until a date and time
-				</button>
-			</div>
-			{#if draft.seconds === UNTIL}
-				<div class="max-w-xs">
-					<label class="field-label" for="silence-until">Ends at</label>
-					<input id="silence-until" class="input" type="datetime-local" required bind:value={draft.until} />
 				</div>
-			{/if}
-		</fieldset>
+				{#if draft.seconds === UNTIL}
+					<div class="max-w-xs">
+						<label class="field-label" for="silence-until">Ends at</label>
+						<input id="silence-until" class="input" type="datetime-local" required bind:value={draft.until} />
+					</div>
+				{/if}
+			</fieldset>
 
-		<div class="max-w-xl">
-			<label class="field-label" for="silence-comment">Comment</label>
-			<input
-				id="silence-comment"
-				class="input"
-				maxlength="500"
-				placeholder="Why these events are silenced"
-				bind:value={draft.comment}
-			/>
+			<div class="max-w-xl">
+				<label class="field-label" for="silence-comment">Comment</label>
+				<input
+					id="silence-comment"
+					class="input"
+					maxlength="500"
+					placeholder="Why these events are silenced"
+					bind:value={draft.comment}
+				/>
+			</div>
+
+			{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
 		</div>
-
-		{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-		<div class="flex gap-2">
+		<div class="border-line flex gap-2 border-t px-[1.1rem] py-3">
 			<button type="submit" class="btn btn-primary" disabled={busy}>Create silence</button>
 			<button type="button" class="btn" onclick={() => (draft = null)}>Cancel</button>
 		</div>
 	</form>
 {/if}
 
+{#snippet cell(silence: SilenceRow, column: Column<SilenceRow>)}
+	{#if column.key === 'match'}
+		<div class="min-w-0" data-kind={kind}>
+			<div class="font-medium break-words {kind === 'ended' ? 'text-muted' : ''}">{matchOf(silence)}</div>
+			{#if silence.comment}<div class="text-muted break-words">{silence.comment}</div>{/if}
+			<!-- When, and who made it, are columns of their own on a wider screen. -->
+			<div class="break-words md:hidden {kind === 'active' ? 'text-gold' : 'text-muted'}">{silenceWhen(silence, now)}</div>
+			<div class="text-faint break-all lg:hidden">by {silence.author}</div>
+		</div>
+	{:else if column.key === 'when'}
+		<span class="break-words {kind === 'active' ? 'text-gold' : 'text-muted'}">{silenceWhen(silence, now)}</span>
+	{:else if column.key === 'author'}
+		<span class="text-muted break-all">{silence.author}</span>
+	{:else if column.key === 'created'}
+		<time class="text-muted whitespace-nowrap">{clock(silence.created_at, now)}</time>
+	{:else if kind === 'active'}
+		<button type="button" class="btn btn-sm max-md:h-10 max-md:px-3" onclick={() => endNow(silence)}>End now</button>
+	{:else}
+		<button type="button" class="btn btn-sm btn-danger max-md:h-10 max-md:px-3" onclick={() => remove(silence)}>
+			Delete
+		</button>
+	{/if}
+{/snippet}
+
 {#if loaded && silences.length === 0 && !draft}
-	<p class="hint py-8">
+	<p class="card hint p-6">
 		No silences, so every event that matches a route is sent.
 		<button type="button" class="text-accent underline" onclick={() => start()}>Create a silence</button>
 		before the next deploy.
 	</p>
 {:else if loaded}
-	<section class="mb-8" aria-label="Active silences">
-		<h2 class="mb-2">Active</h2>
-		<ul class="border-line border-t">
-			{#each groups.active as silence (silence.id)}
-				{@render row(silence, 'active')}
-			{:else}
-				<li class="hint border-line border-b px-2 py-2">No silence is active. Everything that matches a route is sent.</li>
-			{/each}
-		</ul>
+	<section class="silences" aria-label="{shown.label} silences">
+		<!-- Each of the three starts in its own order: ending soonest, starting soonest, ended last. -->
+		{#key kind}
+			<DataTable
+				rows={groups[kind]}
+				{columns}
+				key={(silence) => silence.id}
+				noun="{kind} silences"
+				singular="{kind} silence"
+				{cell}
+				search={(silence) => `${matchOf(silence)} ${silence.comment ?? ''} ${silence.author}`}
+				searchPlaceholder="Search conditions, comment or author"
+			>
+				{#snippet toolbar()}
+					<div role="group" aria-label="Silences to show">
+						<Segments>
+							{#each KINDS as item (item.key)}
+								<button type="button" aria-pressed={item.key === kind} onclick={() => (kind = item.key)}>
+									{item.label}
+									<span class="count">{groups[item.key].length}</span>
+								</button>
+							{/each}
+						</Segments>
+					</div>
+				{/snippet}
+				{#snippet empty()}{shown.none}{/snippet}
+			</DataTable>
+		{/key}
 	</section>
-
-	{#if groups.upcoming.length > 0}
-		<section class="mb-8" aria-label="Upcoming silences">
-			<h2 class="mb-2">Upcoming</h2>
-			<ul class="border-line border-t">
-				{#each groups.upcoming as silence (silence.id)}
-					{@render row(silence, 'upcoming')}
-				{/each}
-			</ul>
-		</section>
-	{/if}
-
-	{#if groups.ended.length > 0}
-		<details aria-label="Ended silences">
-			<summary class="cursor-pointer font-semibold">Ended ({groups.ended.length})</summary>
-			<ul class="border-line mt-2 border-t">
-				{#each groups.ended as silence (silence.id)}
-					{@render row(silence, 'ended')}
-				{/each}
-			</ul>
-		</details>
-	{/if}
 {/if}
+
+<style>
+	.chosen {
+		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+		color: var(--accent);
+	}
+
+	.silences :global(td) {
+		vertical-align: top;
+	}
+
+	@media (width < 48rem) {
+		.silences :global(:is(th, td)) {
+			padding-right: 0.75rem;
+			padding-left: 0.75rem;
+		}
+	}
+</style>

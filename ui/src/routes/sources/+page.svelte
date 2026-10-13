@@ -4,8 +4,12 @@
 	import type { Source, SourceCreated, SourceKind, SourceRequest } from '#lib/api/types.ts';
 	import Confirm from '#lib/components/Confirm.svelte';
 	import CopyBlock from '#lib/components/CopyBlock.svelte';
+	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import MappingEditor from '#lib/components/MappingEditor.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import { ago, clock } from '#lib/format.ts';
+	import { reveal } from '#lib/reveal.ts';
 	import { headerList, isBuiltIn, setupText } from '#lib/sources.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -34,6 +38,17 @@
 
 	const byKind = $derived(Object.fromEntries(kinds.map((k) => [k.kind, k])));
 	const chosenKind = $derived(byKind[kind]);
+	const openedSource = $derived(sources.find((source) => source.id === opened?.id));
+
+	const kindName = (source: Source) => byKind[source.kind]?.name ?? source.kind;
+
+	const columns: Column<Source>[] = [
+		{ key: 'name', label: 'Name', sort: (s) => s.name },
+		{ key: 'kind', label: 'Kind', sort: kindName, from: 'md' },
+		{ key: 'key', label: 'Key prefix', sort: (s) => (isBuiltIn(s) ? null : s.key_prefix), from: 'lg' },
+		{ key: 'created', label: 'Created', sort: (s) => s.created_at, descendingFirst: true, from: 'md' },
+		{ key: 'actions', label: 'Actions', end: true }
+	];
 
 	async function load() {
 		sources = await api<Source[]>('GET', '/api/sources');
@@ -127,6 +142,7 @@
 			const requests =
 				panel === 'setup' ? [] : await api<SourceRequest[]>('GET', `/api/sources/${source.id}/requests`);
 			opened = { id: source.id, panel, requests };
+			reveal('source-panel');
 		} catch (error) {
 			toasts.problem(error);
 		}
@@ -135,91 +151,120 @@
 	function isOpen(source: Source, panel: 'setup' | 'requests' | 'mapping'): boolean {
 		return opened?.id === source.id && opened.panel === panel;
 	}
+
+	const requestsWord = (source: Source) => (source.kind === NATIVE ? 'Rejected requests' : 'Recent requests');
 </script>
 
-<h1 class="mb-2">Sources</h1>
-<p class="hint mb-5 max-w-2xl">
-	A source is a service that sends events: one of your own, or a tool such as Alertmanager or GitHub. Each
-	has its own key, so you can tell senders apart and cut one off without touching the others.
-</p>
+<PageHeader title="Sources">
+	A source is a service that sends events: one of your own, or a tool such as Alertmanager or GitHub. Each has
+	its own key, so you can tell senders apart and cut one off without touching the others.
+</PageHeader>
 
 {#if revealed}
 	{@const own = byKind[revealed.source.kind]?.own_secret ?? false}
-	<div class="panel border-gold mb-6 flex flex-col gap-3 p-4">
-		<h2>{revealed.source.name} is ready to receive</h2>
-		{#if own}
-			<p>ramzes checks each request against the secret you entered.</p>
-		{:else}
-			<p>Copy the key now. It cannot be shown again.</p>
-			<CopyBlock text={revealed.key} testid="source-key" />
-		{/if}
-		{#if revealed.source.kind !== NATIVE}
-			<p class="text-muted">The address to give the sender:</p>
-			<CopyBlock text={addressOf(revealed.source)} testid="source-address" />
-		{/if}
-		<p class="text-muted">
-			{revealed.source.kind === NATIVE ? 'Send a first event with it:' : 'How to set it up:'}
-		</p>
-		<CopyBlock text={setupOf(revealed.source, own ? undefined : revealed.key)} testid="source-setup" />
-		<div>
-			<button type="button" class="btn" onclick={() => (revealed = null)}>
-				{own ? 'Done' : 'I have saved the key'}
-			</button>
+	<div class="card border-gold mb-5 max-w-4xl">
+		<div class="card-head"><h2>{revealed.source.name} is ready to receive</h2></div>
+		<div class="card-body flex flex-col gap-3">
+			{#if own}
+				<p>ramzes checks each request against the secret you entered.</p>
+			{:else}
+				<p>Copy the key now. It cannot be shown again.</p>
+				<CopyBlock text={revealed.key} testid="source-key" />
+			{/if}
+			{#if revealed.source.kind !== NATIVE}
+				<p class="text-muted">The address to give the sender:</p>
+				<CopyBlock text={addressOf(revealed.source)} testid="source-address" />
+			{/if}
+			<p class="text-muted">
+				{revealed.source.kind === NATIVE ? 'Send a first event with it:' : 'How to set it up:'}
+			</p>
+			<CopyBlock text={setupOf(revealed.source, own ? undefined : revealed.key)} testid="source-setup" />
+			<div>
+				<button type="button" class="btn" onclick={() => (revealed = null)}>
+					{own ? 'Done' : 'I have saved the key'}
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
 
-{#if loaded && sources.length === 0}
-	<p class="hint pb-4">No sources yet. Add one below to get an address and a key a service can send events with.</p>
-{/if}
-
-<ul class="border-line border-t" aria-label="Sources">
-	{#each sources as source (source.id)}
-		<li class="border-line border-b px-2 py-2.5">
-			<div class="grid items-baseline gap-x-3 gap-y-2 md:grid-cols-[1fr_auto]">
-				<div class="flex min-w-0 flex-wrap items-baseline gap-x-3">
-					<span class="font-medium">{source.name}</span>
-					<span class="tag">{byKind[source.kind]?.name ?? source.kind}</span>
-					{#if !isBuiltIn(source)}<span class="text-muted">{source.key_prefix}…</span>{/if}
-					<span class="text-faint">created {ago(source.created_at)}</span>
-				</div>
-				{#if !isBuiltIn(source)}
-					<div class="flex flex-wrap gap-1 md:justify-end">
-						<button type="button" class="btn h-7 px-2" aria-expanded={isOpen(source, 'setup')} onclick={() => toggle(source, 'setup')}>
-							Setup
-						</button>
-						<button
-							type="button"
-							class="btn h-7 px-2"
-							aria-expanded={isOpen(source, 'requests')}
-							onclick={() => toggle(source, 'requests')}
-						>
-							{source.kind === NATIVE ? 'Rejected requests' : 'Recent requests'}
-						</button>
-						{#if source.kind === JSON_KIND}
-							<button
-								type="button"
-								class="btn h-7 px-2"
-								aria-expanded={isOpen(source, 'mapping')}
-								onclick={() => toggle(source, 'mapping')}
-							>
-								Mapping
-							</button>
-						{/if}
-						<button type="button" class="btn h-7 px-2" onclick={() => startRotate(source)}>Replace key</button>
-						<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = source)}>Delete</button>
-					</div>
+<DataTable
+	rows={sources}
+	{columns}
+	key={(source) => source.id}
+	noun="sources"
+	singular="source"
+	search={(s) => `${s.name} ${kindName(s)} ${s.kind} ${isBuiltIn(s) ? '' : s.key_prefix}`}
+	initialSort={{ key: 'name', descending: false }}
+	{loaded}
+>
+	{#snippet cell(source, column)}
+		{#if column.key === 'name'}
+			<div class="min-w-28">
+				<div class="font-medium break-words">{source.name}</div>
+				<!-- The kind has a column of its own from a tablet up. -->
+				<div class="text-muted md:hidden">{kindName(source)}</div>
+				{#if isBuiltIn(source)}
+					<p class="hint max-w-md">
+						Where ramzes's own events come from, such as a connection being paused or a message that could not be
+						delivered. Nothing outside sends to it. Route its events with the topic <code>ramzes.*</code>
+					</p>
 				{/if}
 			</div>
-			{#if isBuiltIn(source)}
-				<p class="hint max-w-2xl">
-					Where ramzes's own events come from, such as a connection being paused or a message that could not be
-					delivered. Nothing outside sends to it. Route its events with the topic ramzes.*
-				</p>
-			{/if}
+		{:else if column.key === 'kind'}
+			<span class="tag">{kindName(source)}</span>
+		{:else if column.key === 'key'}
+			{#if !isBuiltIn(source)}<span class="mono text-muted whitespace-nowrap">{source.key_prefix}…</span>{/if}
+		{:else if column.key === 'created'}
+			<time class="text-muted whitespace-nowrap">{ago(source.created_at)}</time>
+		{:else if !isBuiltIn(source)}
+			<div class="flex flex-wrap justify-end gap-1 xl:flex-nowrap">
+				<button type="button" class="btn btn-sm" aria-expanded={isOpen(source, 'setup')} onclick={() => toggle(source, 'setup')}>
+					Setup
+				</button>
+				<button
+					type="button"
+					class="btn btn-sm"
+					aria-expanded={isOpen(source, 'requests')}
+					onclick={() => toggle(source, 'requests')}
+				>
+					{requestsWord(source)}
+				</button>
+				{#if source.kind === JSON_KIND}
+					<button
+						type="button"
+						class="btn btn-sm"
+						aria-expanded={isOpen(source, 'mapping')}
+						onclick={() => toggle(source, 'mapping')}
+					>
+						Mapping
+					</button>
+				{/if}
+				<button type="button" class="btn btn-sm" onclick={() => startRotate(source)}>Replace key</button>
+				<button type="button" class="btn btn-sm btn-danger" onclick={() => (deleting = source)}>Delete</button>
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet empty()}
+		No sources yet. Add one below to get an address and a key a service can send events with.
+	{/snippet}
+</DataTable>
 
-			{#if isOpen(source, 'setup')}
-				<div class="mt-3 flex max-w-3xl flex-col gap-2">
+{#if opened && openedSource}
+	{@const source = openedSource}
+	<section id="source-panel" class="card mt-5 scroll-mt-16 {opened.panel === 'mapping' ? '' : 'max-w-4xl'}">
+		<div class="card-head">
+			<h2 class="mr-auto">
+				{opened.panel === 'setup' ? 'Setup' : opened.panel === 'mapping' ? 'Mapping' : requestsWord(source)}:
+				{source.name}
+			</h2>
+			<button type="button" class="btn btn-sm btn-quiet btn-icon" aria-label="Close" onclick={() => (opened = null)}>
+				<Icon name="close" />
+			</button>
+		</div>
+		<div class="card-body">
+			{#if opened.panel === 'setup'}
+				<div class="flex flex-col gap-2">
 					{#if source.kind !== NATIVE}
 						<p class="text-muted">The address to give the sender:</p>
 						<CopyBlock text={addressOf(source)} />
@@ -229,21 +274,22 @@
 						The key is shown only when it is made. If it is lost, replace it and use the new one.
 					</p>
 				</div>
-			{:else if opened && isOpen(source, 'requests')}
-				<div class="mt-3 flex flex-col gap-3">
+			{:else if opened.panel === 'requests'}
+				<div class="requests flex flex-col">
 					{#each opened.requests as request (request.id)}
 						{@const headers = headerList(request.headers)}
 						<div>
-							<div class="flex flex-wrap gap-x-4">
+							<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 								<time class="text-muted">{clock(request.received_at)}</time>
 								{#if request.error}
-									<span class="problem break-words">{request.error}</span>
+									<span class="badge" style="--tone: var(--st-failed)">rejected</span>
+									<span class="problem min-w-0 break-words">{request.error}</span>
 								{:else}
-									<span class="text-ok">accepted</span>
+									<span class="badge" style="--tone: var(--st-delivered)">accepted</span>
 								{/if}
 							</div>
 							{#if headers.length > 0}
-								<details class="mt-1">
+								<details class="mt-2">
 									<summary class="text-muted cursor-pointer">
 										{headers.length} {headers.length === 1 ? 'header' : 'headers'}
 									</summary>
@@ -254,7 +300,7 @@
 									</div>
 								</details>
 							{/if}
-							<pre class="code mt-1 max-h-40 overflow-auto">{request.body}</pre>
+							<pre class="code mt-2 max-h-40 overflow-auto">{request.body}</pre>
 						</div>
 					{:else}
 						<p class="hint">
@@ -264,40 +310,42 @@
 						</p>
 					{/each}
 				</div>
-			{:else if opened && isOpen(source, 'mapping')}
-				<div class="mt-3">
+			{:else}
+				{#key source.id}
 					<MappingEditor {source} requests={opened.requests} onsaved={() => load().catch((error) => toasts.problem(error))} />
-				</div>
+				{/key}
 			{/if}
-		</li>
-	{/each}
-</ul>
-
-<form class="mt-8 flex max-w-md flex-col gap-3" onsubmit={create}>
-	<h2>Add a source</h2>
-	<div>
-		<label class="field-label" for="source-kind">What sends the events</label>
-		<select id="source-kind" class="input" bind:value={kind}>
-			{#each kinds as option (option.kind)}<option value={option.kind}>{option.name}</option>{/each}
-		</select>
-		{#if chosenKind}<p class="hint mt-1">{chosenKind.description}</p>{/if}
-	</div>
-	<div>
-		<label class="field-label" for="source-name">Name</label>
-		<input id="source-name" class="input" required maxlength="100" placeholder="orders-api" bind:value={name} />
-	</div>
-	{#if chosenKind?.own_secret}
-		<div>
-			<label class="field-label" for="source-secret">Secret from {chosenKind.name}</label>
-			<input id="source-secret" class="input" type="password" autocomplete="off" required bind:value={ownSecret} />
-			<p class="hint mt-1">
-				{chosenKind.name} generates this secret and signs each request with it. Paste it here so ramzes can
-				check the signature.
-			</p>
 		</div>
-	{/if}
-	{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-	<div><button type="submit" class="btn btn-primary" disabled={busy}>Create source</button></div>
+	</section>
+{/if}
+
+<form class="card mt-5 max-w-xl" onsubmit={create}>
+	<div class="card-head"><h2>Add a source</h2></div>
+	<div class="card-body flex flex-col gap-4">
+		<div>
+			<label class="field-label" for="source-kind">What sends the events</label>
+			<select id="source-kind" class="input" bind:value={kind}>
+				{#each kinds as option (option.kind)}<option value={option.kind}>{option.name}</option>{/each}
+			</select>
+			{#if chosenKind}<p class="hint mt-1">{chosenKind.description}</p>{/if}
+		</div>
+		<div>
+			<label class="field-label" for="source-name">Name</label>
+			<input id="source-name" class="input" required maxlength="100" placeholder="orders-api" bind:value={name} />
+		</div>
+		{#if chosenKind?.own_secret}
+			<div>
+				<label class="field-label" for="source-secret">Secret from {chosenKind.name}</label>
+				<input id="source-secret" class="input" type="password" autocomplete="off" required bind:value={ownSecret} />
+				<p class="hint mt-1">
+					{chosenKind.name} generates this secret and signs each request with it. Paste it here so ramzes can
+					check the signature.
+				</p>
+			</div>
+		{/if}
+		{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+		<div><button type="submit" class="btn btn-primary" disabled={busy}>Create source</button></div>
+	</div>
 </form>
 
 <Confirm
@@ -328,3 +376,11 @@
 >
 	Its key stops working. Events it already sent are kept.
 </Confirm>
+
+<style>
+	.requests > div + div {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--line);
+	}
+</style>
