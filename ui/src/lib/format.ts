@@ -1,4 +1,4 @@
-import type { RowOutcome } from './api/types';
+import type { Outcome } from './api/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -79,7 +79,7 @@ interface DeliveryCounts {
 }
 
 /** The one-word outcome of an event from its delivery and notification counts. */
-export function outcomeOf(row: DeliveryCounts): RowOutcome {
+export function outcomeOf(row: DeliveryCounts): Outcome {
 	if (!row.routed) return 'pending';
 	if (row.deliveries_failed > 0) return 'failed';
 	if (row.route_count === 0) return 'unrouted';

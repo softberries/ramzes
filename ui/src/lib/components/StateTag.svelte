@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { DeliveryState, RowOutcome } from '#lib/api/types.ts';
+	import type { DeliveryState, Outcome } from '#lib/api/types.ts';
 
-	let { state }: { state: DeliveryState | RowOutcome } = $props();
+	let { state }: { state: DeliveryState | Outcome } = $props();
 
-	const WORDS: Record<DeliveryState | RowOutcome, string> = {
+	const WORDS: Record<DeliveryState | Outcome, string> = {
 		pending: 'pending',
 		in_progress: 'sending',
 		delivered: 'delivered',

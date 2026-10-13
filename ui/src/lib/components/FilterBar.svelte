@@ -17,7 +17,14 @@
 		{ label: 'Last 24 hours', ms: 86_400_000 },
 		{ label: 'Last 7 days', ms: 7 * 86_400_000 }
 	];
-	const OUTCOME_WORDS = { pending: 'Pending', delivered: 'Delivered', failed: 'Failed', unrouted: 'No route' };
+	const OUTCOME_WORDS = {
+		pending: 'Pending',
+		waiting: 'Waiting',
+		delivered: 'Delivered',
+		not_sent: 'Not sent',
+		failed: 'Failed',
+		unrouted: 'No route'
+	};
 
 	function patch(change: Partial<FeedFilters>) {
 		onchange({ ...filters, ...change });

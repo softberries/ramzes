@@ -17,6 +17,7 @@ crate::contract!(
     timers_are_claimed_once_and_can_be_cancelled,
     acknowledging_and_resolving_by_hand,
     notifications_are_listed_by_state_and_shown_in_detail,
+    the_feed_finds_events_that_wait_and_events_that_were_not_sent,
     the_journey_says_what_role_an_event_played,
     a_connection_is_paused_after_repeated_failures_and_resumed,
     the_system_source_is_created_once,
@@ -895,4 +896,52 @@ async fn the_overview_counts_events_and_deliveries(store: Store) {
     assert_eq!(overview.topics, vec![("orders.failed".to_string(), 3)]);
     assert_eq!(overview.waiting, 1);
     assert_eq!(overview.unacknowledged, 2);
+}
+
+async fn the_feed_finds_events_that_wait_and_events_that_were_not_sent(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let waits = stored_event(&store, &ws, &source, "in a group", 100).await;
+    let silenced = stored_event(&store, &ws, &source, "silenced", 100).await;
+    let went = stored_event(&store, &ws, &source, "sent", 100).await;
+    let both = stored_event(&store, &ws, &source, "silenced on one route, grouped on another", 100).await;
+    let suppressed = || NewDispatch {
+        delivery_id: None,
+        state: NotificationState::Suppressed,
+        reason: Some("silenced".into()),
+        ..sent("c1")
+    };
+    for (event, dispatches) in [
+        (&waits, vec![grouping(100)]),
+        (&silenced, vec![suppressed()]),
+        (&went, vec![sent("c1")]),
+        (&both, vec![suppressed(), grouping(100)]),
+    ] {
+        store
+            .write_routing(event, &dispatches, &[], true, 100)
+            .await
+            .unwrap();
+    }
+    let ids = |outcome| {
+        let (store, ws) = (store.clone(), ws.clone());
+        async move {
+            let filter = ramzes_store::EventFilter {
+                outcome: Some(outcome),
+                limit: 10,
+                ..Default::default()
+            };
+            let mut ids: Vec<String> = store
+                .list_events(&ws, &filter)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.event.id)
+                .collect();
+            ids.sort();
+            ids
+        }
+    };
+    let mut waiting = vec![waits.id.clone(), both.id.clone()];
+    waiting.sort();
+    assert_eq!(ids(ramzes_store::Outcome::Waiting).await, waiting);
+    assert_eq!(ids(ramzes_store::Outcome::NotSent).await, vec![silenced.id.clone()]);
 }

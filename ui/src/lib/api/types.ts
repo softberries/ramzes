@@ -62,7 +62,5 @@ export type Bucket = Schemas['Bucket'];
 export const SEVERITIES: Severity[] = ['debug', 'info', 'warning', 'error', 'critical'];
 
 /** What became of an event, as the feed can be filtered by. */
-export type Outcome = 'pending' | 'delivered' | 'failed' | 'unrouted';
-export const OUTCOMES: Outcome[] = ['pending', 'delivered', 'failed', 'unrouted'];
-/** What became of an event, as a feed row shows it: shaping adds two outcomes the filter does not know. */
-export type RowOutcome = Outcome | 'waiting' | 'not_sent';
+export type Outcome = 'pending' | 'waiting' | 'delivered' | 'not_sent' | 'failed' | 'unrouted';
+export const OUTCOMES: Outcome[] = ['pending', 'waiting', 'delivered', 'not_sent', 'failed', 'unrouted'];

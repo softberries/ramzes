@@ -25,6 +25,10 @@ pub enum Outcome {
     Failed,
     /// No route matched.
     Unrouted,
+    /// Part of a notification that is still collecting events or held back.
+    Waiting,
+    /// Routed, and deliberately not sent anywhere: silenced, or a resolution of nothing open.
+    NotSent,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -427,6 +431,19 @@ impl Store {
             }
             Some(Outcome::Unrouted) => {
                 sql.push(" AND e.routed_at IS NOT NULL AND e.route_count = 0");
+            }
+            Some(Outcome::Waiting) => {
+                sql.push(&format!(
+                    " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
+                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
+                ));
+            }
+            Some(Outcome::NotSent) => {
+                sql.push(&format!(
+                    " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state = 'suppressed') \
+                     AND NOT EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
+                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E})"
+                ));
             }
         }
         sql.push(" ORDER BY e.id DESC LIMIT ")

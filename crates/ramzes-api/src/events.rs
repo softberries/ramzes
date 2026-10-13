@@ -19,6 +19,11 @@ pub(crate) enum OutcomeParam {
     Delivered,
     Failed,
     Unrouted,
+    /// Still collecting events or held back.
+    Waiting,
+    /// Routed and deliberately not sent.
+    #[serde(rename = "not_sent")]
+    NotSent,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -108,6 +113,8 @@ pub(crate) async fn feed(
             OutcomeParam::Delivered => Outcome::Delivered,
             OutcomeParam::Failed => Outcome::Failed,
             OutcomeParam::Unrouted => Outcome::Unrouted,
+            OutcomeParam::Waiting => Outcome::Waiting,
+            OutcomeParam::NotSent => Outcome::NotSent,
         }),
         limit,
     };
