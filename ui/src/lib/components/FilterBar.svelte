@@ -38,7 +38,7 @@
 	}
 </script>
 
-<div class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+<div class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
 	<input
 		class="input col-span-2 xl:col-span-2"
 		type="search"

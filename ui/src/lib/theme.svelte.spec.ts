@@ -7,19 +7,25 @@ afterEach(() => {
 });
 
 describe('initialTheme', () => {
-	it('prefers the saved choice', () => {
-		expect(initialTheme('light', false)).toBe('light');
-		expect(initialTheme('dark', true)).toBe('dark');
+	it('uses the saved choice', () => {
+		expect(initialTheme('light')).toBe('light');
+		expect(initialTheme('dark')).toBe('dark');
 	});
 
-	it('follows the system when nothing valid is saved', () => {
-		expect(initialTheme(null, true)).toBe('light');
-		expect(initialTheme(null, false)).toBe('dark');
-		expect(initialTheme('purple', false)).toBe('dark');
+	it('is dark when nothing valid is saved', () => {
+		expect(initialTheme(null)).toBe('dark');
+		expect(initialTheme('purple')).toBe('dark');
 	});
 });
 
 describe('ThemeState', () => {
+	it('starts dark on a first visit', () => {
+		const theme = new ThemeState();
+		theme.init();
+		expect(theme.current).toBe('dark');
+		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+	});
+
 	it('applies the saved theme to the document', () => {
 		localStorage.setItem('ramzes-theme', 'light');
 		const theme = new ThemeState();

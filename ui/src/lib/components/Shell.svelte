@@ -68,22 +68,23 @@
 			{/each}
 		</nav>
 
-		<div class="border-line mt-auto hidden flex-col gap-1 border-t p-3 md:flex">
-			<div class="flex items-center gap-2 px-1 py-1" title="Connection to live updates">
+		<!-- A column at the foot of the rail on wide screens; a row under the navigation on a phone. -->
+		<div class="border-line flex flex-wrap items-center gap-x-1 border-t px-3 py-1 md:mt-auto md:flex-col md:items-stretch md:gap-1 md:py-3">
+			<div class="mr-auto flex items-center gap-2 px-1 py-1 md:mr-0" title="Connection to live updates">
 				<span
 					class="h-2 w-2 rounded-full {live.status === 'live' ? 'bg-ok' : 'bg-gold'}"
 					aria-hidden="true"
 				></span>
 				<span class={live.status === 'live' ? 'text-fg' : 'text-gold'}>{liveLabel}</span>
 			</div>
-			<button type="button" class="btn btn-quiet justify-start px-1" onclick={() => (paletteOpen = true)}>
+			<button type="button" class="btn btn-quiet hidden justify-start px-1 md:flex" onclick={() => (paletteOpen = true)}>
 				Go to… <span class="text-faint ml-auto">⌘K</span>
 			</button>
 			<button type="button" class="btn btn-quiet justify-start px-1" onclick={() => theme.toggle()}>
 				{theme.current === 'dark' ? 'Light theme' : 'Dark theme'}
 			</button>
 			<button type="button" class="btn btn-quiet justify-start px-1" onclick={signOut}>Sign out</button>
-			<div class="text-faint truncate px-1 pt-1" title={email}>{email}</div>
+			<div class="text-faint hidden truncate px-1 pt-1 md:block" title={email}>{email}</div>
 		</div>
 	</aside>
 

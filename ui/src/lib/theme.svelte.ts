@@ -2,19 +2,17 @@ export type Theme = 'dark' | 'light';
 
 const STORAGE_KEY = 'ramzes-theme';
 
-/** The saved choice when there is one, otherwise what the system prefers. Dark is the default. */
-export function initialTheme(saved: string | null, systemPrefersLight: boolean): Theme {
-	if (saved === 'dark' || saved === 'light') return saved;
-	return systemPrefersLight ? 'light' : 'dark';
+/** The saved choice when there is one. Dark is the default; light is something people choose. */
+export function initialTheme(saved: string | null): Theme {
+	return saved === 'light' ? 'light' : 'dark';
 }
 
 export class ThemeState {
 	current = $state<Theme>('dark');
 
-	/** Reads the saved or system theme and applies it to the document. */
+	/** Reads the saved theme and applies it to the document. */
 	init() {
-		const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-		this.current = initialTheme(localStorage.getItem(STORAGE_KEY), prefersLight);
+		this.current = initialTheme(localStorage.getItem(STORAGE_KEY));
 		this.apply();
 	}
 
