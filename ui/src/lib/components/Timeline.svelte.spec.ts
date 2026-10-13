@@ -1,0 +1,125 @@
+import { describe, expect, it, vi } from 'vitest';
+import { page } from 'vitest/browser';
+import { render } from 'vitest-browser-svelte';
+import type { Attempt, DeliveryState, Journey, JourneyDelivery } from '#lib/api/types.ts';
+import Timeline from './Timeline.svelte';
+
+const NOW = 1_791_884_500_000;
+
+function attempt(id: string, outcome: string, status: number | null, detail: string | null): Attempt {
+	return { id, delivery_id: 'd1', started_at: NOW - 30_000, duration_ms: 212, outcome, status, detail };
+}
+
+function delivery(state: DeliveryState, attempts: Attempt[], extra: Partial<JourneyDelivery> = {}): JourneyDelivery {
+	return {
+		id: 'd1',
+		workspace_id: 'w',
+		notification_id: 'n1',
+		connection_id: 'c1',
+		destination: null,
+		state,
+		attempts,
+		next_attempt_at: NOW,
+		last_error: null,
+		external_ref: null,
+		created_at: NOW - 30_000,
+		updated_at: NOW - 30_000,
+		...extra
+	} as JourneyDelivery;
+}
+
+function journey(deliveries: JourneyDelivery[] | null): Journey {
+	return {
+		event: {
+			id: 'e1',
+			workspace_id: 'w',
+			source_id: 's1',
+			topic: 'orders.failed',
+			severity: 'error',
+			status: 'firing',
+			title: 'Charge failed',
+			body: null,
+			labels: {},
+			payload: null,
+			dedup_key: null,
+			occurred_at: NOW - 31_000,
+			received_at: NOW - 31_000
+		},
+		routed: true,
+		route_count: deliveries ? 1 : 0,
+		notifications: deliveries
+			? [
+					{
+						id: 'n1',
+						route_id: 'r1',
+						route_name: 'Payment failures',
+						connection_id: 'c1',
+						destination: null,
+						state: 'sent',
+						reason: null,
+						replay: false,
+						created_at: NOW - 30_500,
+						deliveries
+					}
+				]
+			: []
+	};
+}
+
+const names = { connections: { c1: 'ops channel' }, sources: { s1: 'orders-api' } };
+
+function show(j: Journey, onreplay = vi.fn()) {
+	render(Timeline, { journey: j, ...names, now: NOW, onreplay });
+	return onreplay;
+}
+
+describe('Timeline', () => {
+	it('shows a delivered event from receipt to the service answer', async () => {
+		show(journey([delivery('delivered', [attempt('a1', 'delivered', 200, null)])]));
+		await expect.element(page.getByText('Received from orders-api')).toBeInTheDocument();
+		await expect.element(page.getByText('Matched route Payment failures')).toBeInTheDocument();
+		await expect.element(page.getByText('ops channel')).toBeInTheDocument();
+		await expect.element(page.getByText('delivered', { exact: true }).first()).toBeInTheDocument();
+		await expect.element(page.getByText('HTTP 200')).toBeInTheDocument();
+		await expect.element(page.getByText('212 ms')).toBeInTheDocument();
+	});
+
+	it('shows a retry with its error and when the next attempt is due', async () => {
+		const retrying = delivery('pending', [attempt('a1', 'retry', 503, 'HTTP 503: upstream down')], {
+			next_attempt_at: NOW + 5 * 60_000,
+			last_error: 'HTTP 503: upstream down'
+		});
+		show(journey([retrying]));
+		await expect.element(page.getByText('HTTP 503: upstream down')).toBeInTheDocument();
+		await expect.element(page.getByText('Next attempt in 5 min')).toBeInTheDocument();
+	});
+
+	it('shows a failure and lets it be sent again', async () => {
+		const failed = delivery('failed', [attempt('a1', 'failed', 401, 'HTTP 401: invalid_token')], {
+			last_error: 'HTTP 401: invalid_token'
+		});
+		const onreplay = show(journey([failed]));
+		await expect.element(page.getByText('failed', { exact: true }).first()).toBeInTheDocument();
+		await expect.element(page.getByText('HTTP 401: invalid_token')).toBeInTheDocument();
+		await page.getByRole('button', { name: 'Send again' }).click();
+		expect(onreplay).toHaveBeenCalledWith('d1');
+	});
+
+	it('explains an event that matched no route', async () => {
+		show(journey(null));
+		await expect.element(page.getByText('No route matched')).toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: 'Routes' })).toBeInTheDocument();
+	});
+
+	it('says so while the event has not been routed yet', async () => {
+		show({ ...journey(null), routed: false });
+		await expect.element(page.getByText('Waiting to be routed')).toBeInTheDocument();
+	});
+
+	it('names a connection that no longer exists', async () => {
+		const j = journey([delivery('failed', [], { last_error: 'the connection was deleted' })]);
+		render(Timeline, { journey: j, connections: {}, sources: {}, now: NOW, onreplay: vi.fn() });
+		await expect.element(page.getByText('a deleted connection')).toBeInTheDocument();
+		await expect.element(page.getByText('Received from a deleted source')).toBeInTheDocument();
+	});
+});

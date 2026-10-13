@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { refreshAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import SetupFlow from '#lib/components/SetupFlow.svelte';
 	import type { PageProps } from './$types';
@@ -16,5 +16,5 @@
 	<p class="hint mb-10 max-w-xl">
 		Five steps from an empty instance to a message in one of your channels. Each step unlocks the next.
 	</p>
-	<SetupFlow origin={page.url.origin} onadmin={invalidateAll} {started} />
+	<SetupFlow origin={page.url.origin} onadmin={refreshAll} {started} />
 </div>

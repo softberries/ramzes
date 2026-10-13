@@ -26,7 +26,7 @@
 	async function signOut() {
 		try {
 			await api('POST', '/api/auth/logout');
-			await goto(resolve('/login'), { invalidateAll: true });
+			await goto(resolve('/login'), { refreshAll: true });
 		} catch (error) {
 			toasts.problem(error);
 		}
