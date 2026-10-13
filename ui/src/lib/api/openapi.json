@@ -794,7 +794,9 @@
                 "pending",
                 "delivered",
                 "failed",
-                "unrouted"
+                "unrouted",
+                "waiting",
+                "not_sent"
               ]
             }
           },
@@ -4511,7 +4513,7 @@
           },
           "outcome": {
             "type": "string",
-            "description": "`matched`, `not_matched`, `disabled`, `skipped` (an earlier route stopped evaluation) or `error`."
+            "description": "`matched`, `closes_only` (a resolved event less severe than the route asks for, which only\ncloses what the route opened), `not_matched`, `disabled`, `skipped` (an earlier route\nstopped evaluation) or `error`."
           },
           "route_id": {
             "type": [
@@ -5316,6 +5318,28 @@
               },
               "param": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Signed the Standard Webhooks way: `webhook-signature` carries `v1,` and the base64\nHMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the source key\n(`whsec_` and the key bytes in base64).",
+            "required": [
+              "method"
+            ],
+            "properties": {
+              "fallback_header": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "A header that may carry the source key as it is, for senders not signing yet."
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "standard_webhooks"
+                ]
               }
             }
           }

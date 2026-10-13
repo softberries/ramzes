@@ -1571,7 +1571,11 @@ export interface components {
             /** @description Why the route's expression failed. */
             error?: string | null;
             name: string;
-            /** @description `matched`, `not_matched`, `disabled`, `skipped` (an earlier route stopped evaluation) or `error`. */
+            /**
+             * @description `matched`, `closes_only` (a resolved event less severe than the route asks for, which only
+             *     closes what the route opened), `not_matched`, `disabled`, `skipped` (an earlier route
+             *     stopped evaluation) or `error`.
+             */
             outcome: string;
             /** @description Absent for a route that is not saved. */
             route_id?: string | null;
@@ -1801,6 +1805,11 @@ export interface components {
             /** @enum {string} */
             method: "query";
             param: string;
+        } | {
+            /** @description A header that may carry the source key as it is, for senders not signing yet. */
+            fallback_header?: string | null;
+            /** @enum {string} */
+            method: "standard_webhooks";
         };
     };
     responses: never;
@@ -2399,7 +2408,7 @@ export interface operations {
                 since?: number;
                 /** @description Received at or before this time, unix milliseconds. */
                 until?: number;
-                outcome?: "pending" | "delivered" | "failed" | "unrouted";
+                outcome?: "pending" | "delivered" | "failed" | "unrouted" | "waiting" | "not_sent";
                 /** @description Page size, 1 to 200. Default 50. */
                 limit?: number;
             };

@@ -93,7 +93,7 @@
 			const rotated = await api<{ key: string }>(
 				'POST',
 				`/api/sources/${rotating.id}/rotate`,
-				own ? { key: newSecret } : undefined
+				newSecret.trim() === '' ? undefined : { key: newSecret.trim() }
 			);
 			revealed = { source: rotating, key: rotated.key };
 			rotating = null;
@@ -311,6 +311,10 @@
 	{#if rotating && byKind[rotating.kind]?.own_secret}
 		<label class="field-label mt-3" for="new-secret">New secret from {byKind[rotating.kind].name}</label>
 		<input id="new-secret" class="input text-fg" type="password" autocomplete="off" bind:value={newSecret} />
+	{:else if rotating}
+		<label class="field-label mt-3" for="new-secret">Secret from the sender, if it generates its own</label>
+		<input id="new-secret" class="input text-fg" type="password" autocomplete="off" bind:value={newSecret} />
+		<span class="hint mt-1 block">Leave empty and ramzes generates a key.</span>
 	{/if}
 	{#if rotateProblem}<span class="problem mt-2 block" role="alert">{rotateProblem}</span>{/if}
 </Confirm>
