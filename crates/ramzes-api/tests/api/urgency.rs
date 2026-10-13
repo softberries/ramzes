@@ -74,12 +74,12 @@ async fn a_route_carries_an_escalation_chain_that_is_validated() {
         ),
         (json!([{"after_s": 60, "targets": []}]), "step 1"),
         (
-            json!([{"after_s": 60, "targets": [{"connection_id": "nope"}]}]),
-            "nope",
+            json!([{"after_s": 60, "targets": [{"connection_id": c}]}, {"after_s": 90, "targets": [{"connection_id": "nope"}]}]),
+            "escalation step 2: there is no connection with id \"nope\"",
         ),
         (
             json!([{"after_s": 60, "targets": [{"connection_id": c, "template_id": "missing"}]}]),
-            "missing",
+            "escalation step 1: there is no template with id \"missing\"",
         ),
     ] {
         let (status, error) = api.post("/api/routes", route(bad)).await;

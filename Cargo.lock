@@ -1901,6 +1901,7 @@ dependencies = [
  "hmac",
  "insta",
  "lettre",
+ "percent-encoding",
  "ramzes-core",
  "reqwest",
  "rustls",

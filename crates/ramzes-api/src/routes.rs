@@ -93,18 +93,6 @@ async fn checked(
         .into_iter()
         .map(|c| c.id)
         .collect();
-    let every_target = || {
-        input
-            .targets
-            .iter()
-            .chain(input.escalation.iter().flat_map(|step| step.targets.iter()))
-    };
-    if let Some(unknown) = every_target().find(|t| !known.contains(&t.connection_id)) {
-        return Err(ApiError::invalid(format!(
-            "there is no connection with id {:?}",
-            unknown.connection_id
-        )));
-    }
     let templates: HashSet<String> = state
         .store
         .list_templates(workspace_id)
@@ -112,13 +100,29 @@ async fn checked(
         .into_iter()
         .map(|t| t.id)
         .collect();
-    if let Some(unknown) = every_target()
-        .filter_map(|t| t.template_id.as_ref())
-        .find(|id| !templates.contains(*id))
-    {
-        return Err(ApiError::invalid(format!(
-            "there is no template with id {unknown:?}"
-        )));
+    // Each target with where it sits, so a problem in an escalation step names the step.
+    let own = input.targets.iter().map(|t| (String::new(), t));
+    let escalated = (1..).zip(&input.escalation).flat_map(|(number, step)| {
+        step.targets
+            .iter()
+            .map(move |t| (format!("escalation step {number}: "), t))
+    });
+    for (place, target) in own.chain(escalated) {
+        if !known.contains(&target.connection_id) {
+            return Err(ApiError::invalid(format!(
+                "{place}there is no connection with id {:?}",
+                target.connection_id
+            )));
+        }
+        if let Some(unknown) = target
+            .template_id
+            .as_ref()
+            .filter(|id| !templates.contains(*id))
+        {
+            return Err(ApiError::invalid(format!(
+                "{place}there is no template with id {unknown:?}"
+            )));
+        }
     }
     let mut route = input.into_unchecked_route(id);
     route.name = name;

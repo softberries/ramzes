@@ -11,6 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
+percent-encoding.workspace = true
 ramzes-core.workspace = true
 async-trait.workspace = true
 hex.workspace = true

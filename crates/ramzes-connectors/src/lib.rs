@@ -77,7 +77,26 @@ pub struct Preview {
 
 const MASK: &str = "••••";
 
-/// Replaces every credential value that appears in the preview.
+/// The forms a secret can take in a request: as it is, inside a JSON string (as serde and as
+/// the `tojson` filter write it), and percent-encoded by `urlpath`.
+fn spellings(secret: &str) -> Vec<String> {
+    let json = serde_json::to_string(secret).unwrap_or_default();
+    let in_json = json.trim_matches('"').to_owned();
+    let from_filter = in_json
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
+        .replace('\'', "\\u0027");
+    let in_path =
+        percent_encoding::utf8_percent_encode(secret, percent_encoding::NON_ALPHANUMERIC)
+            .to_string();
+    let mut spellings = vec![secret.to_owned(), in_json, from_filter, in_path];
+    spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
+    spellings.dedup();
+    spellings
+}
+
+/// Replaces every credential value that appears in the preview, however it is encoded there.
 pub(crate) fn mask_secrets(mut preview: Preview, credentials: &serde_json::Value) -> Preview {
     let mut secrets: Vec<&str> = credentials
         .as_object()
@@ -89,10 +108,12 @@ pub(crate) fn mask_secrets(mut preview: Preview, credentials: &serde_json::Value
     // Longest first, so a secret that contains another is replaced whole.
     secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
     for secret in secrets {
-        preview.url = preview.url.replace(secret, MASK);
-        preview.body = preview.body.replace(secret, MASK);
-        for (_, value) in &mut preview.headers {
-            *value = value.replace(secret, MASK);
+        for spelling in spellings(secret) {
+            preview.url = preview.url.replace(&spelling, MASK);
+            preview.body = preview.body.replace(&spelling, MASK);
+            for (_, value) in &mut preview.headers {
+                *value = value.replace(&spelling, MASK);
+            }
         }
     }
     preview
@@ -303,4 +324,33 @@ fn truncate(text: &str, max: usize) -> String {
     let mut cut: String = text.chars().take(max.saturating_sub(1)).collect();
     cut.push('…');
     cut
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_secret_is_masked_in_every_encoding_a_template_can_give_it() {
+        let secret = r#"p"a<ss&word/1"#;
+        let preview = Preview {
+            method: "POST".into(),
+            url: format!(
+                "https://example.com/{}",
+                ramzes_core::expr::render("{{ s | urlpath }}", &json!({"s": secret})).unwrap()
+            ),
+            headers: vec![("Authorization".into(), format!("Bearer {secret}"))],
+            body: format!(
+                "{} and {}",
+                ramzes_core::expr::render("{{ s | tojson }}", &json!({"s": secret})).unwrap(),
+                serde_json::to_string(secret).unwrap()
+            ),
+        };
+        let masked = mask_secrets(preview, &json!({"password": secret}));
+        assert_eq!(masked.url, format!("https://example.com/{MASK}"));
+        assert_eq!(masked.headers[0].1, format!("Bearer {MASK}"));
+        assert_eq!(masked.body, format!("\"{MASK}\" and \"{MASK}\""));
+    }
 }

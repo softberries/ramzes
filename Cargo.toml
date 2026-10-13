@@ -38,6 +38,7 @@ sha2 = "0.11.0"
 hex = "0.4.3"
 base64 = "0.23.1"
 subtle = "2.6.1"
+percent-encoding = "2.3.2"
 regex = "1.13.1"
 minijinja = { version = "3.0.0", features = ["json", "fuel", "serde", "preserve_order"] }
 chacha20poly1305 = "0.11.0"
