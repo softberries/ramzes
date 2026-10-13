@@ -238,8 +238,9 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
 
 | Claim | How it was checked |
 |---|---|
-| Every feature listed above | Automated tests: see the counts in the last commit message of each milestone; the Rust suite runs on SQLite and on Postgres |
-| Quickstart with Docker, from source | Run by hand for milestone 1; not repeated since |
+| Every feature listed above | Automated tests, last run on 13 October 2026: 508 Rust tests on SQLite and on Postgres 18 (including 17 that start the real binary), 275 UI unit and component tests, 21 browser tests against the real binary |
+| Quickstart with Docker | The image was built from this tree and started: health check, the UI and the setup endpoint answered, and it exited with status 0 on SIGTERM. The compose files were last run for milestone 1 |
+| Quickstart from source | `make build` was last run by hand for milestone 1; the test suites build the same binary |
 | Request formats of Slack, Teams, Discord, ntfy, Telegram, Pushover, PagerDuty, Opsgenie | Written from each service's documentation as read on 13 October 2026, pinned by snapshot tests. **Not sent to the live services** |
 | Payload shapes of Alertmanager, Grafana, GitHub, GitLab, Sentry | From their documentation; GitHub's signature is checked against GitHub's published example. **Not received from the live tools** |
 | Email | Sent to a test SMTP server inside the test suite. Not sent through a real provider; TLS modes are untested |
