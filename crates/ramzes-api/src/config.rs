@@ -140,13 +140,13 @@ pub fn validate_config(config: &ConfigSnapshot, registry: &Registry) -> Result<(
                     r.name, target.connection_id
                 ));
             }
-            if let Some(template) = &target.template_id {
-                if !templates.contains(template.as_str()) {
-                    return Err(format!(
-                        "route {:?}: there is no template with id {template:?}",
-                        r.name
-                    ));
-                }
+            if let Some(template) = &target.template_id
+                && !templates.contains(template.as_str())
+            {
+                return Err(format!(
+                    "route {:?}: there is no template with id {template:?}",
+                    r.name
+                ));
             }
         }
         if !routes.insert(r.id.as_str()) {

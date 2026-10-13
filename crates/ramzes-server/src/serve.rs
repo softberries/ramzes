@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use ramzes_api::{AppState, SecretKey};
-use ramzes_connectors::Registry;
+use ramzes_connectors::{HttpOptions, Registry};
 use ramzes_core::RetryPolicy;
 use ramzes_engine::{Clock, Engine, EngineConfig, SystemClock};
 use ramzes_ingest::{IngestLimits, IngestState};
@@ -39,7 +39,15 @@ pub async fn open_store(config: &Config) -> anyhow::Result<Store> {
         .context("could not open the database")
 }
 
-fn secret_key(config: &Config) -> anyhow::Result<SecretKey> {
+/// The connectors shipped with ramzes, set up the way the instance is configured.
+pub fn registry(config: &Config) -> Registry {
+    Registry::with_options(HttpOptions {
+        timeout: CONNECTOR_TIMEOUT,
+        block_private: config.block_private_addresses,
+    })
+}
+
+pub fn secret_key(config: &Config) -> anyhow::Result<SecretKey> {
     match &config.secret_key {
         Some(text) => SecretKey::from_base64(text).map_err(|e| anyhow::anyhow!(e)),
         None => {
@@ -84,7 +92,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let workspace_id = store.ensure_workspace(clock.now_ms()).await?;
     let key = Arc::new(secret_key(&config)?);
-    let registry = Registry::builtin(CONNECTOR_TIMEOUT);
+    let registry = registry(&config);
+    ramzes_api::refresh_custom_connectors(&store, &registry, &workspace_id).await?;
 
     let engine = Engine::new(EngineConfig {
         store: store.clone(),

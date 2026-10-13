@@ -173,10 +173,10 @@ impl Mapping {
         let mut events = Vec::with_capacity(items.len());
         for item in items {
             let ctx = json!({"payload": payload, "headers": headers, "item": item});
-            if let Some(when) = &self.when {
-                if !expr::eval_bool(when, &ctx).map_err(|e| format!("when: {e}"))? {
-                    continue;
-                }
+            if let Some(when) = &self.when
+                && !expr::eval_bool(when, &ctx).map_err(|e| format!("when: {e}"))?
+            {
+                continue;
             }
             events.push(self.event(&ctx, item)?);
         }

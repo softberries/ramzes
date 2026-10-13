@@ -239,10 +239,10 @@ impl Engine {
         else {
             return Ok(fail("the event was deleted".into(), &connection.kind));
         };
-        if let Some(warning) = &composed.warning {
-            if delivery.warning.as_ref() != Some(warning) {
-                store.set_delivery_warning(&delivery.id, warning).await?;
-            }
+        if let Some(warning) = &composed.warning
+            && delivery.warning.as_ref() != Some(warning)
+        {
+            store.set_delivery_warning(&delivery.id, warning).await?;
         }
         let _slot = self.slot(&connection.id).await;
         let outcome = connector

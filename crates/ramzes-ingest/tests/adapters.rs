@@ -238,7 +238,7 @@ async fn a_github_request_needs_a_valid_signature() {
     let path = format!("/v1/in/{id}");
     let event = ("x-github-event", "workflow_run".to_string());
 
-    let unsigned = w.send(&path, &[event.clone()], RUN).await;
+    let unsigned = w.send(&path, std::slice::from_ref(&event), RUN).await;
     assert_eq!(unsigned.status, StatusCode::UNAUTHORIZED);
     let forged = w
         .send(

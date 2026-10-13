@@ -26,6 +26,10 @@ pub enum Command {
     Backup { file: PathBuf },
     /// Print the OpenAPI description of the admin API.
     Openapi,
+    /// Write the configuration as YAML to a file, or to standard output. Credentials and keys are left out.
+    Export { file: Option<PathBuf> },
+    /// Replace the configuration with an exported one. Stored credentials and source keys are kept.
+    Import { file: PathBuf },
 }
 
 /// Settings given as flags or environment variables. Each overrides the config file.
@@ -57,6 +61,9 @@ pub struct Options {
     /// Mark the session cookie Secure. Use when serving over HTTPS.
     #[arg(long, env = "RAMZES_SECURE_COOKIES", global = true)]
     pub secure_cookies: Option<bool>,
+    /// Refuse to deliver to loopback, private and link-local addresses.
+    #[arg(long, env = "RAMZES_BLOCK_PRIVATE_ADDRESSES", global = true)]
+    pub block_private_addresses: Option<bool>,
     /// Milliseconds a worker may hold a claimed item before another may take it.
     #[arg(long, env = "RAMZES_LEASE_MS", global = true, hide = true)]
     pub lease_ms: Option<i64>,
@@ -72,6 +79,7 @@ pub struct FileConfig {
     secret_key: Option<String>,
     public_url: Option<String>,
     secure_cookies: Option<bool>,
+    block_private_addresses: Option<bool>,
     lease_ms: Option<i64>,
 }
 
@@ -83,6 +91,7 @@ pub struct Config {
     pub secret_key: Option<String>,
     pub public_url: Option<String>,
     pub secure_cookies: bool,
+    pub block_private_addresses: bool,
     pub lease_ms: i64,
 }
 
@@ -129,6 +138,10 @@ impl Config {
             secure_cookies: options
                 .secure_cookies
                 .or(file.secure_cookies)
+                .unwrap_or(false),
+            block_private_addresses: options
+                .block_private_addresses
+                .or(file.block_private_addresses)
                 .unwrap_or(false),
             lease_ms,
             data_dir,

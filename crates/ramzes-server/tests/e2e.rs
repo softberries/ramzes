@@ -476,3 +476,166 @@ fn openapi_prints_the_document() {
     assert!(document["paths"]["/api/events"]["get"].is_object());
     assert_eq!(document["info"]["title"], json!("ramzes admin API"));
 }
+
+fn cli(data_dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_ramzes"))
+        .args(args)
+        .env("RAMZES_DATA_DIR", data_dir)
+        .env_remove("RAMZES_DATABASE_URL")
+        .output()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn export_and_import_move_the_configuration_to_another_instance() {
+    let receiver = MockServer::start().await;
+    let first = tempfile::tempdir().unwrap();
+    let file = first.path().join("ramzes.yaml");
+    {
+        let mut ramzes = Ramzes::start(first.path(), free_port(), &[], &[]).await;
+        ramzes.set_up().await;
+        ramzes.wire_to(&receiver).await;
+        ramzes
+            .post(
+                "/api/templates",
+                json!({"name": "Ops", "title": "{{ title }}", "body": ""}),
+            )
+            .await;
+    }
+    let exported = cli(first.path(), &["export", &file.display().to_string()]);
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    let yaml = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        yaml.contains("everything") && yaml.contains("receiver"),
+        "{yaml}"
+    );
+    assert!(
+        !yaml.contains("s3cret") && !yaml.contains("credentials"),
+        "{yaml}"
+    );
+    // Without a file the configuration goes to standard output.
+    let printed = cli(first.path(), &["export"]);
+    assert_eq!(String::from_utf8_lossy(&printed.stdout), yaml);
+
+    let second = tempfile::tempdir().unwrap();
+    let imported = cli(second.path(), &["import", &file.display().to_string()]);
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let mut ramzes = Ramzes::start(second.path(), free_port(), &[], &[]).await;
+    ramzes.set_up().await;
+    assert_eq!(ramzes.get("/api/routes").await[0]["name"], "everything");
+    assert_eq!(ramzes.get("/api/templates").await[0]["name"], "Ops");
+    let connections = ramzes.get("/api/connections").await;
+    assert_eq!(connections[0]["name"], "receiver");
+    // Credentials do not travel: they have to be entered again on the new instance.
+    assert_eq!(connections[0]["has_credentials"], false);
+
+    std::fs::write(&file, "routes:\n  - {id: r, name: r, position: 1, enabled: true, stop: false, match: {}, targets: [{connection_id: nope}]}\n").unwrap();
+    let refused = cli(second.path(), &["import", &file.display().to_string()]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("nope"));
+}
+
+#[tokio::test]
+async fn private_addresses_can_be_blocked_for_the_whole_instance() {
+    let receiver = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&receiver)
+        .await;
+    let data = tempfile::tempdir().unwrap();
+    let env = [("RAMZES_BLOCK_PRIVATE_ADDRESSES", "true".to_string())];
+    let mut ramzes = Ramzes::start(data.path(), free_port(), &env, &[]).await;
+    ramzes.set_up().await;
+    let key = ramzes.wire_to(&receiver).await;
+    let id = ramzes
+        .send_event(&key, json!({"topic": "a", "title": "x"}))
+        .await;
+    let journey = ramzes.wait_for_delivery(&id, "failed").await;
+    let error = journey["notifications"][0]["deliveries"][0]["last_error"]
+        .as_str()
+        .unwrap();
+    assert!(error.contains("private"), "{error}");
+    assert!(receiver.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_custom_connector_survives_a_restart() {
+    let receiver = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&receiver)
+        .await;
+    let data = tempfile::tempdir().unwrap();
+    let definition = "kind: chat\nname: Chat\nfields:\n  - {key: url, label: URL, kind: url, required: true}\nrequest:\n  url: \"{{ settings.url }}\"\n  body: '{\"text\": {{ message.title | tojson }}}'\n";
+    let key = {
+        let mut ramzes = Ramzes::start(data.path(), free_port(), &[], &[]).await;
+        ramzes.set_up().await;
+        ramzes
+            .post(
+                "/api/connector-definitions",
+                json!({"definition": definition}),
+            )
+            .await;
+        let source = ramzes.post("/api/sources", json!({"name": "svc"})).await;
+        let connection = ramzes
+            .post(
+                "/api/connections",
+                json!({"kind": "chat", "name": "chat", "settings": {"url": receiver.uri()}}),
+            )
+            .await;
+        ramzes
+            .post("/api/routes", json!({"name": "all", "match": {}, "targets": [{"connection_id": connection["id"]}]}))
+            .await;
+        source["key"].as_str().unwrap().to_owned()
+    };
+    let mut ramzes = Ramzes::start(data.path(), free_port(), &[], &[]).await;
+    // The admin exists already; sign in for a token.
+    let response = ramzes
+        .http
+        .post(format!("{}/api/auth/login", ramzes.base))
+        .header("x-ramzes-request", "1")
+        .json(&json!({"email": EMAIL, "password": PASSWORD}))
+        .send()
+        .await
+        .unwrap();
+    let cookie = response
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let created: Value = ramzes
+        .http
+        .post(format!("{}/api/tokens", ramzes.base))
+        .header("cookie", cookie)
+        .header("x-ramzes-request", "1")
+        .json(&json!({"name": "again"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    ramzes.token = Some(created["value"].as_str().unwrap().to_owned());
+    let id = ramzes
+        .send_event(&key, json!({"topic": "a", "title": "after restart"}))
+        .await;
+    ramzes.wait_for_delivery(&id, "delivered").await;
+    let request = receiver.received_requests().await.unwrap().remove(0);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&request.body).unwrap(),
+        json!({"text": "after restart"})
+    );
+}
