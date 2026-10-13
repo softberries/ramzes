@@ -16,6 +16,9 @@
 	--accent: #7aa7ff;
 	--accent-fg: #0b1020;
 	--gold: #e3b341;
+	/* What can be typed into: its fill, and an outline that stands out from panels and the page. */
+	--field: var(--bg);
+	--field-line: var(--line);
 
 	--sev-critical: #ff6b86;
 	--sev-error: #ff9357;
@@ -45,6 +48,8 @@
 	--accent: #1f4fc4;
 	--accent-fg: #ffffff;
 	--gold: #8a5f00;
+	--field: #ffffff;
+	--field-line: #7d88a3;
 
 	--sev-critical: #c01a45;
 	--sev-error: #b3470a;
@@ -166,10 +171,17 @@
 		width: 100%;
 		height: 2.25rem;
 		padding: 0 0.6rem;
-		border: 1px solid var(--line);
+		border: 1px solid var(--field-line);
 		border-radius: 2px;
-		background: var(--bg);
+		background: var(--field);
 		color: var(--fg);
+	}
+
+	.input:disabled {
+		border-color: var(--line);
+		background: var(--raised);
+		color: var(--muted);
+		cursor: not-allowed;
 	}
 
 	.input::placeholder {
@@ -178,6 +190,28 @@
 
 	select.input {
 		padding-right: 1.5rem;
+	}
+
+	/* A file chooser: its button looks like the others. */
+	.file-input {
+		color: var(--muted);
+	}
+
+	.file-input::file-selector-button {
+		height: 2.25rem;
+		margin-right: 0.75rem;
+		padding: 0 0.85rem;
+		border: 1px solid var(--line);
+		border-radius: 2px;
+		background: var(--surface);
+		color: var(--fg);
+		font: inherit;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.file-input::file-selector-button:hover {
+		border-color: var(--muted);
 	}
 
 	.field-label {

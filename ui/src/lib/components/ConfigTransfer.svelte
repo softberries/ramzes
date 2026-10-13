@@ -69,7 +69,7 @@
 	>
 		<div>
 			<label class="field-label" for="import-file">Import from a file</label>
-			<input id="import-file" class="max-w-full" type="file" accept=".yaml,.yml,text/yaml,application/yaml" onchange={readFile} />
+			<input id="import-file" class="file-input max-w-full" type="file" accept=".yaml,.yml,text/yaml,application/yaml" onchange={readFile} />
 		</div>
 		<div>
 			<label class="field-label" for="import-yaml">Or paste the YAML</label>

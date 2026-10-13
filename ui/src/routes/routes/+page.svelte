@@ -19,6 +19,7 @@
 	} from '#lib/escalation.ts';
 	import { ago } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
+	import { reveal } from '#lib/reveal.ts';
 	import { cleanMatch, cleanTargets, inputOfRoute, moved, routesForTest, summarize } from '#lib/routes.ts';
 	import { formToShaping, shapingToForm, summarizeShaping, type ShapingForm } from '#lib/shaping.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
@@ -105,6 +106,7 @@
 			shaping: shapingToForm(undefined, browserZone),
 			escalation: []
 		};
+		reveal('route-form');
 	}
 
 	function startEdit(route: Route) {
@@ -119,6 +121,7 @@
 			shaping: shapingToForm($state.snapshot(route.shaping), browserZone),
 			escalation: chainToForm($state.snapshot(route.escalation))
 		};
+		reveal('route-form');
 	}
 
 	async function save(event: SubmitEvent) {
@@ -220,13 +223,13 @@
 									? ` worded by ${templateNames[target.template_id] ?? 'a deleted template'}`
 									: ''}{/each}
 						</div>
-						{#if summarizeShaping(route.shaping)}
-							<div class="text-muted break-words" data-testid="shaping-summary">{summarizeShaping(route.shaping)}</div>
-						{/if}
 						{#if summarizeChain(route.escalation, lookups.connectionNames)}
 							<div class="text-muted break-words" data-testid="chain-summary">
 								{summarizeChain(route.escalation, lookups.connectionNames)}
 							</div>
+						{/if}
+						{#if summarizeShaping(route.shaping)}
+							<div class="text-muted break-words" data-testid="shaping-summary">{summarizeShaping(route.shaping)}</div>
 						{/if}
 						{#if route.last_error}
 							<div class="problem break-words">
@@ -256,7 +259,7 @@
 		</ol>
 
 		{#if draft}
-			<form class="panel mt-6 flex flex-col gap-5 p-4" onsubmit={save}>
+			<form id="route-form" class="panel mt-6 flex scroll-mt-16 flex-col gap-5 p-4" onsubmit={save}>
 				<h2>{draft.id ? 'Edit route' : 'New route'}</h2>
 				<div class="max-w-md">
 					<label class="field-label" for="route-name">Name</label>

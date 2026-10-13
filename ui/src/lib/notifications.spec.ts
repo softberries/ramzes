@@ -34,11 +34,13 @@ function row(state: NotificationState, extra: Partial<NotificationRow> = {}): No
 
 describe('tabs', () => {
 	it('offers the six views in order', () => {
-		expect(TABS.map((tab) => tab.label)).toEqual(['Waiting', 'Sent', 'Acknowledged', 'Resolved', 'Suppressed', 'All']);
+		expect(TABS.map((tab) => tab.label)).toEqual(['Waiting', 'Sent', 'Acknowledged', 'Resolved', 'Not sent', 'All']);
 	});
 
 	it('reads the view from the URL and starts on what is waiting', () => {
 		expect(tabOf('sent').key).toBe('sent');
+		// The view of what was not sent keeps the address it always had.
+		expect(tabOf('suppressed').label).toBe('Not sent');
 		expect(tabOf('all').key).toBe('all');
 		expect(tabOf(null).key).toBe('waiting');
 		expect(tabOf('nonsense').key).toBe('waiting');

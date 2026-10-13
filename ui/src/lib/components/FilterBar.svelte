@@ -49,14 +49,14 @@
 	/>
 	<input
 		class="input"
-		placeholder="Topic, e.g. orders.*"
+		placeholder="Topic: orders.*"
 		aria-label="Topic"
 		value={filters.topic ?? ''}
 		onchange={text('topic')}
 	/>
 	<input
 		class="input"
-		placeholder="Label, e.g. env=prod"
+		placeholder="Label: env=prod"
 		aria-label="Label"
 		value={filters.label ?? ''}
 		onchange={text('label')}

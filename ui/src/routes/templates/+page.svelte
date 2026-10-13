@@ -7,6 +7,7 @@
 	import { debounced } from '#lib/debounce.ts';
 	import { clock } from '#lib/format.ts';
 	import { lookups } from '#lib/lookups.svelte.ts';
+	import { reveal } from '#lib/reveal.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
 	/** How long typing must pause before the preview is asked for again. */
@@ -95,6 +96,7 @@
 		preview = null;
 		previewProblem = '';
 		draft = next;
+		reveal('template-form');
 	}
 
 	function startNew() {
@@ -185,7 +187,7 @@
 </ul>
 
 {#if draft}
-	<div class="mt-6 grid items-start gap-6 xl:grid-cols-2">
+	<div id="template-form" class="mt-6 grid scroll-mt-16 items-start gap-6 xl:grid-cols-2">
 		<form class="panel flex min-w-0 flex-col gap-4 p-4" onsubmit={save}>
 			<h2>{draft.id ? 'Edit template' : 'New template'}</h2>
 			<div class="max-w-md">

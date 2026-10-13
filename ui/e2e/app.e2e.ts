@@ -55,6 +55,22 @@ async function contrast(page: Page, selector: string): Promise<number> {
 	}, selector);
 }
 
+/** WCAG contrast ratio between two colours as the browser reports them, such as `rgb(255, 255, 255)`. */
+function ratio(a: string, b: string): number {
+	const luminance = (color: string) => {
+		const [r, g, b] = color
+			.match(/[\d.]+/g)!
+			.slice(0, 3)
+			.map((value) => {
+				const c = Number(value) / 255;
+				return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+			});
+		return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+	};
+	const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+	return (light + 0.05) / (dark + 0.05);
+}
+
 test('first-run setup ends with a message in the channel', async ({ page, request }) => {
 	await page.goto('/');
 	await expect(page).toHaveURL(/\/setup$/);
@@ -154,6 +170,18 @@ test('the light theme applies and stays readable', async ({ page }) => {
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 	expect(await contrast(page, title)).toBeGreaterThan(7);
 	expect(await contrast(page, 'ul[aria-label="Events"] a time')).toBeGreaterThan(4.5);
+	// A field is white with an outline that stands out from it and from the page, so it does not read as switched off.
+	const field = await page.getByLabel('Find in title').evaluate((input) => {
+		const style = getComputedStyle(input);
+		return {
+			fill: style.backgroundColor,
+			line: style.borderTopColor,
+			page: getComputedStyle(document.documentElement).backgroundColor
+		};
+	});
+	expect(field.fill).toBe('rgb(255, 255, 255)');
+	expect(ratio(field.line, field.fill)).toBeGreaterThan(3);
+	expect(ratio(field.line, field.page)).toBeGreaterThan(3);
 	await page.screenshot({ path: 'e2e-shots/feed-light.png', fullPage: true });
 
 	await page.reload();

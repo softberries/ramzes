@@ -2,7 +2,7 @@ import type { EscalationStep, NotificationRow, StepProgress, Target } from './ap
 import { countdown, timeOfDay } from './format.ts';
 import { shortWho } from './notifications.ts';
 import { cleanTargets } from './routes.ts';
-import { listed, spanWords, splitSeconds, toSeconds, type Span } from './shaping.ts';
+import { listed, splitSeconds, toSeconds, type Span } from './shaping.ts';
 
 /** One row of a target editor. Empty strings stand for "not chosen". */
 export type TargetRow = Required<Target>;
@@ -56,9 +56,14 @@ export function cumulativeSeconds(delays: number[]): number[] {
 	return delays.map((delay) => (total += delay));
 }
 
+/** A sum of delays in words. The delays may be in different units, so it takes up to two: "45 min 3 s". */
+function sumWords(seconds: number): string {
+	return countdown(seconds * 1000);
+}
+
 /** When a step goes out, counted from the first message: "45 min after the first message". */
 export function sinceFirstWords(seconds: number): string {
-	return `${spanWords(seconds)} after the first message`;
+	return `${sumWords(seconds)} after the first message`;
 }
 
 function named(name: string | null | undefined, destination: string | null | undefined): string {
@@ -72,7 +77,7 @@ export function summarizeChain(chain: EscalationStep[] | undefined, connectionNa
 	return steps
 		.map((step, index) => {
 			const who = listed(step.targets.map((t) => named(connectionNames[t.connection_id], t.destination)));
-			return `then ${who} after ${spanWords(since[index])}`;
+			return `then ${who} after ${sumWords(since[index])}`;
 		})
 		.join(', ');
 }

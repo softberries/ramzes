@@ -45,7 +45,7 @@ export function until(ms: number, now: number = Date.now()): string {
 	return remaining <= 0 ? 'now' : `in ${span(remaining)}`;
 }
 
-/** Time left, in its two largest units so the smaller one can be watched running down: "4 min 12 s". */
+/** A length of time in its two largest units: "4 min 12 s". As time left, the smaller one can be watched running down. */
 export function countdown(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	const parts: [number, string][] = [

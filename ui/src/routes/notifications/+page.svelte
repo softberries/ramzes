@@ -118,13 +118,13 @@
 </p>
 
 {#if noAckLink}
-	<p class="hint mb-4 flex max-w-2xl flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="no-ack-link">
-		<span>
+	<div class="border-line mb-4 flex max-w-2xl items-start gap-3 border-l-2 pl-3" data-testid="no-ack-link">
+		<p class="hint">
 			Messages will have no acknowledgement link until the address of this ramzes instance is set under
 			<a href={resolve('/settings')}>Settings</a>.
-		</span>
-		<button type="button" class="btn btn-quiet h-7 px-2" onclick={dismissAckHint}>Dismiss</button>
-	</p>
+		</p>
+		<button type="button" class="btn h-7 px-2" onclick={dismissAckHint}>Dismiss</button>
+	</div>
 {/if}
 
 <nav class="mb-4 flex flex-wrap gap-1" aria-label="Notifications to show">
@@ -177,7 +177,7 @@
 					Nothing has been resolved yet. A notification is resolved by an event with the status resolved, or by
 					hand with its Resolve button.
 				{:else if tab.key === 'suppressed'}
-					Nothing was suppressed. Events are suppressed while a silence covers them; create one under
+					Nothing was held back. A notification is not sent while a silence covers its event; create one under
 					<a href={resolve('/silences')}>Silences</a>.
 				{:else}
 					No notifications yet. One appears when an event matches a route: check

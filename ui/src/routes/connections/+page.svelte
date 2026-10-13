@@ -7,6 +7,7 @@
 	import SlackSetup from '#lib/components/SlackSetup.svelte';
 	import { capabilityWords, groupConnectors, healthWords } from '#lib/connectors.ts';
 	import { ago, timeOfDay } from '#lib/format.ts';
+	import { reveal } from '#lib/reveal.ts';
 	import { routesUsing } from '#lib/routes.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -177,6 +178,7 @@
 					onclick={() => {
 						close();
 						editing = connection;
+						reveal('connection-form');
 					}}>Edit</button
 				>
 				<button type="button" class="btn btn-danger h-7 px-2" onclick={() => (deleting = connection)}>Delete</button>
@@ -186,7 +188,7 @@
 </ul>
 
 {#if editing && byKind[editing.kind]}
-	<div class="panel mt-6 max-w-xl p-4">
+	<div id="connection-form" class="panel mt-6 max-w-xl scroll-mt-16 p-4">
 		<h2 class="mb-4">Edit {editing.name}</h2>
 		{#key editing.id}
 			<ConnectionForm
@@ -194,20 +196,26 @@
 				initial={{ name: editing.name, settings: editing.settings as Record<string, unknown> }}
 				onsubmit={save}
 				submitLabel="Save connection"
+				oncancel={close}
 				{busy}
 				{problem}
 			/>
 		{/key}
-		<button type="button" class="btn btn-quiet mt-2" onclick={close}>Cancel</button>
 	</div>
 {:else if adding && byKind[adding]}
-	<div class="panel mt-6 max-w-xl p-4">
+	<div id="connection-form" class="panel mt-6 max-w-xl scroll-mt-16 p-4">
 		<h2 class="mb-1">New {byKind[adding].name} connection</h2>
 		<p class="hint mb-4">{byKind[adding].description}</p>
 		{#key adding}
-			<ConnectionForm descriptor={byKind[adding]} onsubmit={save} submitLabel="Add connection" {busy} {problem} />
+			<ConnectionForm
+				descriptor={byKind[adding]}
+				onsubmit={save}
+				submitLabel="Add connection"
+				oncancel={close}
+				{busy}
+				{problem}
+			/>
 		{/key}
-		<button type="button" class="btn btn-quiet mt-2" onclick={close}>Cancel</button>
 	</div>
 {:else}
 	<h2 class="mt-8 mb-3">Add a connection</h2>
@@ -220,14 +228,17 @@
 						<li>
 							<button
 								type="button"
-								class="panel hover:border-muted h-full w-full p-3 text-left"
+								class="panel hover:border-muted flex h-full w-full flex-col items-start p-3 text-left"
 								onclick={() => {
 									close();
 									adding = connector.kind;
+									reveal('connection-form');
 								}}
 							>
-								<span class="font-medium">{connector.name}</span>
-								{#if connector.custom}<span class="tag ml-2">your own</span>{/if}
+								<span class="font-medium">
+									{connector.name}
+									{#if connector.custom}<span class="tag ml-2 font-normal">your own</span>{/if}
+								</span>
 								<span class="text-muted block">{connector.description}</span>
 								{#if capabilityWords(connector.capabilities)}
 									<span class="text-muted mt-1 block" data-testid="capabilities">

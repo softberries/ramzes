@@ -14,11 +14,13 @@
 		submitLabel: string;
 		/** Present when editing an existing connection, whose secrets cannot be read back. */
 		initial?: { name: string; settings: Record<string, unknown> };
+		/** Shows a Cancel button beside the submit button. */
+		oncancel?: () => void;
 		busy?: boolean;
 		problem?: string;
 	}
 
-	let { descriptor, onsubmit, submitLabel, initial, busy = false, problem = '' }: Props = $props();
+	let { descriptor, onsubmit, submitLabel, initial, oncancel, busy = false, problem = '' }: Props = $props();
 
 	const editing = $derived(initial !== undefined);
 	// svelte-ignore state_referenced_locally
@@ -65,7 +67,8 @@
 		</div>
 	{/each}
 	{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-	<div>
+	<div class="flex gap-2">
 		<button type="submit" class="btn btn-primary" disabled={busy}>{submitLabel}</button>
+		{#if oncancel}<button type="button" class="btn" onclick={oncancel}>Cancel</button>{/if}
 	</div>
 </form>

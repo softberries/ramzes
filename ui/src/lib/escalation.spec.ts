@@ -101,8 +101,11 @@ describe('cumulativeSeconds', () => {
 describe('sinceFirstWords', () => {
 	it('says how long after the first message a step goes out', () => {
 		expect(sinceFirstWords(2700)).toBe('45 min after the first message');
-		expect(sinceFirstWords(90)).toBe('90 s after the first message');
 		expect(sinceFirstWords(7200)).toBe('2 h after the first message');
+		// Delays that do not add up to a round number are not shown as a heap of seconds.
+		expect(sinceFirstWords(90)).toBe('1 min 30 s after the first message');
+		expect(sinceFirstWords(2703)).toBe('45 min 3 s after the first message');
+		expect(sinceFirstWords(5400)).toBe('1 h 30 min after the first message');
 	});
 });
 
@@ -120,6 +123,14 @@ describe('summarizeChain', () => {
 			{ after_s: 1800, targets: [{ connection_id: 'boss' }] }
 		];
 		expect(summarizeChain(chain, names)).toBe('then ops-lead after 15 min, then head-of-eng after 45 min');
+	});
+
+	it('adds up delays in different units', () => {
+		const chain: EscalationStep[] = [
+			{ after_s: 3, targets: [{ connection_id: 'lead' }] },
+			{ after_s: 2700, targets: [{ connection_id: 'boss' }] }
+		];
+		expect(summarizeChain(chain, names)).toBe('then ops-lead after 3 s, then head-of-eng after 45 min 3 s');
 	});
 
 	it('lists several targets of a step with their destinations and admits a deleted connection', () => {

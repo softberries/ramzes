@@ -7,7 +7,7 @@ export const TABS = [
 	{ key: 'sent', label: 'Sent', states: ['sent'] },
 	{ key: 'acknowledged', label: 'Acknowledged', states: ['acknowledged'] },
 	{ key: 'resolved', label: 'Resolved', states: ['resolved'] },
-	{ key: 'suppressed', label: 'Suppressed', states: ['suppressed'] },
+	{ key: 'suppressed', label: 'Not sent', states: ['suppressed'] },
 	{ key: 'all', label: 'All', states: [] }
 ] as const;
 
