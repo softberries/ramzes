@@ -47,6 +47,7 @@ pub struct NotificationCore {
     pub event_count: i64,
     pub severity: Severity,
     pub template_id: Option<String>,
+    pub acked_by: Option<String>,
 }
 
 pub(crate) fn state_of(id: &str, text: &str) -> Result<NotificationState> {
@@ -66,9 +67,12 @@ struct Change<'a> {
     refusal: &'a str,
 }
 
-pub(crate) const INSERT_DELIVERY_OF: &str = "INSERT INTO deliveries (id, workspace_id, notification_id, connection_id, destination, state, attempts, \
+const INSERT_DELIVERY_OF: &str = "INSERT INTO deliveries (id, workspace_id, notification_id, connection_id, destination, state, attempts, \
      next_attempt_at, created_at, updated_at) \
      SELECT $1, workspace_id, id, connection_id, destination, 'pending', 0, $2, $2, $2 FROM notifications WHERE id = $3";
+/// Adds a delivery with its own connection, destination, template and escalation step.
+pub(crate) const INSERT_DELIVERY_FOR: &str = "INSERT INTO deliveries (id, workspace_id, notification_id, connection_id, destination, state, attempts, \
+     next_attempt_at, created_at, updated_at, template_id, step) VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6, $6, $7, $8)";
 pub(crate) const INSERT_TIMER: &str = "INSERT INTO timers (id, workspace_id, kind, due_at, notification_id, data) VALUES ($1, $2, $3, $4, $5, $6)";
 
 impl Store {
@@ -138,7 +142,7 @@ impl Store {
     pub async fn notification_core(&self, id: &str) -> Result<Option<NotificationCore>> {
         let sql = self.sql(
             "SELECT id, workspace_id, route_id, route_name, connection_id, destination, target_key, state, hold_kind, \
-             held_until, dedup_key, group_key, sent_count, event_count, severity, template_id \
+             held_until, dedup_key, group_key, sent_count, event_count, severity, template_id, acked_by \
              FROM notifications WHERE id = $1",
         );
         with_db!(self, |pool| {
@@ -167,6 +171,7 @@ impl Store {
                     sent_count: row.try_get("sent_count")?,
                     event_count: row.try_get("event_count")?,
                     template_id: row.try_get("template_id")?,
+                    acked_by: row.try_get("acked_by")?,
                 })
             })
             .transpose()
@@ -179,7 +184,7 @@ impl Store {
         &self,
         notification_id: &str,
         delivery_id: &str,
-        timer: Option<&NewTimer>,
+        timers: &[NewTimer],
         now_ms: i64,
     ) -> Result<()> {
         let update = self.sql(
@@ -209,11 +214,63 @@ impl Store {
                 .bind(notification_id)
                 .execute(&mut *tx)
                 .await?;
-            if let Some(timer) = timer {
+            if !timers.is_empty() {
                 let (workspace_id,): (String,) = sqlx::query_as(AssertSqlSafe(&*workspace))
                     .bind(notification_id)
                     .fetch_one(&mut *tx)
                     .await?;
+                for timer in timers {
+                    sqlx::query(AssertSqlSafe(&*insert_timer))
+                        .bind(ramzes_core::new_id())
+                        .bind(&workspace_id)
+                        .bind(&timer.kind)
+                        .bind(timer.due_at)
+                        .bind(notification_id)
+                        .bind(&timer.data)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
+    /// Adds deliveries to a notification without changing its state, and sets timers: an
+    /// escalation step going out to its targets.
+    pub async fn add_deliveries(
+        &self,
+        notification_id: &str,
+        deliveries: &[crate::NewDelivery],
+        timers: &[NewTimer],
+        now_ms: i64,
+    ) -> Result<()> {
+        let workspace = self.sql("SELECT workspace_id FROM notifications WHERE id = $1");
+        let insert = self.sql(INSERT_DELIVERY_FOR);
+        let insert_timer = self.sql(INSERT_TIMER);
+        with_db!(self, |pool| {
+            let mut tx = pool.begin_write().await?;
+            let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(&*workspace))
+                .bind(notification_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let Some((workspace_id,)) = row else {
+                return Err(StoreError::NotFound);
+            };
+            for d in deliveries {
+                sqlx::query(AssertSqlSafe(&*insert))
+                    .bind(&d.id)
+                    .bind(&workspace_id)
+                    .bind(notification_id)
+                    .bind(&d.connection_id)
+                    .bind(&d.destination)
+                    .bind(now_ms)
+                    .bind(&d.template_id)
+                    .bind(d.step)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            for timer in timers {
                 sqlx::query(AssertSqlSafe(&*insert_timer))
                     .bind(ramzes_core::new_id())
                     .bind(&workspace_id)
@@ -227,6 +284,65 @@ impl Store {
             tx.commit().await?;
             Ok(())
         })
+    }
+
+    /// The places escalation steps of a notification sent to: `(connection, destination, template)`.
+    pub async fn escalated_targets(
+        &self,
+        notification_id: &str,
+    ) -> Result<Vec<(String, Option<String>, Option<String>)>> {
+        let sql = self.sql(
+            "SELECT DISTINCT connection_id, destination, template_id FROM deliveries \
+             WHERE notification_id = $1 AND step IS NOT NULL",
+        );
+        let rows: Vec<(String, Option<String>, Option<String>)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows)
+    }
+
+    /// The service's reference to the first message that arrived for a notification at one place.
+    pub async fn first_external_ref(
+        &self,
+        notification_id: &str,
+        connection_id: &str,
+        destination: Option<&str>,
+    ) -> Result<Option<String>> {
+        let sql = self.sql(
+            "SELECT external_ref FROM deliveries WHERE notification_id = $1 AND connection_id = $2 \
+             AND COALESCE(destination, '') = COALESCE($3, '') AND external_ref IS NOT NULL ORDER BY id LIMIT 1",
+        );
+        let row: Option<(String,)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .bind(connection_id)
+                .bind(destination)
+                .fetch_optional(pool)
+                .await
+        })?;
+        Ok(row.map(|(reference,)| reference))
+    }
+
+    /// Every message that arrived for a notification and has a reference:
+    /// `(connection, destination, reference)`, oldest first.
+    pub async fn message_refs(
+        &self,
+        notification_id: &str,
+    ) -> Result<Vec<(String, Option<String>, String)>> {
+        let sql = self.sql(
+            "SELECT connection_id, destination, external_ref FROM deliveries \
+             WHERE notification_id = $1 AND external_ref IS NOT NULL ORDER BY id",
+        );
+        let rows: Vec<(String, Option<String>, String)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(notification_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows)
     }
 
     /// Puts a notification on hold until `until_ms`, replacing its timers with one that releases it.

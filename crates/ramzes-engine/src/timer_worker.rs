@@ -1,11 +1,12 @@
 //! Acts on notifications when their time comes: sends a group, releases a hold, repeats a reminder.
 
-use ramzes_core::Shaping;
-use ramzes_core::new_id;
 use ramzes_core::shaping::{
     HoldKind, NotificationState, ReleaseFrom, ReleaseInput, Released, release,
 };
-use ramzes_store::{NewTimer, NotificationCore, Timer};
+use ramzes_core::{Route, new_id};
+use ramzes_store::{NewDelivery, NewTimer, NotificationCore, Timer};
+
+use crate::route_worker::first_escalation;
 
 use crate::{Change, Engine, Result};
 
@@ -43,14 +44,54 @@ impl Engine {
         Ok(timers.len())
     }
 
-    /// The shaping policy of the route a notification came from. A deleted route has none.
-    async fn shaping_of(&self, n: &NotificationCore) -> Result<Shaping> {
+    /// The route a notification came from, as it is now. `None` when it was deleted.
+    async fn route_of(&self, n: &NotificationCore) -> Result<Option<Route>> {
         let routes = self.config.store.list_routes(&n.workspace_id).await?;
-        Ok(routes
+        Ok(routes.into_iter().find(|r| r.id == n.route_id))
+    }
+
+    /// Sends an escalation step to its targets and arms the next one. Returns whether anything
+    /// was queued.
+    async fn escalate(
+        &self,
+        n: &NotificationCore,
+        step_text: Option<&str>,
+        now: i64,
+    ) -> Result<bool> {
+        // A deleted route, or a chain that was shortened meanwhile, ends the escalation.
+        let Some(route) = self.route_of(n).await? else {
+            return Ok(false);
+        };
+        let index = step_text.and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+        let Some(step) = route.escalation.get(index) else {
+            return Ok(false);
+        };
+        let deliveries: Vec<NewDelivery> = step
+            .targets
+            .iter()
+            .map(|target| NewDelivery {
+                id: new_id(),
+                connection_id: target.connection_id.clone(),
+                destination: target.destination.clone(),
+                template_id: target.template_id.clone(),
+                step: i64::try_from(index).ok(),
+            })
+            .collect();
+        let next: Vec<NewTimer> = route
+            .escalation
+            .get(index + 1)
+            .map(|following| NewTimer {
+                kind: "escalate".into(),
+                due_at: now + following.after_s * 1000,
+                data: Some((index + 1).to_string()),
+            })
             .into_iter()
-            .find(|r| r.id == n.route_id)
-            .map(|r| r.shaping)
-            .unwrap_or_default())
+            .collect();
+        self.config
+            .store
+            .add_deliveries(&n.id, &deliveries, &next, now)
+            .await?;
+        Ok(!deliveries.is_empty())
     }
 
     /// Acts on one timer. Returns whether a delivery was queued.
@@ -66,8 +107,15 @@ impl Engine {
                 self.let_go(&n, ReleaseFrom::Group, now).await
             }
             ("release", NotificationState::Held) => self.let_go(&n, ReleaseFrom::Hold, now).await,
+            ("escalate", NotificationState::Sent) => {
+                self.escalate(&n, timer.data.as_deref(), now).await
+            }
             ("repeat", NotificationState::Sent) if n.sent_count < MAX_SENDS => {
-                let shaping = self.shaping_of(&n).await?;
+                let shaping = self
+                    .route_of(&n)
+                    .await?
+                    .map(|r| r.shaping)
+                    .unwrap_or_default();
                 let again = shaping
                     .group
                     .and_then(|g| g.repeat_s)
@@ -77,7 +125,7 @@ impl Engine {
                         data: None,
                     });
                 store
-                    .send_notification(&n.id, &new_id(), again.as_ref(), now)
+                    .send_notification(&n.id, &new_id(), again.as_slice(), now)
                     .await?;
                 Ok(true)
             }
@@ -90,7 +138,11 @@ impl Engine {
     /// say so. Returns whether a delivery was queued.
     async fn let_go(&self, n: &NotificationCore, from: ReleaseFrom, now: i64) -> Result<bool> {
         let store = &self.config.store;
-        let shaping = self.shaping_of(n).await?;
+        let route = self.route_of(n).await?;
+        let shaping = route
+            .as_ref()
+            .map(|r| r.shaping.clone())
+            .unwrap_or_default();
         let (sends, oldest) = match &shaping.rate_limit {
             Some(rate) => {
                 store
@@ -109,7 +161,7 @@ impl Engine {
         });
         match released {
             Released::Send => {
-                let repeat = shaping
+                let mut timers: Vec<NewTimer> = shaping
                     .group
                     .as_ref()
                     .and_then(|g| g.repeat_s)
@@ -117,9 +169,15 @@ impl Engine {
                         kind: "repeat".into(),
                         due_at: now + repeat_s * 1000,
                         data: None,
-                    });
+                    })
+                    .into_iter()
+                    .collect();
+                // The chain starts when the notification first goes out.
+                if n.sent_count == 0 {
+                    timers.extend(route.as_ref().and_then(|r| first_escalation(r, now)));
+                }
                 store
-                    .send_notification(&n.id, &new_id(), repeat.as_ref(), now)
+                    .send_notification(&n.id, &new_id(), &timers, now)
                     .await?;
                 Ok(true)
             }

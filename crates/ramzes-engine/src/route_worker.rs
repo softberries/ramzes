@@ -4,7 +4,7 @@ use ramzes_core::shaping::{
     Action, Decision, NotificationState, Role, ShapeInput, Silence, dedup_key, shape,
 };
 use ramzes_core::{Event, Matched, Route, new_id, route_event};
-use ramzes_store::{Join, NewDispatch, NewTimer};
+use ramzes_store::{Join, NewDelivery, NewDispatch, NewTimer};
 
 use crate::{Change, Engine, Result};
 
@@ -28,7 +28,7 @@ impl Plan {
             || self
                 .joins
                 .iter()
-                .any(|j| matches!(j.resolve, Some(Some(_))))
+                .any(|j| j.resolve.as_ref().is_some_and(|told| !told.is_empty()))
     }
 
     fn notification_ids(&self) -> impl Iterator<Item = &String> {
@@ -61,6 +61,15 @@ fn dispatch(m: &Matched<'_>, replay: bool) -> NewDispatch {
         replay,
         ..NewDispatch::default()
     }
+}
+
+/// The timer for the first step of a route's escalation chain, armed when a notification is sent.
+pub(crate) fn first_escalation(route: &Route, now: i64) -> Option<NewTimer> {
+    route.escalation.first().map(|step| NewTimer {
+        kind: "escalate".into(),
+        due_at: now + step.after_s * 1000,
+        data: Some("0".into()),
+    })
 }
 
 /// A replay: every matched target is sent at once, whatever the route's shaping says.
@@ -126,9 +135,43 @@ impl Engine {
         Ok((decision, event_key))
     }
 
+    /// A delivery for everyone who received a message about a notification: the route's own
+    /// target and the targets of the escalation steps that fired.
+    async fn told_about(&self, notification_id: &str) -> Result<Vec<NewDelivery>> {
+        let store = &self.config.store;
+        let Some(n) = store.notification_core(notification_id).await? else {
+            return Ok(Vec::new());
+        };
+        let mut told = vec![NewDelivery {
+            id: new_id(),
+            connection_id: n.connection_id,
+            destination: n.destination,
+            template_id: None,
+            step: None,
+        }];
+        for (connection_id, destination, template_id) in
+            store.escalated_targets(notification_id).await?
+        {
+            let already = told
+                .iter()
+                .any(|t| t.connection_id == connection_id && t.destination == destination);
+            if !already {
+                told.push(NewDelivery {
+                    id: new_id(),
+                    connection_id,
+                    destination,
+                    template_id,
+                    step: None,
+                });
+            }
+        }
+        Ok(told)
+    }
+
     /// Decides, for each target of each matching route, what the event does there. Call with
     /// the shaping lock held: the decision depends on what earlier events wrote.
     async fn plan(&self, event: &Event, routes: &[Route], silences: &[Silence]) -> Result<Plan> {
+        let now = self.now();
         let routed = route_event(event, routes);
         let mut plan = Plan {
             errors: routed.errors,
@@ -145,6 +188,7 @@ impl Engine {
                     delivery_id: Some(new_id()),
                     dedup_key,
                     group_key,
+                    timer: first_escalation(m.route, now),
                     ..fresh
                 }),
                 Action::Suppress { reason, silence_id } => plan.dispatches.push(NewDispatch {
@@ -165,11 +209,18 @@ impl Engine {
                 Action::Resolve {
                     notification_id,
                     notify,
-                } => plan.joins.push(Join {
-                    notification_id,
-                    role: Role::Resolved,
-                    resolve: Some(notify.then(new_id)),
-                }),
+                } => {
+                    let told = if notify {
+                        self.told_about(&notification_id).await?
+                    } else {
+                        Vec::new()
+                    };
+                    plan.joins.push(Join {
+                        notification_id,
+                        role: Role::Resolved,
+                        resolve: Some(told),
+                    });
+                }
                 Action::OpenGroup {
                     group_key,
                     dedup_key,
@@ -257,6 +308,9 @@ impl Engine {
             self.announce(Change::EventRouted {
                 event_id: event.id.clone(),
             });
+            for resolved in plan.joins.iter().filter(|j| j.resolve.is_some()) {
+                self.request_refresh(&resolved.notification_id);
+            }
             for notification_id in plan.notification_ids() {
                 self.announce(Change::NotificationChanged {
                     notification_id: notification_id.clone(),

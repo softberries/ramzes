@@ -758,8 +758,7 @@ pub fn digest(events: &[Event], public_url: Option<&str>, notification_id: &str)
             status: EventStatus::Firing,
             topic: String::new(),
             fields: Vec::new(),
-            link: None,
-            event_ids: Vec::new(),
+            ..Message::default()
         };
     };
     if events.len() == 1 {
@@ -822,5 +821,6 @@ pub fn digest(events: &[Event], public_url: Option<&str>, notification_id: &str)
             )
         }),
         event_ids: events.iter().map(|e| e.id.clone()).collect(),
+        ..Message::default()
     }
 }

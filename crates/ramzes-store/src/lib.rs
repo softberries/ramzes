@@ -23,7 +23,8 @@ pub use auth::{ApiToken, User};
 pub use connections::{Connection, ConnectionHealth, ConnectionStatus};
 pub use definitions::DefinitionRow;
 pub use deliveries::{
-    Attempt, Delivery, DeliveryState, FailureRow, Finish, Join, NewDispatch, QueueDepth,
+    Attempt, Delivery, DeliveryState, FailureRow, Finish, Join, NewDelivery, NewDispatch,
+    QueueDepth,
 };
 pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
 pub use notifications::{

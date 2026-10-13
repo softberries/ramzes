@@ -3,8 +3,8 @@ use std::sync::Arc;
 use futures::StreamExt;
 use ramzes_connectors::SendOutcome;
 use ramzes_core::shaping::NotificationState;
-use ramzes_core::{EventStatus, Next, Severity, new_id, next_attempt};
-use ramzes_store::{Attempt, Delivery, DeliveryState, Finish};
+use ramzes_core::{EventStatus, Message, Next, Severity, new_id, next_attempt};
+use ramzes_store::{Attempt, Delivery, DeliveryState, Finish, NotificationCore};
 use tokio::sync::Semaphore;
 
 use crate::system::{SYSTEM_TOPIC_PREFIX, SystemEvent};
@@ -20,6 +20,11 @@ const PER_CONNECTION: usize = 4;
 const PAUSE_AFTER: i64 = 5;
 const FIRST_PAUSE_MS: i64 = 60_000;
 const LONGEST_PAUSE_MS: i64 = 15 * 60_000;
+
+/// The text whose signature is the token of a notification's acknowledgement link.
+pub fn ack_text(notification_id: &str) -> String {
+    format!("ack:{notification_id}")
+}
 
 /// What one attempt produced, before it is written down.
 struct Sent {
@@ -89,8 +94,10 @@ fn pause_ms(streak: i64) -> i64 {
 }
 
 impl Engine {
-    /// Sends the deliveries that are due. Returns how many were attempted.
+    /// Sends the deliveries that are due and updates messages whose notification changed.
+    /// Returns how many things were done.
     pub async fn deliver_once(&self) -> Result<usize> {
+        let refreshed = self.refresh_messages().await;
         let claimed = self
             .config
             .store
@@ -105,7 +112,7 @@ impl Engine {
                 }
             })
             .await;
-        Ok(count)
+        Ok(count + refreshed)
     }
 
     async fn attempt(&self, delivery: &Delivery) -> Result<()> {
@@ -297,6 +304,106 @@ impl Engine {
         Ok(())
     }
 
+    /// Fills in what ties a message to its notification: the key services pair messages by,
+    /// the link that acknowledges it, and the earlier message a follow-up belongs under.
+    async fn address(
+        &self,
+        message: &mut Message,
+        delivery: &Delivery,
+        notification: Option<&NotificationCore>,
+    ) -> Result<()> {
+        let id = &delivery.notification_id;
+        message.notification_id = Some(id.clone());
+        message.dedup_key = Some(
+            notification
+                .and_then(|n| n.dedup_key.clone())
+                .unwrap_or_else(|| id.clone()),
+        );
+        message.thread_ref = self
+            .config
+            .store
+            .first_external_ref(id, &delivery.connection_id, delivery.destination.as_deref())
+            .await?;
+        let open = notification.is_some_and(|n| {
+            matches!(
+                n.state,
+                NotificationState::Sent | NotificationState::Grouping | NotificationState::Held
+            )
+        });
+        if open && let Some(base) = self.public_url(&delivery.workspace_id).await? {
+            let token = self.config.opener.sign(&ack_text(id));
+            message.ack_link = Some(format!("{}/ack/{id}?t={token}", base.trim_end_matches('/')));
+        }
+        Ok(())
+    }
+
+    /// Rewrites the delivered messages of notifications that were acknowledged or resolved,
+    /// where the service allows it. Returns how many notifications were handled.
+    async fn refresh_messages(&self) -> usize {
+        let ids: Vec<String> =
+            std::mem::take(&mut *self.refreshes.lock().unwrap_or_else(|p| p.into_inner()));
+        for id in &ids {
+            if let Err(e) = self.refresh(id).await {
+                tracing::warn!(notification_id = %id, error = %e, "could not update delivered messages");
+            }
+        }
+        ids.len()
+    }
+
+    async fn refresh(&self, notification_id: &str) -> Result<()> {
+        let store = &self.config.store;
+        let Some(n) = store.notification_core(notification_id).await? else {
+            return Ok(());
+        };
+        let note = match (n.state, &n.acked_by) {
+            (NotificationState::Resolved, _) => "Resolved".to_owned(),
+            (NotificationState::Acknowledged, Some(by)) => format!("Acknowledged by {by}"),
+            (NotificationState::Acknowledged, None) => "Acknowledged".to_owned(),
+            _ => return Ok(()),
+        };
+        let refs = store.message_refs(notification_id).await?;
+        if refs.is_empty() {
+            return Ok(());
+        }
+        let mut events = store.notification_events(notification_id).await?;
+        if events.iter().any(|e| e.status == EventStatus::Firing) {
+            events.retain(|e| e.status == EventStatus::Firing);
+        }
+        let Some(mut composed) = self
+            .compose_for(
+                &n.workspace_id,
+                notification_id,
+                &events,
+                n.template_id.as_deref(),
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        if n.state == NotificationState::Resolved {
+            composed.message.status = EventStatus::Resolved;
+        }
+        composed.message.notification_id = Some(notification_id.to_owned());
+        for (connection_id, _destination, reference) in refs {
+            let Some(connection) = store
+                .get_connection(&n.workspace_id, &connection_id)
+                .await?
+            else {
+                continue;
+            };
+            let Ok((connector, config)) = self.connector_for(&connection) else {
+                continue;
+            };
+            if let Err(reason) = connector
+                .update(&config, &reference, &composed.message, &note)
+                .await
+            {
+                tracing::warn!(connection = %connection.name, %reason, "a delivered message could not be updated");
+            }
+        }
+        Ok(())
+    }
+
     /// A permit to send through a connection; at most [`PER_CONNECTION`] are out at a time.
     async fn slot(&self, connection_id: &str) -> Option<tokio::sync::OwnedSemaphorePermit> {
         let semaphore = self
@@ -346,7 +453,11 @@ impl Engine {
         if resolved && events.iter().any(|e| e.status == EventStatus::Firing) {
             events.retain(|e| e.status == EventStatus::Firing);
         }
-        let template_id = notification.and_then(|n| n.template_id);
+        let notification = notification;
+        let template_id = delivery
+            .template_id
+            .clone()
+            .or_else(|| notification.as_ref().and_then(|n| n.template_id.clone()));
         let Some(mut composed) = self
             .compose_for(
                 &delivery.workspace_id,
@@ -364,7 +475,11 @@ impl Engine {
         };
         if resolved {
             composed.message.status = EventStatus::Resolved;
+        } else if delivery.step.is_some() {
+            composed.message.title = format!("Escalated: {}", composed.message.title);
         }
+        self.address(&mut composed.message, delivery, notification.as_ref())
+            .await?;
         if let Some(warning) = &composed.warning
             && delivery.warning.as_ref() != Some(warning)
         {

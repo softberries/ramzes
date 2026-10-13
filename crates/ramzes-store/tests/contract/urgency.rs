@@ -1,0 +1,244 @@
+use ramzes_core::shaping::Role;
+use ramzes_core::{EscalationStep, Route, RouteMatch, Target};
+use ramzes_store::{Attempt, Finish, Join, NewDelivery, NewDispatch, NewTimer, Store};
+
+crate::contract!(
+    a_route_keeps_its_escalation_chain,
+    an_escalation_step_adds_deliveries_to_other_connections,
+    resolving_tells_the_listed_targets,
+    the_first_reference_of_a_place_is_remembered,
+);
+
+async fn a_route_keeps_its_escalation_chain(store: Store) {
+    let ws = store.ensure_workspace(1).await.unwrap();
+    let chain = vec![EscalationStep {
+        after_s: 300,
+        targets: vec![Target {
+            connection_id: "c2".into(),
+            destination: Some("oncall".into()),
+            template_id: None,
+        }],
+    }];
+    let mut route = Route {
+        id: ramzes_core::new_id(),
+        name: "paged".into(),
+        enabled: true,
+        r#match: RouteMatch::default(),
+        targets: vec![Target {
+            connection_id: "c1".into(),
+            ..Target::default()
+        }],
+        escalation: chain.clone(),
+        ..Route::default()
+    };
+    store.create_route(&ws, &route, 1).await.unwrap();
+    assert_eq!(store.list_routes(&ws).await.unwrap()[0].escalation, chain);
+    let config = store.read_config(&ws).await.unwrap();
+    store.apply_config(&ws, &config, 2).await.unwrap();
+    assert_eq!(store.list_routes(&ws).await.unwrap()[0].escalation, chain);
+    route.escalation.clear();
+    store.update_route(&ws, &route, 3).await.unwrap();
+    assert!(
+        store.list_routes(&ws).await.unwrap()[0]
+            .escalation
+            .is_empty()
+    );
+}
+
+async fn sent(store: &Store, ws: &str, source: &str) -> NewDispatch {
+    let e = crate::event(ws, source, "orders.failed", 100);
+    store
+        .insert_events(std::slice::from_ref(&e), None)
+        .await
+        .unwrap();
+    let d = NewDispatch {
+        notification_id: ramzes_core::new_id(),
+        delivery_id: Some(ramzes_core::new_id()),
+        route_id: "r".into(),
+        route_name: "r".into(),
+        connection_id: "c1".into(),
+        target_key: "r|c1|".into(),
+        ..NewDispatch::default()
+    };
+    store
+        .write_routing(&e, std::slice::from_ref(&d), &[], true, 100)
+        .await
+        .unwrap();
+    d
+}
+
+fn to(connection: &str, destination: Option<&str>, step: Option<i64>) -> NewDelivery {
+    NewDelivery {
+        id: ramzes_core::new_id(),
+        connection_id: connection.into(),
+        destination: destination.map(str::to_owned),
+        template_id: Some("t1".into()),
+        step,
+    }
+}
+
+async fn an_escalation_step_adds_deliveries_to_other_connections(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let d = sent(&store, &ws, &source).await;
+    store.claim_due_deliveries(100, 100_000, 10).await.unwrap();
+    let next = NewTimer {
+        kind: "escalate".into(),
+        due_at: 900,
+        data: Some("1".into()),
+    };
+    let step = [to("c2", Some("oncall"), Some(0)), to("c3", None, Some(0))];
+    store
+        .add_deliveries(&d.notification_id, &step, std::slice::from_ref(&next), 500)
+        .await
+        .unwrap();
+
+    let due = store.claim_due_deliveries(500, 100_000, 10).await.unwrap();
+    assert_eq!(due.len(), 2);
+    let oncall = due.iter().find(|x| x.connection_id == "c2").unwrap();
+    assert_eq!(
+        (
+            oncall.destination.as_deref(),
+            oncall.step,
+            oncall.template_id.as_deref()
+        ),
+        (Some("oncall"), Some(0), Some("t1"))
+    );
+    let timers = store.claim_due_timers(900, 1000, 10).await.unwrap();
+    assert_eq!(
+        (timers[0].kind.as_str(), timers[0].data.as_deref()),
+        ("escalate", Some("1"))
+    );
+    let mut escalated = store.escalated_targets(&d.notification_id).await.unwrap();
+    escalated.sort();
+    assert_eq!(
+        escalated,
+        vec![
+            (
+                "c2".to_string(),
+                Some("oncall".to_string()),
+                Some("t1".to_string())
+            ),
+            ("c3".to_string(), None, Some("t1".to_string()))
+        ]
+    );
+    // Escalating does not count as another send of the notification itself.
+    assert_eq!(
+        store
+            .notification_core(&d.notification_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .sent_count,
+        1
+    );
+    let detail = store
+        .get_notification(&ws, &d.notification_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.deliveries.len(), 3);
+}
+
+async fn resolving_tells_the_listed_targets(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let d = sent(&store, &ws, &source).await;
+    store.claim_due_deliveries(100, 100_000, 10).await.unwrap();
+    let up = crate::event(&ws, &source, "orders.failed", 300);
+    store
+        .insert_events(std::slice::from_ref(&up), None)
+        .await
+        .unwrap();
+    let join = Join {
+        notification_id: d.notification_id.clone(),
+        role: Role::Resolved,
+        resolve: Some(vec![
+            to("c1", None, None),
+            to("c2", Some("oncall"), Some(0)),
+        ]),
+    };
+    store
+        .write_routing(&up, &[], std::slice::from_ref(&join), true, 300)
+        .await
+        .unwrap();
+    let mut told: Vec<String> = store
+        .claim_due_deliveries(300, 100_000, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|x| x.connection_id)
+        .collect();
+    told.sort();
+    assert_eq!(told, vec!["c1", "c2"]);
+}
+
+async fn the_first_reference_of_a_place_is_remembered(store: Store) {
+    let (ws, source) = crate::seed(&store).await;
+    let d = sent(&store, &ws, &source).await;
+    assert_eq!(
+        store
+            .first_external_ref(&d.notification_id, "c1", None)
+            .await
+            .unwrap(),
+        None
+    );
+    let finish = |reference: &str| Finish::Delivered {
+        external_ref: Some(reference.to_owned()),
+    };
+    let attempt = |delivery_id: &str| Attempt {
+        id: ramzes_core::new_id(),
+        delivery_id: delivery_id.to_owned(),
+        started_at: 100,
+        duration_ms: 1,
+        outcome: "delivered".into(),
+        status: Some(200),
+        detail: None,
+    };
+    let first = store
+        .claim_due_deliveries(100, 100_000, 10)
+        .await
+        .unwrap()
+        .remove(0);
+    store
+        .finish_attempt(&first, &attempt(&first.id), &finish("C1:111.1"), 100)
+        .await
+        .unwrap();
+    store
+        .send_notification(&d.notification_id, &ramzes_core::new_id(), &[], 200)
+        .await
+        .unwrap();
+    let second = store
+        .claim_due_deliveries(200, 100_000, 10)
+        .await
+        .unwrap()
+        .remove(0);
+    store
+        .finish_attempt(&second, &attempt(&second.id), &finish("C1:222.2"), 200)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store
+            .first_external_ref(&d.notification_id, "c1", None)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("C1:111.1")
+    );
+    assert_eq!(
+        store
+            .first_external_ref(&d.notification_id, "c1", Some("other"))
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .first_external_ref(&d.notification_id, "c9", None)
+            .await
+            .unwrap(),
+        None
+    );
+    let refs = store.message_refs(&d.notification_id).await.unwrap();
+    assert_eq!(refs.len(), 2);
+    assert_eq!(refs[0], ("c1".to_string(), None, "C1:111.1".to_string()));
+}

@@ -11,6 +11,7 @@ mod events;
 mod foundation;
 mod noise;
 mod sources;
+mod urgency;
 
 use ramzes_store::Store;
 use sqlx::Executor;

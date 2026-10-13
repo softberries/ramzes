@@ -38,7 +38,7 @@ fn route(name: &str) -> Route {
             connection_id: "c1".into(),
             ..Target::default()
         }],
-        shaping: Default::default(),
+        ..Route::default()
     }
 }
 

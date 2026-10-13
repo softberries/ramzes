@@ -29,6 +29,10 @@ tracing.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 serde_norway = "0.9"
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+subtle.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true

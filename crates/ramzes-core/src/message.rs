@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::{Event, EventStatus, Severity};
 
 /// The channel-neutral message a connector renders into its own format.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Message {
     pub title: String,
     pub body: Option<String>,
@@ -15,6 +15,19 @@ pub struct Message {
     /// Link to the event in the ramzes UI, when a public URL is configured.
     pub link: Option<String>,
     pub event_ids: Vec<String>,
+    /// Identifies what the message is about across firing and resolved messages, for services
+    /// that pair them up.
+    #[serde(default)]
+    pub dedup_key: Option<String>,
+    /// A link that opens a page to acknowledge the notification, when a public URL is configured.
+    #[serde(default)]
+    pub ack_link: Option<String>,
+    #[serde(default)]
+    pub notification_id: Option<String>,
+    /// The service's reference to the first message sent for this notification to the same
+    /// place, so follow-ups can be attached to it.
+    #[serde(default)]
+    pub thread_ref: Option<String>,
 }
 
 pub fn build_message(e: &Event, public_url: Option<&str>) -> Message {
@@ -31,6 +44,7 @@ pub fn build_message(e: &Event, public_url: Option<&str>) -> Message {
             .collect(),
         link: public_url.map(|base| format!("{}/events/{}", base.trim_end_matches('/'), e.id)),
         event_ids: vec![e.id.clone()],
+        ..Message::default()
     }
 }
 

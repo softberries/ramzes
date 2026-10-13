@@ -21,6 +21,7 @@ pub use mapping::{FieldMap, Mapping, Verify};
 pub use matching::{LabelCond, MatchError, RouteMatch};
 pub use message::{Message, Template, apply_template, build_message};
 pub use routing::{
-    Matched, Route, RouteOutcome, RouteTrace, Routed, Target, route_event, trace_routes,
+    EscalationStep, Matched, Route, RouteOutcome, RouteTrace, Routed, Target, route_event,
+    trace_routes, validate_escalation,
 };
 pub use shaping::Shaping;

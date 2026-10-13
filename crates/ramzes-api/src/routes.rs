@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use ramzes_core::{Route, RouteMatch, Shaping, Target, new_id};
+use ramzes_core::{
+    EscalationStep, Route, RouteMatch, Shaping, Target, new_id, validate_escalation,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -29,6 +31,9 @@ pub(crate) struct RouteInput {
     /// Dedup, grouping, quiet hours and rate limit. Empty sends every matching event at once.
     #[serde(default)]
     shaping: Shaping,
+    /// Who else is told, and after how long, while nobody acknowledges.
+    #[serde(default)]
+    escalation: Vec<EscalationStep>,
 }
 
 impl RouteInput {
@@ -43,6 +48,7 @@ impl RouteInput {
             r#match: self.r#match,
             targets: self.targets,
             shaping: self.shaping,
+            escalation: self.escalation,
         }
     }
 }
@@ -76,6 +82,7 @@ async fn checked(
         .validate()
         .map_err(|e| ApiError::invalid(e.to_string()))?;
     input.shaping.validate().map_err(ApiError::invalid)?;
+    validate_escalation(&input.escalation).map_err(ApiError::invalid)?;
     if input.targets.is_empty() {
         return Err(ApiError::invalid("a route needs at least one target"));
     }

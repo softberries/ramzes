@@ -3,7 +3,7 @@ use ramzes_core::shaping::{HoldKind, NotificationState, Role};
 use serde::Serialize;
 use sqlx::{AssertSqlSafe, Row};
 
-use crate::shaping::{INSERT_DELIVERY_OF, INSERT_TIMER, NewTimer};
+use crate::shaping::{INSERT_DELIVERY_FOR, INSERT_TIMER, NewTimer};
 use crate::sql::BeginWrite;
 use crate::{Result, Store, StoreError, with_db};
 
@@ -61,9 +61,20 @@ impl Default for NewDispatch {
 pub struct Join {
     pub notification_id: String,
     pub role: Role,
-    /// The event resolves the notification. The inner value is the id of the delivery that
-    /// tells the target, when it is to be told.
-    pub resolve: Option<Option<String>>,
+    /// The event resolves the notification. The list holds the deliveries that tell those who
+    /// had been told about it; empty when nobody had.
+    pub resolve: Option<Vec<NewDelivery>>,
+}
+
+/// A delivery to add to a notification that already exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewDelivery {
+    pub id: String,
+    pub connection_id: String,
+    pub destination: Option<String>,
+    pub template_id: Option<String>,
+    /// The escalation step it belongs to, counted from 0. `None` for the route's own target.
+    pub step: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
@@ -118,6 +129,10 @@ pub struct Delivery {
     pub external_ref: Option<String>,
     /// Something went wrong that did not stop the send, for example a template that failed.
     pub warning: Option<String>,
+    /// The escalation step that sent it, counted from 0. Absent for the route's own targets.
+    pub step: Option<i64>,
+    /// The template that words it, when it differs from the notification's.
+    pub template_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -163,7 +178,7 @@ pub struct QueueDepth {
 }
 
 pub(crate) const DELIVERY_COLS: &str = "id, workspace_id, notification_id, connection_id, destination, state, attempts, \
-                                        next_attempt_at, last_error, external_ref, warning, created_at, updated_at";
+                                        next_attempt_at, last_error, external_ref, warning, step, template_id, created_at, updated_at";
 
 macro_rules! delivery_from {
     ($row:expr) => {{
@@ -183,6 +198,8 @@ macro_rules! delivery_from {
             last_error: $row.try_get("last_error")?,
             external_ref: $row.try_get("external_ref")?,
             warning: $row.try_get("warning")?,
+            step: $row.try_get("step")?,
+            template_id: $row.try_get("template_id")?,
             created_at: $row.try_get("created_at")?,
             updated_at: $row.try_get("updated_at")?,
         }
@@ -227,7 +244,7 @@ impl Store {
              held_until = NULL, hold_kind = NULL WHERE id = $2",
         );
         let cancel = q("DELETE FROM timers WHERE notification_id = $1");
-        let notice = q(INSERT_DELIVERY_OF);
+        let notice = q(INSERT_DELIVERY_FOR);
         let routed = q(
             "UPDATE events SET routed_at = $1, route_count = $2, claimed_until = NULL WHERE id = $3",
         );
@@ -320,11 +337,16 @@ impl Store {
                         .bind(&j.notification_id)
                         .execute(&mut *tx)
                         .await?;
-                    if let Some(delivery_id) = notify {
+                    for d in notify {
                         sqlx::query(AssertSqlSafe(notice.as_str()))
-                            .bind(delivery_id)
-                            .bind(now_ms)
+                            .bind(&d.id)
+                            .bind(&event.workspace_id)
                             .bind(&j.notification_id)
+                            .bind(&d.connection_id)
+                            .bind(&d.destination)
+                            .bind(now_ms)
+                            .bind(&d.template_id)
+                            .bind(d.step)
                             .execute(&mut *tx)
                             .await?;
                     }

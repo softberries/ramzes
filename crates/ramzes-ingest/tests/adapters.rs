@@ -32,6 +32,10 @@ impl Opener for PlainOpener {
     fn open(&self, sealed: &str) -> Result<Value, String> {
         serde_json::from_str(sealed).map_err(|e| e.to_string())
     }
+
+    fn sign(&self, text: &str) -> String {
+        format!("signed-{text}")
+    }
 }
 
 struct World {

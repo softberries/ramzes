@@ -19,6 +19,7 @@ fn full() -> Message {
         ],
         link: Some("https://ramzes.example.com/events/0199".into()),
         event_ids: vec!["0199".into()],
+        ..Message::default()
     }
 }
 
@@ -32,6 +33,7 @@ fn bare() -> Message {
         fields: vec![],
         link: None,
         event_ids: vec!["0200".into()],
+        ..Message::default()
     }
 }
 
@@ -56,6 +58,7 @@ fn awkward() -> Message {
             .collect(),
         link: Some("https://ramzes.example.com/events/1?a=\"b\"&c=<d>".into()),
         event_ids: vec!["1".into()],
+        ..Message::default()
     }
 }
 

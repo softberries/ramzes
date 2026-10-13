@@ -28,6 +28,42 @@ pub struct Route {
     /// What the route does besides sending: dedup, grouping, quiet hours, rate limit.
     #[serde(default)]
     pub shaping: crate::shaping::Shaping,
+    /// Who else is told, and after how long, while nobody acknowledges.
+    #[serde(default)]
+    pub escalation: Vec<EscalationStep>,
+}
+
+/// One step of an escalation chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EscalationStep {
+    /// Seconds after the previous step (or after the notification was first sent).
+    pub after_s: i64,
+    pub targets: Vec<Target>,
+}
+
+const STEPS_MAX: usize = 10;
+const WEEK_S: i64 = 7 * 86_400;
+
+/// Checks an escalation chain.
+pub fn validate_escalation(steps: &[EscalationStep]) -> Result<(), String> {
+    if steps.len() > STEPS_MAX {
+        return Err(format!("escalation: at most {STEPS_MAX} steps are allowed"));
+    }
+    for (index, step) in steps.iter().enumerate() {
+        let number = index + 1;
+        if !(1..=WEEK_S).contains(&step.after_s) {
+            return Err(format!(
+                "escalation step {number}: the delay must be 1 second to 7 days"
+            ));
+        }
+        if step.targets.is_empty() {
+            return Err(format!(
+                "escalation step {number}: it needs at least one target"
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]

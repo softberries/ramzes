@@ -30,6 +30,10 @@ impl Opener for PlainOpener {
     fn open(&self, sealed: &str) -> Result<serde_json::Value, String> {
         serde_json::from_str(sealed).map_err(|e| e.to_string())
     }
+
+    fn sign(&self, text: &str) -> String {
+        format!("signed-{text}")
+    }
 }
 
 /// A connector that answers from a script and records what it was asked to send.
@@ -37,6 +41,8 @@ impl Opener for PlainOpener {
 struct Scripted {
     outcomes: Mutex<VecDeque<SendOutcome>>,
     sent: Mutex<Vec<(Message, Option<String>, serde_json::Value)>>,
+    /// `(reference, note)` of every message it was asked to rewrite.
+    updates: Mutex<Vec<(String, String)>>,
 }
 
 #[async_trait]
@@ -98,6 +104,20 @@ impl Connector for Scripted {
                 external_ref: Some("ref-1".into()),
                 status: Some(200),
             })
+    }
+
+    async fn update(
+        &self,
+        _c: &ConnectionConfig,
+        reference: &str,
+        _m: &Message,
+        note: &str,
+    ) -> Result<(), String> {
+        self.updates
+            .lock()
+            .unwrap()
+            .push((reference.to_owned(), note.to_owned()));
+        Ok(())
     }
 }
 
@@ -194,7 +214,7 @@ impl World {
                     template_id: None,
                 })
                 .collect(),
-            shaping: Default::default(),
+            ..Route::default()
         };
         self.store.create_route(&self.ws, &r, 0).await.unwrap();
         r.id
@@ -1478,4 +1498,282 @@ async fn a_message_that_cannot_be_delivered_raises_an_event_but_never_about_itse
         Some("HTTP 400: bad payload")
     );
     assert_eq!(system[0].deliveries_failed, 1);
+}
+
+// ---- milestone 4: escalation, acknowledgement links, message updates ----
+
+use ramzes_core::EscalationStep;
+
+impl World {
+    /// A route to `first` that escalates to each of `then` after the given seconds.
+    async fn escalating(
+        &self,
+        first: &str,
+        then: &[(i64, &str)],
+        policy: serde_json::Value,
+    ) -> String {
+        let r = Route {
+            id: new_id(),
+            name: "paged".into(),
+            enabled: true,
+            r#match: RouteMatch {
+                topic: Some("orders.*".into()),
+                ..RouteMatch::default()
+            },
+            targets: vec![Target {
+                connection_id: first.into(),
+                ..Target::default()
+            }],
+            shaping: shaping(policy),
+            escalation: then
+                .iter()
+                .map(|(after_s, connection)| EscalationStep {
+                    after_s: *after_s,
+                    targets: vec![Target {
+                        connection_id: connection.to_string(),
+                        destination: Some("oncall".into()),
+                        template_id: None,
+                    }],
+                })
+                .collect(),
+            ..Route::default()
+        };
+        self.store.create_route(&self.ws, &r, 0).await.unwrap();
+        r.id
+    }
+
+    /// `(token of the connection, destination, title)` of every message sent so far.
+    fn sent_to(&self) -> Vec<(String, Option<String>, String)> {
+        self.connector
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(m, d, c)| {
+                (
+                    c["token"].as_str().unwrap().to_owned(),
+                    d.clone(),
+                    m.title.clone(),
+                )
+            })
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn an_unacknowledged_notification_escalates_step_by_step() {
+    let w = world().await;
+    let (team, lead, boss) = (
+        w.connection("team").await,
+        w.connection("lead").await,
+        w.connection("boss").await,
+    );
+    w.escalating(&team, &[(300, &lead), (600, &boss)], json!({}))
+        .await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    assert_eq!(
+        w.sent_to(),
+        vec![("team".to_string(), None, "Database down".to_string())]
+    );
+
+    w.advance(299_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 1);
+    w.advance(1_000);
+    w.settle().await;
+    assert_eq!(
+        w.sent_to()[1],
+        (
+            "lead".to_string(),
+            Some("oncall".to_string()),
+            "Escalated: Database down".to_string()
+        )
+    );
+    // The second step counts from the first.
+    w.advance(599_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 2);
+    w.advance(1_000);
+    w.settle().await;
+    assert_eq!(w.sent_to()[2].0, "boss");
+    w.advance(3_600_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 3);
+}
+
+#[tokio::test]
+async fn acknowledging_stops_the_chain() {
+    let w = world().await;
+    let (team, lead, boss) = (
+        w.connection("team").await,
+        w.connection("lead").await,
+        w.connection("boss").await,
+    );
+    w.escalating(&team, &[(300, &lead), (600, &boss)], json!({}))
+        .await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    w.advance(300_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 2);
+    let id = w.notifications().await[0].id.clone();
+    w.store
+        .acknowledge(&w.ws, &id, "kris", w.clock.now_ms())
+        .await
+        .unwrap();
+    w.advance(3_600_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 2);
+}
+
+#[tokio::test]
+async fn a_resolution_reaches_everyone_who_was_told_and_nobody_else() {
+    let w = world().await;
+    let (team, lead, boss) = (
+        w.connection("team").await,
+        w.connection("lead").await,
+        w.connection("boss").await,
+    );
+    w.escalating(&team, &[(300, &lead), (600, &boss)], json!({}))
+        .await;
+    w.send("Database down", |e| e.dedup_key = Some("db".into()))
+        .await;
+    w.settle().await;
+    w.advance(300_000);
+    w.settle().await;
+    w.send("Database up", |e| {
+        e.dedup_key = Some("db".into());
+        e.status = EventStatus::Resolved;
+    })
+    .await;
+    w.settle().await;
+    let sent = w.connector.sent.lock().unwrap().clone();
+    let mut resolved: Vec<String> = sent
+        .iter()
+        .filter(|(m, _, _)| m.status == EventStatus::Resolved)
+        .map(|(m, _, c)| format!("{}:{}", c["token"].as_str().unwrap(), m.title))
+        .collect();
+    resolved.sort();
+    assert_eq!(resolved, vec!["lead:Database down", "team:Database down"]);
+    // The chain is over: the third step never fires.
+    w.advance(3_600_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 4);
+}
+
+#[tokio::test]
+async fn a_grouped_notification_starts_its_chain_when_it_is_sent() {
+    let w = world().await;
+    let (team, lead) = (w.connection("team").await, w.connection("lead").await);
+    w.escalating(
+        &team,
+        &[(300, &lead)],
+        json!({"group": {"by": [], "wait_s": 60}}),
+    )
+    .await;
+    w.send("one", |_| {}).await;
+    w.settle().await;
+    w.advance(60_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 1);
+    w.advance(299_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 1);
+    w.advance(1_000);
+    w.settle().await;
+    assert_eq!(w.sent_to()[1].0, "lead");
+}
+
+#[tokio::test]
+async fn a_chain_follows_the_route_as_it_is_now_and_ends_when_the_route_is_deleted() {
+    let w = world().await;
+    let (team, lead, boss) = (
+        w.connection("team").await,
+        w.connection("lead").await,
+        w.connection("boss").await,
+    );
+    let route = w
+        .escalating(&team, &[(300, &lead), (600, &boss)], json!({}))
+        .await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    w.advance(300_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 2);
+    w.store.delete_route(&w.ws, &route).await.unwrap();
+    w.advance(600_000);
+    w.settle().await;
+    assert_eq!(w.sent_to().len(), 2);
+}
+
+#[tokio::test]
+async fn a_message_carries_its_key_its_acknowledgement_link_and_its_thread() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    w.shaped(
+        &c,
+        json!({"group": {"by": [], "wait_s": 10, "repeat_s": 600}}),
+    )
+    .await;
+    w.send("Database down", |e| e.dedup_key = Some("db".into()))
+        .await;
+    w.settle().await;
+    w.advance(10_000);
+    w.settle().await;
+    let id = w.notifications().await[0].id.clone();
+    let first = w.messages().remove(0);
+    assert_eq!(first.dedup_key.as_deref(), Some("db"));
+    assert_eq!(first.notification_id.as_deref(), Some(id.as_str()));
+    assert_eq!(
+        first.ack_link.as_deref(),
+        Some(format!("https://ramzes.example.com/ack/{id}?t=signed-ack:{id}").as_str())
+    );
+    assert_eq!(first.thread_ref, None);
+
+    // The reminder goes under the first message, whose reference the connector returned.
+    w.advance(600_000);
+    w.settle().await;
+    assert_eq!(w.messages()[1].thread_ref.as_deref(), Some("ref-1"));
+
+    // Without its own key a notification is identified by its id; a resolved message has no link.
+    w.send("Database up", |e| {
+        e.dedup_key = Some("db".into());
+        e.status = EventStatus::Resolved;
+    })
+    .await;
+    w.settle().await;
+    let last = w.messages().pop().unwrap();
+    assert_eq!(
+        (last.status, last.ack_link.clone()),
+        (EventStatus::Resolved, None)
+    );
+}
+
+#[tokio::test]
+async fn delivered_messages_are_updated_when_the_notification_is_acknowledged() {
+    let w = world().await;
+    let c = w.connection("team").await;
+    w.route("orders.*", &[(&c, None)]).await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    let id = w.notifications().await[0].id.clone();
+    w.store
+        .acknowledge(&w.ws, &id, "kris@example.com", w.clock.now_ms())
+        .await
+        .unwrap();
+    w.engine.request_refresh(&id);
+    w.settle().await;
+    let updates = w.connector.updates.lock().unwrap().clone();
+    assert_eq!(
+        updates,
+        vec![(
+            "ref-1".to_string(),
+            "Acknowledged by kris@example.com".to_string()
+        )]
+    );
+    // Asking again for something that did not change state does nothing new.
+    w.engine.request_refresh("no-such-notification");
+    w.settle().await;
+    assert_eq!(w.connector.updates.lock().unwrap().len(), 1);
 }

@@ -16,7 +16,13 @@ macro_rules! route_from {
         let match_json: String = $row.try_get("match_json")?;
         let targets_json: String = $row.try_get("targets_json")?;
         let shaping_json: String = $row.try_get("shaping_json")?;
+        let escalation_json: String = $row.try_get("escalation_json")?;
         Route {
+            escalation: serde_json::from_str(&escalation_json).map_err(|e| {
+                StoreError::Data(format!(
+                    "route {id} has an unreadable escalation chain: {e}"
+                ))
+            })?,
             shaping: serde_json::from_str(&shaping_json).map_err(|e| {
                 StoreError::Data(format!("route {id} has an unreadable shaping policy: {e}"))
             })?,
@@ -41,10 +47,14 @@ impl Store {
             "INSERT INTO routes (id, workspace_id, name, position, enabled, stop, match_json, targets_json, \
              shaping_json, escalation_json, created_at, updated_at) \
              VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), 0) + 1 FROM routes WHERE workspace_id = $2), \
-             $4, $5, $6, $7, $9, '[]', $8, $8)",
+             $4, $5, $6, $7, $9, $10, $8, $8)",
         );
-        let (match_json, targets_json, shaping_json) =
-            (json(&r.r#match)?, json(&r.targets)?, json(&r.shaping)?);
+        let (match_json, targets_json, shaping_json, escalation_json) = (
+            json(&r.r#match)?,
+            json(&r.targets)?,
+            json(&r.shaping)?,
+            json(&r.escalation)?,
+        );
         with_db!(self, |pool| {
             sqlx::query(AssertSqlSafe(&*sql))
                 .bind(&r.id)
@@ -56,6 +66,7 @@ impl Store {
                 .bind(&targets_json)
                 .bind(now_ms)
                 .bind(&shaping_json)
+                .bind(&escalation_json)
                 .execute(pool)
                 .await
                 .map(|_| ())
@@ -67,11 +78,15 @@ impl Store {
     pub async fn update_route(&self, workspace_id: &str, r: &Route, now_ms: i64) -> Result<()> {
         let sql = self.sql(
             "UPDATE routes SET name = $1, enabled = $2, stop = $3, match_json = $4, targets_json = $5, updated_at = $6, \
-             last_error = NULL, last_error_at = NULL, shaping_json = $9 \
+             last_error = NULL, last_error_at = NULL, shaping_json = $9, escalation_json = $10 \
              WHERE workspace_id = $7 AND id = $8",
         );
-        let (match_json, targets_json, shaping_json) =
-            (json(&r.r#match)?, json(&r.targets)?, json(&r.shaping)?);
+        let (match_json, targets_json, shaping_json, escalation_json) = (
+            json(&r.r#match)?,
+            json(&r.targets)?,
+            json(&r.shaping)?,
+            json(&r.escalation)?,
+        );
         let changed = with_db!(self, |pool| {
             sqlx::query(AssertSqlSafe(&*sql))
                 .bind(&r.name)
@@ -83,6 +98,7 @@ impl Store {
                 .bind(workspace_id)
                 .bind(&r.id)
                 .bind(&shaping_json)
+                .bind(&escalation_json)
                 .execute(pool)
                 .await
                 .map(|r| r.rows_affected())
@@ -114,7 +130,7 @@ impl Store {
     /// All routes in evaluation order.
     pub async fn list_routes(&self, workspace_id: &str) -> Result<Vec<Route>> {
         let sql = self.sql(
-            "SELECT id, name, position, enabled, stop, match_json, targets_json, shaping_json FROM routes \
+            "SELECT id, name, position, enabled, stop, match_json, targets_json, shaping_json, escalation_json FROM routes \
              WHERE workspace_id = $1 ORDER BY position, id",
         );
         with_db!(self, |pool| {

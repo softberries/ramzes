@@ -20,6 +20,7 @@ use ramzes_core::RetryPolicy;
 use ramzes_store::{DeliveryState, Store, StoreError};
 use tokio::sync::{Notify, Semaphore, broadcast};
 
+pub use delivery_worker::ack_text;
 pub use render::{Composed, compose};
 pub use system::SYSTEM_TOPIC_PREFIX;
 use tokio_util::sync::CancellationToken;
@@ -40,9 +41,13 @@ impl Clock for SystemClock {
     }
 }
 
-/// Decrypts a connection's stored credentials.
+/// What the engine needs of the instance key: opening stored credentials and signing links.
 pub trait Opener: Send + Sync {
     fn open(&self, sealed: &str) -> std::result::Result<serde_json::Value, String>;
+
+    /// A keyed signature of `text` under the instance key, as lower-case hex. Used for links
+    /// that must not be guessable.
+    fn sign(&self, text: &str) -> String;
 }
 
 /// Something the UI may want to show without polling.
@@ -110,6 +115,8 @@ pub struct Engine {
     connection_slots: Mutex<HashMap<String, Arc<Semaphore>>>,
     /// The last error written for each route and when, so the same error is not written per event.
     route_errors: Mutex<HashMap<String, (String, i64)>>,
+    /// Notifications whose delivered messages should be rewritten to show their new state.
+    refreshes: Mutex<Vec<String>>,
 }
 
 /// Pause after a failed pass, so a broken database is not hammered.
@@ -126,6 +133,7 @@ impl Engine {
             changes,
             connection_slots: Mutex::default(),
             route_errors: Mutex::default(),
+            refreshes: Mutex::default(),
         })
     }
 
@@ -150,6 +158,16 @@ impl Engine {
         self.announce(Change::NotificationChanged {
             notification_id: notification_id.to_owned(),
         });
+    }
+
+    /// Asks for the messages already delivered for a notification to be updated where the
+    /// service allows it, after the notification was acknowledged or resolved.
+    pub fn request_refresh(&self, notification_id: &str) {
+        self.refreshes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(notification_id.to_owned());
+        self.delivery_wake.notify_one();
     }
 
     fn announce(&self, change: Change) {

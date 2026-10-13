@@ -248,7 +248,7 @@ async fn a_grouping_notification_has_no_delivery_until_it_is_sent(store: Store) 
 
     let delivery_id = ramzes_core::new_id();
     store
-        .send_notification(&d.notification_id, &delivery_id, None, 200)
+        .send_notification(&d.notification_id, &delivery_id, &[], 200)
         .await
         .unwrap();
     let claimed = store.claim_due_deliveries(200, 1000, 10).await.unwrap();
@@ -346,7 +346,13 @@ async fn resolving_closes_the_notification_and_cancels_its_timers(store: Store) 
     let join = Join {
         notification_id: d.notification_id.clone(),
         role: Role::Resolved,
-        resolve: Some(Some(notice.clone())),
+        resolve: Some(vec![ramzes_store::NewDelivery {
+            id: notice.clone(),
+            connection_id: "c1".into(),
+            destination: None,
+            template_id: None,
+            step: None,
+        }]),
     };
     store
         .write_routing(&up, &[], std::slice::from_ref(&join), true, 300)

@@ -89,6 +89,7 @@ fn message(title: &str) -> Message {
         fields: vec![("env".into(), "<prod>".into())],
         link: Some("https://ramzes.example.com/events/0199".into()),
         event_ids: vec!["0199".into()],
+        ..Message::default()
     }
 }
 

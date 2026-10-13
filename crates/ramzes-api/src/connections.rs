@@ -283,6 +283,7 @@ pub(crate) async fn test(
         fields: Vec::new(),
         link: None,
         event_ids: Vec::new(),
+        ..Message::default()
     };
     let config = ConnectionConfig {
         settings: connection.settings,

@@ -5,7 +5,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
+use hmac::{Hmac, Mac};
 use ramzes_engine::Opener;
+use sha2::{Digest, Sha256};
 
 const KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 24;
@@ -14,6 +16,8 @@ const KEY_FILE: &str = "secret.key";
 /// The instance key that encrypts connection credentials at rest (XChaCha20-Poly1305).
 pub struct SecretKey {
     cipher: XChaCha20Poly1305,
+    /// Derived from the key; signs links such as the one that acknowledges a notification.
+    signing: [u8; 32],
 }
 
 impl SecretKey {
@@ -24,8 +28,12 @@ impl SecretKey {
                 bytes.len()
             )
         })?;
+        let mut derive = Sha256::new();
+        derive.update(b"ramzes link signing v1");
+        derive.update(key);
         Ok(SecretKey {
             cipher: XChaCha20Poly1305::new(&key.into()),
+            signing: derive.finalize().into(),
         })
     }
 
@@ -100,5 +108,12 @@ impl SecretKey {
 impl Opener for SecretKey {
     fn open(&self, sealed: &str) -> Result<serde_json::Value, String> {
         SecretKey::open(self, sealed)
+    }
+
+    fn sign(&self, text: &str) -> String {
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&self.signing)
+            .expect("HMAC accepts a key of any length");
+        mac.update(text.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
     }
 }

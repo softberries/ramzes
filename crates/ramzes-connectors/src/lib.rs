@@ -158,6 +158,19 @@ pub trait Connector: Send + Sync {
         destination: Option<&str>,
         now_ms: i64,
     ) -> SendOutcome;
+
+    /// Rewrites a message that was delivered earlier, identified by the reference `send`
+    /// returned, to show `note` (for example who acknowledged it). Connectors that cannot
+    /// change a sent message do nothing.
+    async fn update(
+        &self,
+        _c: &ConnectionConfig,
+        _external_ref: &str,
+        _m: &Message,
+        _note: &str,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The connectors of this instance, by kind: those shipped with ramzes and those users defined.

@@ -21,6 +21,7 @@ fn message() -> Message {
         ],
         link: Some("https://ramzes.example.com/events/0199".into()),
         event_ids: vec!["0199".into()],
+        ..Message::default()
     }
 }
 
@@ -34,6 +35,7 @@ fn bare_message() -> Message {
         fields: vec![],
         link: None,
         event_ids: vec!["0200".into()],
+        ..Message::default()
     }
 }
 

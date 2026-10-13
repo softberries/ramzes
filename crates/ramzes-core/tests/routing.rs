@@ -300,3 +300,47 @@ fn a_trace_says_what_happened_at_every_route() {
     assert_eq!(got[3], ("stop", &RouteOutcome::Matched));
     assert_eq!(got[4], ("after", &RouteOutcome::Skipped));
 }
+
+#[test]
+fn an_escalation_chain_is_validated_and_read_from_json() {
+    use ramzes_core::{EscalationStep, validate_escalation};
+    let step = |after_s, targets: &[&str]| EscalationStep {
+        after_s,
+        targets: targets
+            .iter()
+            .map(|c| Target {
+                connection_id: c.to_string(),
+                ..Target::default()
+            })
+            .collect(),
+    };
+    assert!(validate_escalation(&[]).is_ok());
+    assert!(validate_escalation(&[step(300, &["c1"]), step(900, &["c2", "c3"])]).is_ok());
+    assert!(
+        validate_escalation(&[step(0, &["c1"])])
+            .unwrap_err()
+            .contains("step 1")
+    );
+    assert!(
+        validate_escalation(&[step(60, &["c1"]), step(60, &[])])
+            .unwrap_err()
+            .contains("step 2")
+    );
+    assert!(validate_escalation(&vec![step(60, &["c1"]); 11]).is_err());
+    let route: Route = serde_json::from_value(json!({
+        "id": "r", "name": "r", "position": 1, "enabled": true, "stop": false, "match": {},
+        "targets": [{"connection_id": "c1"}],
+        "escalation": [{"after_s": 300, "targets": [{"connection_id": "c2", "destination": "oncall"}]}]
+    }))
+    .unwrap();
+    assert_eq!(
+        route.escalation[0].targets[0].destination.as_deref(),
+        Some("oncall")
+    );
+    // A route stored before chains existed has none.
+    let old: Route = serde_json::from_value(json!({
+        "id": "r", "name": "r", "position": 1, "enabled": true, "stop": false, "match": {}, "targets": []
+    }))
+    .unwrap();
+    assert!(old.escalation.is_empty());
+}

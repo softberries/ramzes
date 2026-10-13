@@ -28,6 +28,10 @@ impl Opener for NoOpener {
     fn open(&self, _: &str) -> Result<Value, String> {
         Ok(json!({}))
     }
+
+    fn sign(&self, text: &str) -> String {
+        format!("signed-{text}")
+    }
 }
 
 struct World {
