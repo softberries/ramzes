@@ -11,6 +11,31 @@ publish = false
 workspace = true
 
 [dependencies]
+ramzes-api.workspace = true
+ramzes-connectors.workspace = true
+ramzes-core.workspace = true
+ramzes-engine.workspace = true
+ramzes-ingest.workspace = true
+ramzes-store.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+prometheus-client.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
+wiremock.workspace = true
+
 [[bin]]
 name = "ramzes"
 path = "src/main.rs"

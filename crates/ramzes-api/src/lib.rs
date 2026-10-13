@@ -44,11 +44,8 @@ pub struct AppState {
 ))]
 struct ApiDoc;
 
-/// The admin routes and the OpenAPI document that describes them.
-///
-/// The document itself is served at `/api/openapi.json`.
-pub fn router(state: AppState) -> (Router, utoipa::openapi::OpenApi) {
-    let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(auth::setup_status, auth::setup))
         .routes(routes!(auth::login))
         .routes(routes!(auth::logout))
@@ -76,8 +73,18 @@ pub fn router(state: AppState) -> (Router, utoipa::openapi::OpenApi) {
         .routes(routes!(settings::tokens, settings::create_token))
         .routes(routes!(settings::delete_token))
         .routes(routes!(stream::stream))
-        .with_state(state)
-        .split_for_parts();
+}
+
+/// The OpenAPI document describing the admin API.
+pub fn openapi() -> utoipa::openapi::OpenApi {
+    routes().into_openapi()
+}
+
+/// The admin routes and the OpenAPI document that describes them.
+///
+/// The document itself is served at `/api/openapi.json`.
+pub fn router(state: AppState) -> (Router, utoipa::openapi::OpenApi) {
+    let (router, openapi) = routes().with_state(state).split_for_parts();
     let document = openapi.clone();
     let router = router.route(
         "/api/openapi.json",

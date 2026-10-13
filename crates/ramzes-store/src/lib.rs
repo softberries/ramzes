@@ -141,6 +141,26 @@ impl Store {
         with_db!(self, |pool| pool.close().await);
     }
 
+    /// Writes a consistent copy of a SQLite database to `file`, which must not exist yet.
+    pub async fn backup_to(&self, file: &std::path::Path) -> Result<()> {
+        let Db::Sqlite(pool) = &self.db else {
+            return Err(StoreError::Conflict(
+                "backup only covers SQLite; for Postgres use pg_dump".into(),
+            ));
+        };
+        if file.exists() {
+            return Err(StoreError::Conflict(format!(
+                "{} already exists",
+                file.display()
+            )));
+        }
+        sqlx::query("VACUUM INTO ?1")
+            .bind(file.display().to_string())
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn ping(&self) -> Result<()> {
         with_db!(self, |pool| sqlx::query("SELECT 1")
             .execute(pool)
