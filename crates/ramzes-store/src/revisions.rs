@@ -208,7 +208,7 @@ impl Store {
         let delete_routes = q("DELETE FROM routes WHERE workspace_id = $1");
         let insert_route = q(
             "INSERT INTO routes (id, workspace_id, name, position, enabled, stop, match_json, targets_json, \
-             shaping_json, escalation_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '{}', '[]', $9, $9)",
+             shaping_json, escalation_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $10, '[]', $9, $9)",
         );
         let delete_templates = q("DELETE FROM templates WHERE workspace_id = $1");
         let insert_template = q(
@@ -235,7 +235,12 @@ impl Store {
         );
         let mut routes = Vec::with_capacity(config.routes.len());
         for route in &config.routes {
-            routes.push((route, json(&route.r#match)?, json(&route.targets)?));
+            routes.push((
+                route,
+                json(&route.r#match)?,
+                json(&route.targets)?,
+                json(&route.shaping)?,
+            ));
         }
         with_db!(self, |pool| {
             let mut tx = pool.begin_write().await?;
@@ -243,7 +248,9 @@ impl Store {
                 .bind(workspace_id)
                 .execute(&mut *tx)
                 .await?;
-            for (position, (route, match_json, targets_json)) in (1_i64..).zip(&routes) {
+            for (position, (route, match_json, targets_json, shaping_json)) in
+                (1_i64..).zip(&routes)
+            {
                 sqlx::query(AssertSqlSafe(insert_route.as_str()))
                     .bind(&route.id)
                     .bind(workspace_id)
@@ -254,6 +261,7 @@ impl Store {
                     .bind(match_json)
                     .bind(targets_json)
                     .bind(now_ms)
+                    .bind(shaping_json)
                     .execute(&mut *tx)
                     .await?;
             }

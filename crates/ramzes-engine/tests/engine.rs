@@ -194,6 +194,7 @@ impl World {
                     template_id: None,
                 })
                 .collect(),
+            shaping: Default::default(),
         };
         self.store.create_route(&self.ws, &r, 0).await.unwrap();
         r.id

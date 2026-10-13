@@ -10,6 +10,7 @@ mod mapping;
 mod matching;
 mod message;
 mod routing;
+pub mod shaping;
 
 pub use backoff::{Next, RetryPolicy, next_attempt};
 pub use event::{Event, EventStatus, NewEvent, Severity, ValidationError};
@@ -22,3 +23,4 @@ pub use message::{Message, Template, apply_template, build_message};
 pub use routing::{
     Matched, Route, RouteOutcome, RouteTrace, Routed, Target, route_event, trace_routes,
 };
+pub use shaping::Shaping;

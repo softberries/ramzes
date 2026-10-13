@@ -25,6 +25,9 @@ pub struct Route {
     pub stop: bool,
     pub r#match: RouteMatch,
     pub targets: Vec<Target>,
+    /// What the route does besides sending: dedup, grouping, quiet hours, rate limit.
+    #[serde(default)]
+    pub shaping: crate::shaping::Shaping,
 }
 
 #[derive(Debug, Clone, Copy)]

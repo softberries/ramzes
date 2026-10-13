@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use ramzes_core::{Route, RouteMatch, Target, new_id};
+use ramzes_core::{Route, RouteMatch, Shaping, Target, new_id};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -26,6 +26,9 @@ pub(crate) struct RouteInput {
     stop: bool,
     r#match: RouteMatch,
     targets: Vec<Target>,
+    /// Dedup, grouping, quiet hours and rate limit. Empty sends every matching event at once.
+    #[serde(default)]
+    shaping: Shaping,
 }
 
 impl RouteInput {
@@ -39,6 +42,7 @@ impl RouteInput {
             stop: self.stop,
             r#match: self.r#match,
             targets: self.targets,
+            shaping: self.shaping,
         }
     }
 }
@@ -71,6 +75,7 @@ async fn checked(
         .r#match
         .validate()
         .map_err(|e| ApiError::invalid(e.to_string()))?;
+    input.shaping.validate().map_err(ApiError::invalid)?;
     if input.targets.is_empty() {
         return Err(ApiError::invalid("a route needs at least one target"));
     }

@@ -48,6 +48,7 @@ fn route(id: &str, position: i64, m: RouteMatch, targets: &[&str]) -> Route {
                 ..Target::default()
             })
             .collect(),
+        ..Route::default()
     }
 }
 
