@@ -3,7 +3,13 @@
 //! Every query is written once with `$N` placeholders and the column types both databases share
 //! (`TEXT` and `BIGINT`). [`with_db!`] expands the same body for each backend.
 
+mod events;
 mod settings;
+mod sources;
+mod sql;
+
+pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
+pub use sources::{Source, SourceRequest};
 
 use std::borrow::Cow;
 use std::str::FromStr;

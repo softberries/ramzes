@@ -3,7 +3,9 @@
 //! Postgres tests need `RAMZES_TEST_POSTGRES_URL` (see `make test-pg`); without it they print a
 //! notice and pass without running.
 
+mod events;
 mod foundation;
+mod sources;
 
 use ramzes_store::Store;
 use sqlx::Executor;
@@ -64,4 +66,40 @@ macro_rules! contract {
             })*
         }
     };
+}
+
+/// A valid event for `source_id` with the given topic; other fields are fixed.
+pub fn event(ws: &str, source_id: &str, topic: &str, received_at: i64) -> ramzes_core::Event {
+    ramzes_core::Event {
+        id: ramzes_core::new_id(),
+        workspace_id: ws.into(),
+        source_id: source_id.into(),
+        topic: topic.into(),
+        severity: ramzes_core::Severity::Info,
+        status: ramzes_core::EventStatus::Firing,
+        title: format!("{topic} happened"),
+        body: None,
+        labels: Default::default(),
+        payload: serde_json::Value::Null,
+        dedup_key: None,
+        occurred_at: received_at,
+        received_at,
+    }
+}
+
+/// A workspace with one source; returns `(workspace_id, source_id)`.
+pub async fn seed(store: &Store) -> (String, String) {
+    let ws = store.ensure_workspace(1).await.unwrap();
+    let source = store
+        .create_source(
+            &ws,
+            "orders-api",
+            "native",
+            &ramzes_core::new_id(),
+            "rz_src_abcd",
+            1,
+        )
+        .await
+        .unwrap();
+    (ws, source.id)
 }
