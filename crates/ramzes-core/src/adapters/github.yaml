@@ -1,0 +1,33 @@
+kind: github
+name: GitHub
+description: Repository and organisation webhooks. Workflow runs, pull requests, issues, pushes and releases get a readable title.
+setup: |
+  In GitHub: Settings, Webhooks, Add webhook.
+  Payload URL: {url}
+  Content type: application/json
+  Secret: {key}
+  Then choose the events to send.
+mapping:
+  verify: { method: hmac_sha256, header: X-Hub-Signature-256, prefix: "sha256=" }
+  when: "headers['x-github-event'] != 'ping'"
+  fields:
+    topic: "'github.' ~ (headers['x-github-event'] or 'event')"
+    title: >
+      (payload.repository.full_name or payload.organization.login or 'GitHub') ~ ': ' ~ (
+      ('workflow ' ~ (payload.workflow_run.name or 'run') ~ ' ' ~ (payload.workflow_run.conclusion or payload.workflow_run.status or payload.action) ~ ' on ' ~ (payload.workflow_run.head_branch or 'unknown branch'))
+      if headers['x-github-event'] == 'workflow_run' else
+      ('pull request #' ~ payload.number ~ ' ' ~ ('merged' if payload.pull_request.merged else payload.action) ~ ': ' ~ payload.pull_request.title)
+      if headers['x-github-event'] == 'pull_request' else
+      ('issue #' ~ payload.issue.number ~ ' ' ~ payload.action ~ ': ' ~ payload.issue.title)
+      if headers['x-github-event'] == 'issues' else
+      ('push to ' ~ (payload.ref | replace('refs/heads/', '') | replace('refs/tags/', 'tag ')) ~ ' by ' ~ (payload.pusher.name or 'someone') ~ ' (' ~ (payload.commits | length) ~ ' commits)')
+      if headers['x-github-event'] == 'push' else
+      ('release ' ~ payload.release.tag_name ~ ' ' ~ payload.action)
+      if headers['x-github-event'] == 'release' else
+      ((headers['x-github-event'] or 'event') ~ (' ' ~ payload.action if payload.action else ''))
+      )
+    severity: "'error' if payload.workflow_run.conclusion in ['failure', 'timed_out', 'startup_failure'] else 'info'"
+    status: "'resolved' if payload.workflow_run.conclusion == 'success' else 'firing'"
+    body: "payload.workflow_run.html_url or payload.pull_request.html_url or payload.issue.html_url or payload.release.html_url or payload.head_commit.message or payload.compare"
+    labels: "{'repo': payload.repository.full_name, 'event': headers['x-github-event'], 'action': payload.action, 'sender': payload.sender.login, 'branch': payload.workflow_run.head_branch, 'workflow': payload.workflow_run.name}"
+    dedup_key: "(payload.repository.full_name ~ '/' ~ payload.workflow_run.name ~ '/' ~ payload.workflow_run.head_branch) if headers['x-github-event'] == 'workflow_run' else none"

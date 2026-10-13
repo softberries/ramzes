@@ -1,5 +1,6 @@
 //! Domain types and pure logic for ramzes. No I/O.
 
+pub mod adapters;
 mod backoff;
 mod event;
 pub mod expr;

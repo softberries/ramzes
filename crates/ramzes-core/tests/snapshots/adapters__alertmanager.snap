@@ -1,0 +1,35 @@
+---
+source: crates/ramzes-core/tests/adapters.rs
+expression: events
+---
+[
+  {
+    "topic": "alertmanager.HighErrorRate",
+    "title": "Error rate above 5%",
+    "severity": "critical",
+    "status": "firing",
+    "body": "checkout is failing 7% of requests",
+    "labels": {
+      "alertname": "HighErrorRate",
+      "service": "checkout",
+      "severity": "critical"
+    },
+    "payload": "[alert]",
+    "dedup_key": "a1b2c3d4e5f60708",
+    "ts": "2026-10-13T09:41:07.123Z"
+  },
+  {
+    "topic": "alertmanager.DiskFull",
+    "title": "DiskFull",
+    "severity": "warning",
+    "status": "resolved",
+    "body": null,
+    "labels": {
+      "alertname": "DiskFull",
+      "instance": "db-1:9100"
+    },
+    "payload": "[alert]",
+    "dedup_key": "0011223344556677",
+    "ts": "2026-10-13T08:00:00Z"
+  }
+]

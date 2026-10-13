@@ -1,0 +1,25 @@
+kind: alertmanager
+name: Alertmanager
+description: Alerts from Prometheus Alertmanager, one event per alert.
+setup: |
+  Add a receiver to alertmanager.yml:
+
+  receivers:
+    - name: ramzes
+      webhook_configs:
+        - url: {url}
+          http_config:
+            authorization:
+              credentials: {key}
+mapping:
+  verify: { method: bearer }
+  events: payload.alerts
+  fields:
+    topic: "'alertmanager.' ~ (item.labels.alertname or 'alert')"
+    title: "item.annotations.summary or item.labels.alertname or 'Alert'"
+    severity: "item.labels.severity or 'warning'"
+    status: item.status
+    body: "item.annotations.description or item.annotations.message"
+    labels: item.labels
+    dedup_key: item.fingerprint
+    ts: item.startsAt

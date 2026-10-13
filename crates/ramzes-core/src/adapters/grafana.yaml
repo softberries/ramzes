@@ -1,0 +1,21 @@
+kind: grafana
+name: Grafana
+description: Alerts from a Grafana Alerting webhook contact point, one event per alert.
+setup: |
+  In Grafana: Alerting, Contact points, add a contact point of type Webhook.
+  URL: {url}
+  Authorization header, scheme: Bearer
+  Authorization header, credentials: {key}
+  Leave the custom payload off.
+mapping:
+  verify: { method: bearer }
+  events: payload.alerts
+  fields:
+    topic: "'grafana.' ~ (item.labels.alertname or 'alert')"
+    title: "item.annotations.summary or item.labels.alertname or payload.title or 'Alert'"
+    severity: "item.labels.severity or 'warning'"
+    status: item.status
+    body: "item.annotations.description or item.generatorURL"
+    labels: item.labels
+    dedup_key: item.fingerprint
+    ts: item.startsAt

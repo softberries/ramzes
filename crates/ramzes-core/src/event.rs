@@ -87,7 +87,7 @@ impl EventStatus {
 }
 
 /// An event as a sender submits it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewEvent {
     pub topic: String,

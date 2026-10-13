@@ -1,0 +1,22 @@
+---
+source: crates/ramzes-core/tests/adapters.rs
+expression: issue
+---
+[
+  {
+    "topic": "sentry.issue",
+    "title": "TypeError: x is undefined",
+    "severity": "error",
+    "status": "firing",
+    "body": "checkout in pay",
+    "labels": {
+      "action": "created",
+      "issue": "SHOP-1A",
+      "project": "shop",
+      "url": "https://sentry.io/organizations/acme/issues/1170820242/"
+    },
+    "payload": "[payload]",
+    "dedup_key": "1170820242",
+    "ts": null
+  }
+]

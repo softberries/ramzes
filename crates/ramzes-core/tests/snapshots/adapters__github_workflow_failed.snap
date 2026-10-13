@@ -1,0 +1,24 @@
+---
+source: crates/ramzes-core/tests/adapters.rs
+expression: failed
+---
+[
+  {
+    "topic": "github.workflow_run",
+    "title": "acme/shop: workflow CI failure on main",
+    "severity": "error",
+    "status": "firing",
+    "body": "https://github.com/acme/shop/actions/runs/1",
+    "labels": {
+      "action": "completed",
+      "branch": "main",
+      "event": "workflow_run",
+      "repo": "acme/shop",
+      "sender": "kris",
+      "workflow": "CI"
+    },
+    "payload": "[payload]",
+    "dedup_key": "acme/shop/CI/main",
+    "ts": null
+  }
+]

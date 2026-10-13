@@ -1,0 +1,21 @@
+kind: sentry
+name: Sentry
+description: Issue, issue alert and metric alert webhooks from a Sentry internal integration.
+setup: |
+  In Sentry: Settings, Developer Settings, create an Internal Integration.
+  Webhook URL: {url}
+  Enable the webhooks you want (issue, error) and "Alert Rule Action" to use it from alert rules.
+  Sentry generates the Client Secret. Copy it, then replace this source's key with it: ramzes checks
+  the signature Sentry makes with that secret.
+own_secret: true
+mapping:
+  verify: { method: hmac_sha256, header: Sentry-Hook-Signature }
+  when: "headers['sentry-hook-resource'] in ['issue', 'event_alert', 'metric_alert', 'error']"
+  fields:
+    topic: "'sentry.' ~ headers['sentry-hook-resource']"
+    title: "payload.data.issue.title or payload.data.event.title or payload.data.error.title or payload.data.description_title or ('Sentry ' ~ headers['sentry-hook-resource'])"
+    severity: "payload.data.issue.level or payload.data.event.level or payload.data.error.level or (payload.action if headers['sentry-hook-resource'] == 'metric_alert' else 'error')"
+    status: "'resolved' if payload.action == 'resolved' else 'firing'"
+    body: "payload.data.issue.culprit or payload.data.event.culprit or payload.data.error.culprit or payload.data.description_text"
+    labels: "{'action': payload.action, 'project': payload.data.issue.project.slug, 'issue': payload.data.issue.shortId, 'rule': payload.data.triggered_rule, 'url': payload.data.issue.web_url or payload.data.event.web_url or payload.data.error.web_url or payload.data.web_url}"
+    dedup_key: "payload.data.issue.id or payload.data.event.issue_id or payload.data.error.issue_id or payload.data.metric_alert.id"

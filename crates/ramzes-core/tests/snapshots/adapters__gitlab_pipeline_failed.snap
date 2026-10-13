@@ -1,0 +1,22 @@
+---
+source: crates/ramzes-core/tests/adapters.rs
+expression: pipeline
+---
+[
+  {
+    "topic": "gitlab.pipeline",
+    "title": "acme/shop: pipeline #31 failed on main",
+    "severity": "error",
+    "status": "firing",
+    "body": "https://gitlab.com/acme/shop/-/pipelines/31",
+    "labels": {
+      "kind": "pipeline",
+      "project": "acme/shop",
+      "ref": "main",
+      "user": "kris"
+    },
+    "payload": "[payload]",
+    "dedup_key": "acme/shop/pipeline/main",
+    "ts": null
+  }
+]

@@ -1,0 +1,27 @@
+kind: gitlab
+name: GitLab
+description: Project and group webhooks. Pipelines, merge requests and pushes get a readable title.
+setup: |
+  In GitLab: Settings, Webhooks, Add new webhook.
+  URL: {url}
+  Secret token: {key}
+  Then choose the triggers. ramzes checks the secret token (X-Gitlab-Token); the newer signing token is not checked.
+mapping:
+  verify: { method: header, header: X-Gitlab-Token }
+  fields:
+    topic: "'gitlab.' ~ (payload.object_kind or payload.event_name or 'event')"
+    title: >
+      (payload.project.path_with_namespace or 'GitLab') ~ ': ' ~ (
+      ('pipeline #' ~ payload.object_attributes.id ~ ' ' ~ payload.object_attributes.status ~ ' on ' ~ payload.object_attributes.ref)
+      if payload.object_kind == 'pipeline' else
+      ('merge request !' ~ payload.object_attributes.iid ~ ' ' ~ (payload.object_attributes.action or payload.object_attributes.state) ~ ': ' ~ payload.object_attributes.title)
+      if payload.object_kind == 'merge_request' else
+      ('push to ' ~ (payload.ref | replace('refs/heads/', '') | replace('refs/tags/', 'tag ')) ~ ' by ' ~ (payload.user_name or 'someone') ~ ' (' ~ (payload.total_commits_count or 0) ~ ' commits)')
+      if payload.object_kind in ['push', 'tag_push'] else
+      (payload.object_kind or payload.event_name or 'event')
+      )
+    severity: "'error' if payload.object_kind == 'pipeline' and payload.object_attributes.status == 'failed' else 'info'"
+    status: "'resolved' if payload.object_kind == 'pipeline' and payload.object_attributes.status == 'success' else 'firing'"
+    body: "payload.object_attributes.url or payload.project.web_url"
+    labels: "{'project': payload.project.path_with_namespace, 'kind': payload.object_kind, 'ref': payload.object_attributes.ref or payload.ref, 'user': payload.user.username or payload.user_username}"
+    dedup_key: "(payload.project.path_with_namespace ~ '/pipeline/' ~ payload.object_attributes.ref) if payload.object_kind == 'pipeline' else none"

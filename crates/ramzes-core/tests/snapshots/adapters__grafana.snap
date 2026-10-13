@@ -1,0 +1,21 @@
+---
+source: crates/ramzes-core/tests/adapters.rs
+expression: events
+---
+[
+  {
+    "topic": "grafana.High_memory_usage",
+    "title": "This alert was triggered for zone us-1",
+    "severity": "warning",
+    "status": "firing",
+    "body": "The system has high memory usage",
+    "labels": {
+      "alertname": "High memory usage",
+      "team": "blue",
+      "zone": "us-1"
+    },
+    "payload": "[alert]",
+    "dedup_key": "c6eadffa33fcdf37",
+    "ts": "2021-10-12T09:51:03.157076+02:00"
+  }
+]
