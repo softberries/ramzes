@@ -416,7 +416,7 @@ pub struct Decision {
 
 /// The dedup key of an event under a policy. Without a dedup policy only the event's own key
 /// counts; it lets a later resolved event find the notification.
-fn dedup_key(shaping: &Shaping, e: &Event, steps: &mut Vec<Step>) -> Option<String> {
+pub fn dedup_key(shaping: &Shaping, e: &Event, steps: &mut Vec<Step>) -> Option<String> {
     let Some(dedup) = &shaping.dedup else {
         return e.dedup_key.clone();
     };

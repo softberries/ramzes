@@ -103,7 +103,7 @@ impl Ops {
                     self.deliveries.get_or_create(&labels).inc();
                     self.delivery_seconds.observe(duration_ms as f64 / 1000.0);
                 }
-                Ok(Change::EventRouted { .. }) => {}
+                Ok(Change::EventRouted { .. } | Change::NotificationChanged { .. }) => {}
                 Err(RecvError::Lagged(missed)) => {
                     tracing::warn!(
                         missed,

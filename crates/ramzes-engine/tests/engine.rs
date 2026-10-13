@@ -546,6 +546,10 @@ async fn changes_are_broadcast() {
             event_id: e.id.clone()
         }
     );
+    assert!(matches!(
+        changes.recv().await.unwrap(),
+        Change::NotificationChanged { .. }
+    ));
     match changes.recv().await.unwrap() {
         Change::DeliveryUpdated {
             event_ids, state, ..
@@ -964,4 +968,514 @@ async fn a_connection_has_at_most_four_sends_in_flight() {
     engine.route_once().await.unwrap();
     assert_eq!(engine.deliver_once().await.unwrap(), 12);
     assert_eq!(slow.most.load(Ordering::SeqCst), 4);
+}
+
+// ---- milestone 3: shaping, timers, pausing, system events ----
+
+use ramzes_core::shaping::{NotificationState, Shaping, Silence};
+use ramzes_store::{EventFilter, NotificationFilter};
+
+const MINUTE: i64 = 60_000;
+/// 2026-10-13 12:00 UTC, 14:00 in Warsaw.
+const NOON: i64 = 1_791_892_800_000;
+
+fn shaping(policy: serde_json::Value) -> Shaping {
+    serde_json::from_value(policy).unwrap()
+}
+
+impl World {
+    async fn shaped(&self, connection: &str, policy: serde_json::Value) -> String {
+        let r = Route {
+            id: new_id(),
+            name: "shaped".into(),
+            enabled: true,
+            r#match: RouteMatch {
+                topic: Some("orders.*".into()),
+                ..RouteMatch::default()
+            },
+            targets: vec![Target {
+                connection_id: connection.into(),
+                ..Target::default()
+            }],
+            shaping: shaping(policy),
+            ..Route::default()
+        };
+        self.store.create_route(&self.ws, &r, 0).await.unwrap();
+        r.id
+    }
+
+    /// Stores an event on `orders.failed` after applying `change`.
+    async fn send(&self, title: &str, change: impl FnOnce(&mut Event)) -> Event {
+        let now = self.clock.now_ms();
+        let mut e = Event {
+            id: new_id(),
+            workspace_id: self.ws.clone(),
+            source_id: self.source.clone(),
+            topic: "orders.failed".into(),
+            severity: Severity::Error,
+            status: EventStatus::Firing,
+            title: title.into(),
+            body: None,
+            labels: [("service".to_string(), "pay".to_string())].into(),
+            payload: json!(null),
+            dedup_key: None,
+            occurred_at: now,
+            received_at: now,
+        };
+        change(&mut e);
+        self.store
+            .insert_events(std::slice::from_ref(&e), None)
+            .await
+            .unwrap();
+        e
+    }
+
+    /// Runs every worker until nothing is left to do at the current time.
+    async fn settle(&self) {
+        for _ in 0..10 {
+            let done = self.engine.route_once().await.unwrap()
+                + self.engine.timers_once().await.unwrap()
+                + self.engine.deliver_once().await.unwrap();
+            if done == 0 {
+                return;
+            }
+        }
+        panic!("the engine did not settle");
+    }
+
+    fn messages(&self) -> Vec<Message> {
+        self.connector
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(m, _, _)| m.clone())
+            .collect()
+    }
+
+    async fn notifications(&self) -> Vec<ramzes_store::NotificationRow> {
+        let mut rows = self
+            .store
+            .list_notifications(&self.ws, &NotificationFilter::default())
+            .await
+            .unwrap();
+        rows.reverse();
+        rows
+    }
+}
+
+#[tokio::test]
+async fn a_group_is_sent_once_after_its_wait_with_every_event() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"group": {"by": ["service"], "wait_s": 30}}))
+        .await;
+    let a = w.send("first", |_| {}).await;
+    w.settle().await;
+    w.advance(10_000);
+    let b = w.send("second", |_| {}).await;
+    let other = w
+        .send("other service", |e| {
+            e.labels.insert("service".into(), "ship".into());
+        })
+        .await;
+    w.settle().await;
+    assert!(w.messages().is_empty());
+    let rows = w.notifications().await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (rows[0].state, rows[0].event_count),
+        (NotificationState::Grouping, 2)
+    );
+
+    w.advance(20_000);
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].title, "2 events");
+    assert_eq!(sent[0].event_ids, vec![a.id.clone(), b.id.clone()]);
+    assert_eq!(
+        sent[0].link.as_deref(),
+        Some(format!("https://ramzes.example.com/notifications/{}", rows[0].id).as_str())
+    );
+
+    // The second group flushes at its own time, and a later event starts a new group.
+    w.advance(10_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+    assert_eq!(w.messages()[1].event_ids, vec![other.id.clone()]);
+    w.send("third", |_| {}).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+    assert_eq!(w.notifications().await.len(), 3);
+}
+
+#[tokio::test]
+async fn a_duplicate_is_counted_and_not_sent_until_the_window_is_over() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"dedup": {"window_s": 600}})).await;
+    let key = |e: &mut Event| e.dedup_key = Some("order-17".into());
+    w.send("failed", key).await;
+    w.settle().await;
+    let again = w.send("failed again", key).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    let rows = w.notifications().await;
+    assert_eq!((rows.len(), rows[0].event_count), (1, 2));
+    let journey = w.store.journey(&w.ws, &again.id).await.unwrap().unwrap();
+    assert_eq!(journey.notifications[0].role, "duplicate");
+    assert!(journey.notifications[0].deliveries.len() == 1);
+
+    w.advance(601_000);
+    w.send("failed much later", key).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+}
+
+#[tokio::test]
+async fn a_resolved_event_tells_the_target_only_when_it_had_been_told() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"dedup": {"window_s": 600}})).await;
+    let down = |e: &mut Event| e.dedup_key = Some("db".into());
+    let up = |e: &mut Event| {
+        e.dedup_key = Some("db".into());
+        e.status = EventStatus::Resolved;
+    };
+    w.send("Database down", down).await;
+    w.settle().await;
+    w.send("Database up", up).await;
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        (sent[1].title.as_str(), sent[1].status),
+        ("Database down", EventStatus::Resolved)
+    );
+    assert_eq!(
+        w.notifications().await[0].state,
+        NotificationState::Resolved
+    );
+
+    // Resolved again with nothing open: recorded, not sent.
+    w.send("Database up", up).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+    let rows = w.notifications().await;
+    assert_eq!(rows[1].state, NotificationState::Suppressed);
+    // After a resolution the same key opens a new notification.
+    w.send("Database down", down).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 3);
+}
+
+#[tokio::test]
+async fn something_resolved_while_still_grouping_is_never_sent() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"group": {"by": [], "wait_s": 30}}))
+        .await;
+    w.send("Database down", |e| e.dedup_key = Some("db".into()))
+        .await;
+    w.settle().await;
+    w.send("Database up", |e| {
+        e.dedup_key = Some("db".into());
+        e.status = EventStatus::Resolved;
+    })
+    .await;
+    w.settle().await;
+    w.advance(60_000);
+    w.settle().await;
+    assert!(w.messages().is_empty());
+    let rows = w.notifications().await;
+    assert_eq!(
+        (rows.len(), rows[0].state, rows[0].event_count),
+        (1, NotificationState::Resolved, 2)
+    );
+}
+
+#[tokio::test]
+async fn a_silence_suppresses_matching_events_while_it_lasts() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.route("orders.*", &[(&c, None)]).await;
+    let now = w.clock.now_ms();
+    let silence = Silence {
+        id: new_id(),
+        r#match: RouteMatch {
+            topic: Some("orders.*".into()),
+            ..RouteMatch::default()
+        },
+        starts_at: now,
+        ends_at: now + 10 * MINUTE,
+        comment: Some("deploy".into()),
+    };
+    w.store
+        .create_silence(&w.ws, &silence, "kris", now)
+        .await
+        .unwrap();
+    let quiet = w.send("during the deploy", |_| {}).await;
+    w.settle().await;
+    assert!(w.messages().is_empty());
+    let journey = w.store.journey(&w.ws, &quiet.id).await.unwrap().unwrap();
+    assert_eq!(journey.notifications[0].state, "suppressed");
+    assert_eq!(
+        journey.notifications[0].reason.as_deref(),
+        Some("silenced: deploy")
+    );
+    assert!(journey.notifications[0].deliveries.is_empty());
+
+    w.advance(11 * MINUTE);
+    w.send("after the deploy", |_| {}).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn quiet_hours_hold_everything_and_release_one_digest() {
+    let w = world().await;
+    w.clock.0.store(NOON, Ordering::SeqCst);
+    let c = w.connection("one").await;
+    w.shaped(
+        &c,
+        json!({"quiet_hours": {"tz": "Europe/Warsaw", "start": "13:00", "end": "15:00", "bypass_severity": "critical"}}),
+    )
+    .await;
+    w.send("first", |_| {}).await;
+    w.settle().await;
+    w.advance(10 * MINUTE);
+    w.send("second", |_| {}).await;
+    let urgent = w.send("urgent", |e| e.severity = Severity::Critical).await;
+    w.settle().await;
+    // Only the critical one went out.
+    assert_eq!(w.messages().len(), 1);
+    assert_eq!(w.messages()[0].event_ids, vec![urgent.id.clone()]);
+    let rows = w.notifications().await;
+    let held = rows
+        .iter()
+        .find(|n| n.state == NotificationState::Held)
+        .unwrap();
+    assert_eq!(held.event_count, 2);
+    assert_eq!(held.held_until, Some(NOON + 60 * MINUTE));
+    assert!(
+        held.reason.as_deref().unwrap().contains("15:00"),
+        "{:?}",
+        held.reason
+    );
+
+    w.advance(49 * MINUTE);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    w.advance(MINUTE);
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].event_ids.len(), 2);
+    // Outside quiet hours an event goes straight out.
+    w.send("afternoon", |_| {}).await;
+    w.settle().await;
+    assert_eq!(w.messages().len(), 3);
+}
+
+#[tokio::test]
+async fn over_the_rate_limit_the_rest_arrive_as_one_summary() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"rate_limit": {"max": 2, "window_s": 600}}))
+        .await;
+    for i in 0..5 {
+        w.send(&format!("event {i}"), |_| {}).await;
+        w.settle().await;
+        w.advance(1000);
+    }
+    assert_eq!(w.messages().len(), 2);
+    let rows = w.notifications().await;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        (rows[2].state, rows[2].event_count),
+        (NotificationState::Held, 3)
+    );
+
+    w.advance(600_000);
+    w.settle().await;
+    let sent = w.messages();
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[2].title, "3 events");
+}
+
+#[tokio::test]
+async fn a_group_that_ends_in_quiet_hours_joins_what_is_already_held() {
+    let w = world().await;
+    w.clock.0.store(NOON - 20_000, Ordering::SeqCst);
+    let c = w.connection("one").await;
+    // Quiet from 14:00 Warsaw, which is NOON. The group opens just before and flushes inside.
+    w.shaped(
+        &c,
+        json!({"group": {"by": ["service"], "wait_s": 30}, "quiet_hours": {"tz": "Europe/Warsaw", "start": "14:00", "end": "15:00"}}),
+    )
+    .await;
+    w.send("pay 1", |_| {}).await;
+    w.send("ship 1", |e| {
+        e.labels.insert("service".into(), "ship".into());
+    })
+    .await;
+    w.settle().await;
+    w.advance(40_000);
+    w.settle().await;
+    assert!(w.messages().is_empty());
+    let rows = w.notifications().await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0].state, rows[0].event_count),
+        (NotificationState::Held, 2)
+    );
+
+    w.clock.0.store(NOON + 60 * MINUTE, Ordering::SeqCst);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    assert_eq!(w.messages()[0].event_ids.len(), 2);
+}
+
+#[tokio::test]
+async fn an_open_group_is_repeated_until_it_is_acknowledged() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(
+        &c,
+        json!({"group": {"by": [], "wait_s": 10, "repeat_s": 600}}),
+    )
+    .await;
+    w.send("Database down", |_| {}).await;
+    w.settle().await;
+    w.advance(10_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+    w.advance(600_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+    let id = w.notifications().await[0].id.clone();
+    w.store
+        .acknowledge(&w.ws, &id, "kris", w.clock.now_ms())
+        .await
+        .unwrap();
+    w.advance(1_200_000);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 2);
+}
+
+#[tokio::test]
+async fn a_timer_for_a_notification_that_is_gone_does_nothing() {
+    let w = world().await;
+    w.store
+        .add_timer(&w.ws, "deleted-by-retention", "flush", 0, None)
+        .await
+        .unwrap();
+    assert_eq!(w.engine.timers_once().await.unwrap(), 1);
+    assert_eq!(w.engine.timers_once().await.unwrap(), 0);
+    assert!(w.messages().is_empty());
+}
+
+#[tokio::test]
+async fn a_replay_is_sent_whatever_the_shaping_says() {
+    let w = world().await;
+    let c = w.connection("one").await;
+    w.shaped(&c, json!({"group": {"by": [], "wait_s": 3600}}))
+        .await;
+    let e = w.send("held back", |_| {}).await;
+    w.settle().await;
+    assert!(w.messages().is_empty());
+    assert_eq!(w.engine.replay_event(&w.ws, &e.id).await.unwrap(), 1);
+    w.settle().await;
+    assert_eq!(w.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn a_failing_connection_is_paused_reported_once_and_resumes_when_it_answers() {
+    let w = world().await;
+    let c = w.connection("flaky").await;
+    w.route("orders.*", &[(&c, None)]).await;
+    for _ in 0..5 {
+        w.connector.outcomes.lock().unwrap().push_back(retry("503"));
+    }
+    for i in 0..5 {
+        w.send(&format!("event {i}"), |_| {}).await;
+    }
+    w.settle().await;
+    let status = w.store.connection_status(&w.ws).await.unwrap();
+    let paused_until = status[&c].paused_until.unwrap();
+    assert_eq!(paused_until, w.clock.now_ms() + 60_000);
+    assert_eq!(status[&c].failure_streak, 5);
+    let system = w
+        .store
+        .list_events(
+            &w.ws,
+            &EventFilter {
+                topic: Some("ramzes.*".into()),
+                limit: 10,
+                ..EventFilter::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(system.len(), 1);
+    assert_eq!(system[0].event.topic, "ramzes.connection.paused");
+    assert!(system[0].event.title.contains("flaky"));
+
+    // Nothing is attempted while paused, even though the retries would be due.
+    let attempts_before = w.connector.sent.lock().unwrap().len();
+    w.advance(30_000);
+    w.settle().await;
+    assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before);
+
+    // When the pause ends the service answers again: everything goes out and the pause is over.
+    w.advance(31_000);
+    w.settle().await;
+    let status = w.store.connection_status(&w.ws).await.unwrap();
+    assert_eq!(
+        (status[&c].paused_until, status[&c].failure_streak),
+        (None, 0)
+    );
+    assert_eq!(w.connector.sent.lock().unwrap().len(), attempts_before + 5);
+}
+
+#[tokio::test]
+async fn a_message_that_cannot_be_delivered_raises_an_event_but_never_about_itself() {
+    let w = world().await;
+    let c = w.connection("broken").await;
+    // Everything, including ramzes's own events, goes to the connection that rejects.
+    w.route("*", &[(&c, None)]).await;
+    for _ in 0..10 {
+        w.connector
+            .outcomes
+            .lock()
+            .unwrap()
+            .push_back(SendOutcome::Permanent {
+                status: Some(400),
+                detail: "HTTP 400: bad payload".into(),
+            });
+    }
+    w.send("will be rejected", |_| {}).await;
+    w.settle().await;
+    let system = w
+        .store
+        .list_events(
+            &w.ws,
+            &EventFilter {
+                topic: Some("ramzes.*".into()),
+                limit: 10,
+                ..EventFilter::default()
+            },
+        )
+        .await
+        .unwrap();
+    // One report for the rejected message; its own rejection is not reported again.
+    assert_eq!(system.len(), 1);
+    assert_eq!(system[0].event.topic, "ramzes.delivery.failed");
+    assert_eq!(system[0].event.labels["outcome"], "rejected");
+    assert_eq!(
+        system[0].event.body.as_deref(),
+        Some("HTTP 400: bad payload")
+    );
+    assert_eq!(system[0].deliveries_failed, 1);
 }

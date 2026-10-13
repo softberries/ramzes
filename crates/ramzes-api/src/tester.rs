@@ -143,6 +143,7 @@ pub(crate) async fn test(
                     .engine
                     .compose_for(
                         ws,
+                        "",
                         std::slice::from_ref(&event),
                         target.template_id.as_deref(),
                     )

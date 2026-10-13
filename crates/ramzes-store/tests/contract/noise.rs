@@ -786,9 +786,19 @@ async fn a_connection_is_paused_after_repeated_failures_and_resumed(store: Store
         .map(|d| d.connection_id)
         .collect();
     assert_eq!(due, vec!["c2"]);
-    assert!(store.claim_due_deliveries(4999, 100_000, 10).await.unwrap().is_empty());
+    assert!(
+        store
+            .claim_due_deliveries(4999, 100_000, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
-        store.claim_due_deliveries(5000, 100_000, 10).await.unwrap().len(),
+        store
+            .claim_due_deliveries(5000, 100_000, 10)
+            .await
+            .unwrap()
+            .len(),
         1
     );
 

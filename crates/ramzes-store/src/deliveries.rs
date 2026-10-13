@@ -555,4 +555,20 @@ impl Store {
         })?;
         Ok(row.and_then(|(id,)| id))
     }
+
+    /// Puts a claimed delivery back to wait until `at_ms`, without counting an attempt.
+    pub async fn defer_delivery(&self, delivery_id: &str, at_ms: i64) -> Result<()> {
+        let sql = self.sql(
+            "UPDATE deliveries SET state = 'pending', next_attempt_at = $1, claimed_until = NULL WHERE id = $2",
+        );
+        with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*sql))
+                .bind(at_ms)
+                .bind(delivery_id)
+                .execute(pool)
+                .await
+                .map(|_| ())
+        })?;
+        Ok(())
+    }
 }

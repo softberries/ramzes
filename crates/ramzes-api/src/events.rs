@@ -254,7 +254,7 @@ pub(crate) async fn preview(
         let template_id = state.store.notification_template(&n.id).await?;
         let Some(composed) = state
             .engine
-            .compose_for(ws, &events, template_id.as_deref())
+            .compose_for(ws, &n.id, &events, template_id.as_deref())
             .await?
         else {
             continue;

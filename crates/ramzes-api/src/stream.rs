@@ -18,6 +18,9 @@ fn to_event(change: Result<Change, BroadcastStreamRecvError>) -> Event {
         Ok(Change::EventRouted { event_id }) => Event::default()
             .event("event")
             .data(json!({"event_id": event_id}).to_string()),
+        Ok(Change::NotificationChanged { notification_id }) => Event::default()
+            .event("notification")
+            .data(json!({"notification_id": notification_id}).to_string()),
         Ok(Change::DeliveryUpdated {
             event_ids,
             delivery_id,
@@ -34,7 +37,8 @@ fn to_event(change: Result<Change, BroadcastStreamRecvError>) -> Event {
 /// Live changes as server-sent events.
 ///
 /// `event` carries `{"event_id"}` when an event has been routed. `delivery` carries
-/// `{"event_ids", "delivery_id", "state"}` after each delivery attempt. `resync` means changes
+/// `{"event_ids", "delivery_id", "state"}` after each delivery attempt. `notification` carries
+/// `{"notification_id"}` when a notification changes state. `resync` means changes
 /// were missed and the client should reload.
 #[utoipa::path(
     get, path = "/api/stream", tag = "events",

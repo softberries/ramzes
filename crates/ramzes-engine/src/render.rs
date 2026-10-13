@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use ramzes_connectors::{ConnectionConfig, Connector};
-use ramzes_core::{Event, Message, Template, apply_template, build_message};
+use ramzes_core::shaping::digest;
+use ramzes_core::{Event, Message, Template, apply_template};
 use ramzes_store::Connection;
 
 use crate::{Engine, Result};
@@ -17,12 +18,16 @@ pub struct Composed {
 
 /// Words the message for `events`. A template that fails is set aside: the default wording is
 /// used and the reason is returned as a warning. `None` when there are no events.
+///
+/// Several events are summarised in one message; `notification_id` is what its link points to.
 pub fn compose(
     events: &[Event],
     template: Option<&Template>,
     public_url: Option<&str>,
+    notification_id: &str,
 ) -> Option<Composed> {
-    let default = build_message(events.first()?, public_url);
+    events.first()?;
+    let default = digest(events, public_url, notification_id);
     let Some(template) = template else {
         return Some(Composed {
             message: default,
@@ -62,19 +67,30 @@ impl Engine {
     pub async fn compose_for(
         &self,
         workspace_id: &str,
+        notification_id: &str,
         events: &[Event],
         template_id: Option<&str>,
     ) -> Result<Option<Composed>> {
         let public_url = self.public_url(workspace_id).await?;
         let Some(template_id) = template_id else {
-            return Ok(compose(events, None, public_url.as_deref()));
+            return Ok(compose(
+                events,
+                None,
+                public_url.as_deref(),
+                notification_id,
+            ));
         };
         let template = self
             .config
             .store
             .get_template(workspace_id, template_id)
             .await?;
-        let mut composed = compose(events, template.as_ref(), public_url.as_deref());
+        let mut composed = compose(
+            events,
+            template.as_ref(),
+            public_url.as_deref(),
+            notification_id,
+        );
         if let (None, Some(composed)) = (&template, &mut composed) {
             composed.warning =
                 Some("the route's template was deleted; the default wording was sent".into());

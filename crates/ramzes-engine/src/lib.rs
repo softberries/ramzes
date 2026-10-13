@@ -8,6 +8,8 @@ mod render;
 mod replay;
 mod retention;
 mod route_worker;
+mod system;
+mod timer_worker;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -19,6 +21,7 @@ use ramzes_store::{DeliveryState, Store, StoreError};
 use tokio::sync::{Notify, Semaphore, broadcast};
 
 pub use render::{Composed, compose};
+pub use system::SYSTEM_TOPIC_PREFIX;
 use tokio_util::sync::CancellationToken;
 
 pub trait Clock: Send + Sync {
@@ -47,6 +50,10 @@ pub trait Opener: Send + Sync {
 pub enum Change {
     EventRouted {
         event_id: String,
+    },
+    /// A notification was opened, joined, sent, held, acknowledged or resolved.
+    NotificationChanged {
+        notification_id: String,
     },
     DeliveryUpdated {
         event_ids: Vec<String>,
@@ -95,6 +102,9 @@ pub struct Engine {
     config: EngineConfig,
     route_wake: Notify,
     delivery_wake: Notify,
+    /// Held while a shaping decision is made and applied, and while a timer acts on a
+    /// notification. ramzes runs as one node; this is what keeps the two from interleaving.
+    shaping_lock: tokio::sync::Mutex<()>,
     changes: broadcast::Sender<Change>,
     /// One semaphore per connection, bounding how many sends it has in flight.
     connection_slots: Mutex<HashMap<String, Arc<Semaphore>>>,
@@ -112,6 +122,7 @@ impl Engine {
             config,
             route_wake: Notify::new(),
             delivery_wake: Notify::new(),
+            shaping_lock: tokio::sync::Mutex::new(()),
             changes,
             connection_slots: Mutex::default(),
             route_errors: Mutex::default(),
@@ -142,7 +153,7 @@ impl Engine {
         self.config.clock.now_ms()
     }
 
-    /// Runs the route and delivery workers until `shutdown` is cancelled. Each worker starts a
+    /// Runs the route, delivery and timer workers until `shutdown` is cancelled. Each worker starts a
     /// pass when woken or every `poll`, and finishes the pass it is in before stopping.
     pub async fn run(self: Arc<Self>, shutdown: CancellationToken, poll: Duration) {
         let routing = async {
@@ -169,7 +180,27 @@ impl Engine {
                 }
             }
         };
-        tokio::join!(routing, delivering);
+        let timing = async {
+            while !shutdown.is_cancelled() {
+                match self.timers_once().await {
+                    Ok(0) => {
+                        tokio::select! {
+                            () = shutdown.cancelled() => {}
+                            () = tokio::time::sleep(poll) => {}
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(error = %e, "timer pass failed");
+                        tokio::select! {
+                            () = shutdown.cancelled() => {}
+                            () = tokio::time::sleep(ERROR_PAUSE) => {}
+                        }
+                    }
+                }
+            }
+        };
+        tokio::join!(routing, delivering, timing);
     }
 }
 
