@@ -214,7 +214,7 @@ impl Registry {
         registry.add(Arc::new(slack::Slack::new(http.clone())));
         registry.add(Arc::new(slack_app::SlackApp::new(http.clone())));
         registry.add(Arc::new(webhook::Webhook::new(http.clone())));
-        registry.add(Arc::new(email::Email::new(options.timeout)));
+        registry.add(Arc::new(email::Email::new(options)));
         for text in BUNDLED {
             let definition =
                 Definition::parse_any(text).expect("bundled connector definitions are valid");

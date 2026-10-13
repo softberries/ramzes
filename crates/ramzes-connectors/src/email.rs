@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -7,8 +8,9 @@ use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 use ramzes_core::{EventStatus, Message};
 
+use crate::http::{PRIVATE_REFUSED, is_private};
 use crate::{
-    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, Preview,
+    Capabilities, ConnectionConfig, Connector, ConnectorDescriptor, Field, FieldKind, HttpOptions, Preview,
     SendOutcome, truncate,
 };
 
@@ -17,13 +19,42 @@ const SUBJECT_MAX: usize = 200;
 /// Sends each message as an email over SMTP.
 pub(crate) struct Email {
     timeout: Duration,
+    block_private: bool,
 }
 
 impl Email {
-    pub fn new(timeout: Duration) -> Email {
+    pub fn new(options: HttpOptions) -> Email {
         // lettre builds its TLS settings from the process default; make sure there is one.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        Email { timeout }
+        Email {
+            timeout: options.timeout,
+            block_private: options.block_private,
+        }
+    }
+
+    /// Where to connect. With private addresses blocked this is one public address the name
+    /// resolves to, so the server cannot be swapped for a private one between check and use.
+    async fn server(&self, host: &str, port: u16) -> Result<String, SendOutcome> {
+        if !self.block_private {
+            return Ok(host.to_owned());
+        }
+        let found: Vec<IpAddr> = match host.parse::<IpAddr>() {
+            Ok(ip) => vec![ip],
+            Err(_) => match tokio::net::lookup_host((host, port)).await {
+                Ok(found) => found.map(|addr| addr.ip()).collect(),
+                Err(e) => {
+                    return Err(SendOutcome::Retry {
+                        after_ms: None,
+                        status: None,
+                        detail: format!("the mail server's name could not be resolved: {e}"),
+                    });
+                }
+            },
+        };
+        match found.into_iter().find(|ip| !is_private(*ip)) {
+            Some(ip) => Ok(ip.to_string()),
+            None => Err(permanent(PRIVATE_REFUSED)),
+        }
     }
 }
 
@@ -356,7 +387,11 @@ impl Connector for Email {
                 Err(e) => return permanent(format!("TLS could not be set up: {e}")),
             },
         };
-        let mut transport = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(s.host)
+        let server = match self.server(s.host, s.port).await {
+            Ok(server) => server,
+            Err(outcome) => return outcome,
+        };
+        let mut transport = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(server)
             .port(s.port)
             .tls(tls)
             .timeout(Some(self.timeout));

@@ -155,7 +155,7 @@ pub(crate) struct Http {
     block_private: bool,
 }
 
-const PRIVATE_REFUSED: &str =
+pub(crate) const PRIVATE_REFUSED: &str =
     "not sent: the address is private, and this instance blocks requests to private addresses";
 
 impl Http {

@@ -243,3 +243,24 @@ fn the_preview_shows_the_email() {
     assert!(preview.body.contains("14 charges failed"));
     assert!(!format!("{preview:?}").contains("hunter2"));
 }
+
+#[tokio::test]
+async fn a_private_mail_server_is_refused_when_the_instance_blocks_private_addresses() {
+    let (port, seen) = smtp(None).await;
+    let blocking = Registry::with_options(ramzes_connectors::HttpOptions {
+        timeout: Duration::from_secs(2),
+        block_private: true,
+    })
+    .get("email")
+    .unwrap();
+    for host in ["127.0.0.1", "localhost"] {
+        let mut c = config(port);
+        c.settings["host"] = host.into();
+        let outcome = blocking.send(&c, &message("x"), None, 1).await;
+        let SendOutcome::Permanent { detail, .. } = outcome else {
+            panic!("{host}: {outcome:?}");
+        };
+        assert!(detail.contains("private"), "{detail}");
+    }
+    assert!(seen.lock().unwrap().commands.is_empty());
+}
