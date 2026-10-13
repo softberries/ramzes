@@ -1057,7 +1057,7 @@ export interface components {
              * Format: int64
              * @description Attempts made so far.
              */
-            attempts: number;
+            attempt_count: number;
             connection_id: string;
             /** Format: int64 */
             created_at: number;

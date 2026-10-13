@@ -2851,13 +2851,13 @@
           "notification_id",
           "connection_id",
           "state",
-          "attempts",
+          "attempt_count",
           "next_attempt_at",
           "created_at",
           "updated_at"
         ],
         "properties": {
-          "attempts": {
+          "attempt_count": {
             "type": "integer",
             "format": "int64",
             "description": "Attempts made so far."

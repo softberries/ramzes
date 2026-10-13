@@ -124,6 +124,7 @@ pub struct Delivery {
     pub destination: Option<String>,
     pub state: DeliveryState,
     /// Attempts made so far.
+    #[serde(rename = "attempt_count")]
     pub attempts: i64,
     pub next_attempt_at: i64,
     pub last_error: Option<String>,

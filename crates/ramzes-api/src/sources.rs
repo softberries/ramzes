@@ -159,6 +159,17 @@ fn key_taken(e: ramzes_store::StoreError) -> ApiError {
     }
 }
 
+/// The built-in source that ramzes's own events come from has no key to replace, and deleting
+/// it would only make ramzes create another.
+async fn refuse_built_in(state: &AppState, id: &str) -> Result<(), ApiError> {
+    match state.store.get_source(id).await? {
+        Some(source) if source.kind == "system" => Err(ApiError::invalid(
+            "this is the built-in source of ramzes's own events; it cannot be changed or deleted",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// The kinds of source ramzes understands, with how to set each up.
 #[utoipa::path(get, path = "/api/source-kinds", tag = "sources", responses((status = 200, body = Vec<SourceKind>)))]
 pub(crate) async fn kinds(_auth: Auth) -> Json<Vec<SourceKind>> {
@@ -238,6 +249,7 @@ pub(crate) async fn rotate(
     Path(id): Path<String>,
     body: Option<Json<Rotate>>,
 ) -> Result<Json<RotatedKey>, ApiError> {
+    refuse_built_in(&state, &id).await?;
     let (key, key_prefix) = key_from(body.and_then(|Json(body)| body.key))?;
     state
         .store
@@ -258,6 +270,7 @@ pub(crate) async fn remove(
     auth: Auth,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_built_in(&state, &id).await?;
     state.store.delete_source(&auth.workspace_id, &id).await?;
     record(&state, &auth, "deleted a source").await;
     Ok(StatusCode::NO_CONTENT)

@@ -373,3 +373,16 @@ async fn a_journey_says_how_each_event_relates_to_its_notification() {
     assert_eq!(journey["notifications"][0]["role"], "duplicate");
     assert_eq!(journey["notifications"][0]["event_count"], 2);
 }
+
+#[tokio::test]
+async fn the_built_in_source_cannot_be_deleted_or_given_a_key() {
+    let api = Api::signed_in().await;
+    let built_in = api.store.system_source(&api.ws, 1).await.unwrap();
+    let (status, error) = api.delete(&format!("/api/sources/{}", built_in.id)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{error}");
+    let (status, _) = api
+        .post(&format!("/api/sources/{}/rotate", built_in.id), json!({}))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(api.get("/api/sources").await.1.as_array().unwrap().len(), 1);
+}
