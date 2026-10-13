@@ -1,0 +1,41 @@
+kind: teams
+name: Microsoft Teams
+description: Post an Adaptive Card to a Teams channel through a Workflows webhook.
+fields:
+  - key: webhook_url
+    label: Workflow webhook URL
+    help: "In Teams: the channel's menu, Workflows, 'Send webhook alerts to a channel'. Choose that anyone can trigger the flow, then copy the URL. Office 365 connector URLs no longer work."
+    secret: true
+    required: true
+    kind: url
+request:
+  url: "{{ credentials.webhook_url }}"
+  body: |
+    {% if message.status == 'resolved' %}{% set color = 'Good' %}
+    {% elif message.severity in ['critical', 'error'] %}{% set color = 'Attention' %}
+    {% elif message.severity == 'warning' %}{% set color = 'Warning' %}
+    {% else %}{% set color = 'Default' %}{% endif %}
+    {
+      "type": "message",
+      "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "contentUrl": null,
+        "content": {
+          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+          "type": "AdaptiveCard",
+          "version": "1.2",
+          "body": [
+            {"type": "TextBlock", "text": {{ message.title | cut(300) | tojson }}, "weight": "Bolder", "size": "Medium", "wrap": true, "color": {{ color | tojson }}}
+            {% if message.body %},{"type": "TextBlock", "text": {{ message.body | cut(6000) | tojson }}, "wrap": true}{% endif %}
+            {% if message.fields %},{"type": "FactSet", "facts": [
+              {% for f in message.fields[:20] %}
+              {"title": {{ f.key | cut(100) | tojson }}, "value": {{ f.value | cut(300) | tojson }}}{% if not loop.last %},{% endif %}
+              {% endfor %}
+            ]}{% endif %}
+            ,{"type": "TextBlock", "text": {{ (message.topic ~ ' · ' ~ message.status ~ ' · ' ~ message.severity) | cut(300) | tojson }}, "isSubtle": true, "size": "Small", "wrap": true}
+          ]
+          {% if message.link %},"actions": [{"type": "Action.OpenUrl", "title": "Open in ramzes", "url": {{ message.link | tojson }}}]{% endif %}
+        }
+      }]
+    }
+max_len: 6000

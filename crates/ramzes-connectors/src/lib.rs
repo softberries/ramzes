@@ -170,7 +170,13 @@ pub struct Registry {
 }
 
 /// Definitions compiled into the binary.
-const BUNDLED: &[&str] = &[];
+const BUNDLED: &[&str] = &[
+    include_str!("definitions/discord.yaml"),
+    include_str!("definitions/ntfy.yaml"),
+    include_str!("definitions/pushover.yaml"),
+    include_str!("definitions/teams.yaml"),
+    include_str!("definitions/telegram.yaml"),
+];
 
 impl Registry {
     /// The built-in connectors. `timeout` bounds each request to a service.

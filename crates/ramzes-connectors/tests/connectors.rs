@@ -132,7 +132,12 @@ fn registry_describes_the_builtin_connectors() {
         .into_iter()
         .map(|d| d.kind)
         .collect();
-    assert_eq!(kinds, vec!["slack", "webhook"]);
+    assert_eq!(
+        kinds,
+        vec![
+            "discord", "email", "ntfy", "pushover", "slack", "teams", "telegram", "webhook"
+        ]
+    );
     assert!(registry().get("slack").is_some());
     assert!(registry().get("carrier-pigeon").is_none());
     let slack = registry().get("slack").unwrap().descriptor();

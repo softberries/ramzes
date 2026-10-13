@@ -1,0 +1,35 @@
+kind: discord
+name: Discord
+description: Post to a Discord channel through a channel webhook.
+fields:
+  - key: webhook_url
+    label: Webhook URL
+    help: "In Discord: channel settings, Integrations, Webhooks, Copy Webhook URL."
+    secret: true
+    required: true
+    kind: url
+request:
+  url: "{{ credentials.webhook_url }}"
+  body: |
+    {% if message.status == 'resolved' %}{% set color = 5763719 %}
+    {% elif message.severity in ['critical', 'error'] %}{% set color = 15548997 %}
+    {% elif message.severity == 'warning' %}{% set color = 15105570 %}
+    {% elif message.severity == 'info' %}{% set color = 3447003 %}
+    {% else %}{% set color = 9807270 %}{% endif %}
+    {
+      "allowed_mentions": {"parse": []},
+      "embeds": [{
+        "title": {{ message.title | cut(250) | tojson }},
+        {% if message.body %}"description": {{ message.body | cut(3500) | tojson }},{% endif %}
+        {% if message.link %}"url": {{ message.link | tojson }},{% endif %}
+        "color": {{ color }},
+        "fields": [
+          {% for f in message.fields[:8] %}
+          {"name": {{ f.key | cut(100) | tojson }}, "value": {{ (f.value or '-') | cut(200) | tojson }}, "inline": true}{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "footer": {"text": {{ (message.topic ~ ' · ' ~ message.status ~ ' · ' ~ message.severity) | cut(300) | tojson }}}
+      }]
+    }
+success: [200, 204]
+max_len: 3500

@@ -23,8 +23,15 @@ static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
     env.set_undefined_behavior(UndefinedBehavior::Chainable);
     env.set_auto_escape_callback(|_| AutoEscape::None);
     env.add_filter("cut", cut);
+    env.add_test("digits", digits);
     env
 });
+
+/// `{% if text is digits %}`: a whole number, optionally negative.
+fn digits(text: String) -> bool {
+    let unsigned = text.strip_prefix('-').unwrap_or(&text);
+    !unsigned.is_empty() && unsigned.len() <= 18 && unsigned.bytes().all(|b| b.is_ascii_digit())
+}
 
 /// `{{ text | cut(80) }}`: at most that many characters, ending in an ellipsis when shortened.
 fn cut(text: String, max: usize) -> String {

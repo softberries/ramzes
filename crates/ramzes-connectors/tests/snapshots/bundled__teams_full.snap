@@ -1,0 +1,15 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &full(), None)"
+---
+{
+  "method": "POST",
+  "url": "••••",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ]
+  ],
+  "body": "{\n  \"type\": \"message\",\n  \"attachments\": [\n    {\n      \"contentType\": \"application/vnd.microsoft.card.adaptive\",\n      \"contentUrl\": null,\n      \"content\": {\n        \"$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",\n        \"type\": \"AdaptiveCard\",\n        \"version\": \"1.2\",\n        \"body\": [\n          {\n            \"type\": \"TextBlock\",\n            \"text\": \"Charge failed: card network timeout\",\n            \"weight\": \"Bolder\",\n            \"size\": \"Medium\",\n            \"wrap\": true,\n            \"color\": \"Attention\"\n          },\n          {\n            \"type\": \"TextBlock\",\n            \"text\": \"14 charges failed in the last 30 s\",\n            \"wrap\": true\n          },\n          {\n            \"type\": \"FactSet\",\n            \"facts\": [\n              {\n                \"title\": \"env\",\n                \"value\": \"prod\"\n              },\n              {\n                \"title\": \"service\",\n                \"value\": \"payments\"\n              }\n            ]\n          },\n          {\n            \"type\": \"TextBlock\",\n            \"text\": \"payments.charge.failed · firing · critical\",\n            \"isSubtle\": true,\n            \"size\": \"Small\",\n            \"wrap\": true\n          }\n        ],\n        \"actions\": [\n          {\n            \"type\": \"Action.OpenUrl\",\n            \"title\": \"Open in ramzes\",\n            \"url\": \"https://ramzes.example.com/events/0199\"\n          }\n        ]\n      }\n    }\n  ]\n}"
+}

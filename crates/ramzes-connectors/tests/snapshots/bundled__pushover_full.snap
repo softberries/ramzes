@@ -1,0 +1,15 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &full(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://api.pushover.net/1/messages.json",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ]
+  ],
+  "body": "{\n  \"token\": \"••••\",\n  \"user\": \"••••\",\n  \"title\": \"Charge failed: card network timeout\",\n  \"message\": \"14 charges failed in the last 30 s\",\n  \"priority\": 1,\n  \"url\": \"https://ramzes.example.com/events/0199\",\n  \"url_title\": \"Open in ramzes\"\n}"
+}

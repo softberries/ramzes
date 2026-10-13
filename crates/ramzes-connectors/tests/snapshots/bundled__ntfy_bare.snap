@@ -1,0 +1,19 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &bare(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://ntfy.sh",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ],
+    [
+      "Authorization",
+      "Bearer ••••"
+    ]
+  ],
+  "body": "{\n  \"topic\": \"ops\",\n  \"title\": \"Deploy finished\",\n  \"message\": \"deploy.finished\",\n  \"priority\": 2,\n  \"tags\": [\n    \"white_check_mark\"\n  ]\n}"
+}

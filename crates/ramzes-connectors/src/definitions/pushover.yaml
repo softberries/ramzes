@@ -1,0 +1,30 @@
+kind: pushover
+name: Pushover
+description: Push to your devices through Pushover.
+fields:
+  - key: token
+    label: Application token
+    help: "Create an application at pushover.net; this is its API token."
+    secret: true
+    required: true
+  - key: user
+    label: User or group key
+    help: Shown on your Pushover dashboard.
+    secret: true
+    required: true
+request:
+  url: "https://api.pushover.net/1/messages.json"
+  body: |
+    {% if message.status == 'resolved' %}{% set priority = 0 %}
+    {% elif message.severity == 'critical' %}{% set priority = 1 %}
+    {% elif message.severity == 'debug' %}{% set priority = -1 %}
+    {% else %}{% set priority = 0 %}{% endif %}
+    {
+      "token": {{ credentials.token | tojson }},
+      "user": {{ credentials.user | tojson }},
+      "title": {{ message.title | cut(250) | tojson }},
+      "message": {{ (message.body | default(message.topic)) | cut(1000) | tojson }},
+      "priority": {{ priority }}
+      {% if message.link %},"url": {{ message.link | cut(500) | tojson }}, "url_title": "Open in ramzes"{% endif %}
+    }
+max_len: 1000

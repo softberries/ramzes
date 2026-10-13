@@ -251,6 +251,10 @@ impl Declarative {
                     "the connector's header {name} would contain a line break"
                 ));
             }
+            // A header whose template renders to nothing is left out, so a header can be optional.
+            if value.trim().is_empty() {
+                continue;
+            }
             has_content_type |= name.eq_ignore_ascii_case("content-type");
             headers.push((name.clone(), value.trim().to_owned()));
         }

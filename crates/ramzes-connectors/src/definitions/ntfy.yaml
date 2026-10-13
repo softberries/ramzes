@@ -1,0 +1,37 @@
+kind: ntfy
+name: ntfy
+description: Push to phones and desktops through ntfy.sh or your own ntfy server.
+destination_label: Topic
+fields:
+  - key: server
+    label: Server
+    help: "https://ntfy.sh, or the address of your own server."
+    required: true
+    kind: url
+  - key: topic
+    label: Default topic
+    help: Used by routes that name no topic.
+  - key: token
+    label: Access token
+    help: Only for topics that need sign-in. Starts with tk_.
+    secret: true
+request:
+  url: "{{ settings.server }}"
+  headers:
+    Authorization: "{% if credentials.token %}Bearer {{ credentials.token }}{% endif %}"
+  body: |
+    {% if message.status == 'resolved' %}{% set priority = 2 %}{% set tag = 'white_check_mark' %}
+    {% elif message.severity == 'critical' %}{% set priority = 5 %}{% set tag = 'rotating_light' %}
+    {% elif message.severity == 'error' %}{% set priority = 4 %}{% set tag = 'red_circle' %}
+    {% elif message.severity == 'warning' %}{% set priority = 3 %}{% set tag = 'warning' %}
+    {% elif message.severity == 'info' %}{% set priority = 3 %}{% set tag = 'information_source' %}
+    {% else %}{% set priority = 2 %}{% set tag = 'white_circle' %}{% endif %}
+    {
+      "topic": {{ (destination | default(settings.topic)) | tojson }},
+      "title": {{ message.title | cut(200) | tojson }},
+      "message": {{ (message.body | default(message.topic)) | cut(1000) | tojson }},
+      "priority": {{ priority }},
+      "tags": [{{ tag | tojson }}]
+      {% if message.link %},"click": {{ message.link | tojson }}{% endif %}
+    }
+max_len: 1000

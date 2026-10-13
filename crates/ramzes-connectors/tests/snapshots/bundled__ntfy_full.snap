@@ -1,0 +1,19 @@
+---
+source: crates/ramzes-connectors/tests/bundled.rs
+expression: "preview(kind, &full(), None)"
+---
+{
+  "method": "POST",
+  "url": "https://ntfy.sh",
+  "headers": [
+    [
+      "Content-Type",
+      "application/json"
+    ],
+    [
+      "Authorization",
+      "Bearer ••••"
+    ]
+  ],
+  "body": "{\n  \"topic\": \"ops\",\n  \"title\": \"Charge failed: card network timeout\",\n  \"message\": \"14 charges failed in the last 30 s\",\n  \"priority\": 5,\n  \"tags\": [\n    \"rotating_light\"\n  ],\n  \"click\": \"https://ramzes.example.com/events/0199\"\n}"
+}
