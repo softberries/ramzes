@@ -131,8 +131,15 @@ impl Store {
         let exists = self.sql("SELECT COUNT(*) FROM users WHERE workspace_id = $1 AND id = $2");
         let sessions = self.sql("DELETE FROM sessions WHERE user_id = $1");
         let user = self.sql("DELETE FROM users WHERE workspace_id = $1 AND id = $2");
+        // A write to the workspace row first: on Postgres it makes concurrent deletions wait for
+        // each other, so two of them cannot each see the other's user and remove the last two.
+        let lock = self.sql("UPDATE workspaces SET name = name WHERE id = $1");
         with_db!(self, |pool| {
             let mut tx = pool.begin_write().await?;
+            sqlx::query(AssertSqlSafe(&*lock))
+                .bind(workspace_id)
+                .execute(&mut *tx)
+                .await?;
             let (found,): (i64,) = sqlx::query_as(AssertSqlSafe(&*exists))
                 .bind(workspace_id)
                 .bind(id)

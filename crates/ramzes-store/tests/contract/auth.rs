@@ -5,6 +5,7 @@ crate::contract!(
     duplicate_email_conflicts,
     users_are_listed_and_found_by_email,
     the_last_user_cannot_be_deleted,
+    deleting_the_last_two_users_at_once_leaves_one,
     a_session_resolves_to_its_user_until_it_expires,
     deleting_a_session_logs_it_out,
     deleting_a_user_ends_their_sessions,
@@ -173,4 +174,24 @@ async fn a_deleted_api_token_stops_working(store: Store) {
         store.delete_api_token(&ws, &token.id).await,
         Err(StoreError::NotFound)
     ));
+}
+
+async fn deleting_the_last_two_users_at_once_leaves_one(store: Store) {
+    let ws = store.ensure_workspace(1).await.unwrap();
+    let keeper = user(&ws, "keeper@example.com");
+    store.create_user(&keeper).await.unwrap();
+    for round in 0..20 {
+        let other = user(&ws, &format!("other-{round}@example.com"));
+        store.create_user(&other).await.unwrap();
+        let first = store.delete_user(&ws, &keeper.id);
+        let second = store.delete_user(&ws, &other.id);
+        let (first, second) = tokio::join!(first, second);
+        assert!(first.is_ok() != second.is_ok(), "{first:?} {second:?}");
+        assert_eq!(store.count_users().await.unwrap(), 1);
+        // Put back whichever went, so the next round starts with the keeper.
+        if first.is_ok() {
+            store.create_user(&keeper).await.unwrap();
+            store.delete_user(&ws, &other.id).await.unwrap();
+        }
+    }
 }
