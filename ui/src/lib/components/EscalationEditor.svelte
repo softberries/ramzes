@@ -40,10 +40,9 @@
 							aria-label="Step {index + 1}: delay"
 							bind:value={step.after.amount}
 						/>
-						<select class="input w-28" aria-label="Step {index + 1}: unit" bind:value={step.after.unit}>
+						<select class="input w-32" aria-label="Step {index + 1}: unit" bind:value={step.after.unit}>
 							{#each UNITS as unit (unit.unit)}<option value={unit.unit}>{unit.label}</option>{/each}
 						</select>
-						<span>tell</span>
 						{#if since[index] > 0}
 							<span class="text-muted" data-testid="since-first">{sinceFirstWords(since[index])}</span>
 						{/if}
@@ -57,6 +56,7 @@
 						</button>
 					</div>
 					<div class="part">
+						<span class="field-label">tell</span>
 						<TargetRows
 							bind:targets={step.targets}
 							{connections}

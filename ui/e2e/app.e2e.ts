@@ -476,6 +476,85 @@ test('a connection that keeps failing is paused and can be resumed', async ({ pa
 	await expect(paused).toHaveCount(0);
 });
 
+test('a route escalates along its chain until the notification is acknowledged', async ({ page, request }) => {
+	await signIn(page);
+	const headers = { 'x-ramzes-request': '1' };
+	const connect = async (name: string): Promise<string> => {
+		const created = await page.request.post('/api/connections', {
+			headers,
+			data: { kind: 'webhook', name, settings: { url: `${RECEIVER}/hook` } }
+		});
+		expect(created.status()).toBe(201);
+		return (await created.json()).id;
+	};
+	await connect('ops lead');
+	const leaving = await connect('leaving soon');
+
+	await page.getByRole('link', { name: 'Routes', exact: true }).click();
+	await page.getByRole('button', { name: 'New route' }).click();
+	await page.getByLabel('Name').fill('Database paged');
+	await page.getByLabel('Topic').fill('infra.*');
+	await expect(page.getByText('The delay of a step counts from the step before it')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Add a step' }).click();
+	await page.getByLabel('Step 1: delay').fill('10');
+	await page.getByLabel('Step 1: Connection').selectOption({ label: 'leaving soon' });
+	await page.getByRole('button', { name: 'Add another step' }).click();
+	await page.getByLabel('Step 2: delay').fill('20');
+	await page.getByLabel('Step 2: Connection').selectOption({ label: 'phone push' });
+	await page.getByLabel('Step 2: Topic').fill('night-shift');
+	await expect(page.getByTestId('since-first')).toHaveText([
+		'10 min after the first message',
+		'30 min after the first message'
+	]);
+	await page.screenshot({ path: 'e2e-shots/route-escalation.png', fullPage: true });
+
+	// What the server refuses in a step is shown under the form.
+	expect((await page.request.delete(`/api/connections/${leaving}`, { headers })).status()).toBe(204);
+	await page.getByRole('button', { name: 'Create route' }).click();
+	await expect(page.locator('form').getByRole('alert')).toContainText(leaving);
+
+	await page.getByLabel('Step 1: Connection').selectOption({ label: 'ops lead' });
+	await page.getByRole('button', { name: 'Create route' }).click();
+	await expect(page.getByText('Route created.')).toBeVisible();
+	await expect(page.getByTestId('chain-summary')).toHaveText(
+		'then ops lead after 10 min, then phone push (night-shift) after 30 min'
+	);
+
+	// The chain survives the route being opened and saved again.
+	const routes = page.getByRole('list', { name: 'Routes' }).getByRole('listitem');
+	await routes.filter({ hasText: 'Database paged' }).getByRole('button', { name: 'Edit' }).click();
+	await expect(page.getByLabel('Step 2: delay')).toHaveValue('20');
+	await expect(page.getByLabel('Step 2: Topic')).toHaveValue('night-shift');
+	await page.getByRole('button', { name: 'Save route' }).click();
+	await expect(page.getByTestId('chain-summary')).toContainText('then ops lead after 10 min');
+
+	await sendEvent(request, { topic: 'infra.db', title: 'Primary database is down', severity: 'critical' });
+	await page.goto('/notifications?view=sent');
+	const paged = notificationsOf(page, 'Database paged');
+	await expect(paged).toContainText(/next step in 9 min/);
+	await paged.getByRole('link', { name: 'Primary database is down' }).click();
+
+	const chain = page.getByRole('region', { name: 'If nobody acknowledges' });
+	const steps = chain.getByRole('list', { name: 'Escalation chain' }).getByRole('listitem');
+	await expect(steps.nth(0)).toContainText(/First message\s+to test receiver\s+sent at \d\d:\d\d/);
+	await expect(steps.nth(1)).toContainText('to ops lead, 10 min after the first message');
+	await expect(steps.nth(2)).toContainText('to phone push (night-shift), 30 min after the first message');
+	const states = chain.getByTestId('step-state');
+	await expect(states).toHaveText([/^due in 9 min( \d+ s)?$/, 'not reached']);
+	// The countdown runs by itself.
+	const before = await states.nth(0).innerText();
+	await expect(states.nth(0)).not.toHaveText(before);
+	await page.screenshot({ path: 'e2e-shots/notification-escalating.png', fullPage: true });
+
+	await page.getByRole('button', { name: /^Acknowledge/ }).click();
+	await expect(page.getByText('Acknowledged.')).toBeVisible();
+	await expect(chain.getByTestId('chain-stopped')).toHaveText(/^stopped: acknowledged by kris@… at \d\d:\d\d$/);
+	await expect(states).toHaveText(['not reached', 'not reached']);
+	await expect(steps).toHaveCount(4);
+	await page.screenshot({ path: 'e2e-shots/notification-chain-stopped.png', fullPage: true });
+});
+
 test('the feed works on a phone-sized screen', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await signIn(page);
