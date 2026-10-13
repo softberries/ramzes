@@ -1,0 +1,45 @@
+{
+	"name": "ramzes-ui",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "eslint .",
+		"test": "vitest --run",
+		"gen:api": "cargo run -q --manifest-path ../Cargo.toml -p ramzes-server -- openapi > src/lib/api/openapi.json && npx --yes openapi-typescript@7.13.0 src/lib/api/openapi.json -o src/lib/api/schema.d.ts",
+		"e2e": "playwright test"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@fontsource/ibm-plex-mono": "^5.3.0",
+		"@playwright/test": "^1.60.0",
+		"@sveltejs/adapter-static": "^4.0.0",
+		"@sveltejs/kit": "^3.0.0",
+		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+		"@tailwindcss/vite": "^4.3.0",
+		"@types/node": "^24",
+		"@vitest/browser-playwright": "^4.1.8",
+		"eslint": "^10.4.1",
+		"eslint-plugin-svelte": "^3.19.0",
+		"globals": "^17.6.0",
+		"playwright": "^1.60.0",
+		"svelte": "^5.57.1",
+		"svelte-check": "^4.6.0",
+		"tailwindcss": "^4.3.0",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.60.1",
+		"vite": "^8.3.0",
+		"vitest": "^4.1.8",
+		"vitest-browser-svelte": "^2.1.1"
+	},
+	"license": "AGPL-3.0-only",
+	"imports": {
+		"#lib/*": "./src/lib/*"
+	}
+}

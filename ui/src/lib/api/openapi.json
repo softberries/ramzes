@@ -1,0 +1,2480 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ramzes admin API",
+    "description": "Everything the web UI can do. Authenticate with the session cookie or `Authorization: Bearer <API token>`.",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign in with email and password.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "End the current session.",
+        "operationId": "logout",
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "The signed-in user.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "All connections, without credentials.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectionView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Create a connection. Credentials are encrypted before they are stored.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/{id}": {
+      "put": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Change a connection. Without `credentials` the stored ones are kept.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Delete a connection. Routes that target it will fail to deliver until they are changed.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/{id}/test": {
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Send a test message through a connection and report what the service said.",
+        "operationId": "test",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connectors": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "The connectors this binary has, with the fields each needs.",
+        "operationId": "connectors",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorDescriptor"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/deliveries/{id}/replay": {
+      "post": {
+        "tags": [
+          "failures"
+        ],
+        "summary": "Send a delivery again, to the same target.",
+        "operationId": "replay_delivery",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Delivery"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "A page of events, newest first.",
+        "operationId": "feed",
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Return events older than this id. Use `next_before` from the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Source id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "Exact topic, or a pattern where `*` matches any run of characters.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "debug",
+                "info",
+                "warning",
+                "error",
+                "critical"
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "description": "One label as `key=value`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive text to find in the title.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Received at or after this time, unix milliseconds.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Received at or before this time, unix milliseconds.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "delivered",
+                "failed",
+                "unrouted"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 200. Default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{id}": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Everything that happened to one event: routes matched, deliveries and their attempts.",
+        "operationId": "journey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Journey"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{id}/replay": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Run an event through the current routes again.",
+        "operationId": "replay_event",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventReplayed"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/failures": {
+      "get": {
+        "tags": [
+          "failures"
+        ],
+        "summary": "Deliveries that failed for good, newest first.",
+        "operationId": "failures",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FailureRow"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/failures/replay": {
+      "post": {
+        "tags": [
+          "failures"
+        ],
+        "summary": "Send several deliveries again.",
+        "operationId": "replay_failures",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkReplay"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkReplayed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/routes": {
+      "get": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "All routes in evaluation order.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Route"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Add a route after the existing ones.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/routes/reorder": {
+      "post": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Set the evaluation order of all routes.",
+        "operationId": "reorder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reorder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/routes/{id}": {
+      "put": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Replace a route. Its position is kept.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "routes"
+        ],
+        "summary": "Delete a route.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Instance settings.",
+        "operationId": "get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Replace the instance settings.",
+        "operationId": "put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Settings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Whether the instance still needs its first user.",
+        "operationId": "setup_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create the first user and sign them in. Works only while no user exists.",
+        "operationId": "setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "All sources.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Source"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Create a source. The response is the only time its key is shown.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewSource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/{id}": {
+      "delete": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Delete a source. Its events are kept.",
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/{id}/requests": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "The source's most recent rejected requests, newest first.",
+        "operationId": "requests",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceRequest"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/{id}/rotate": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Replace a source's key. The old key stops working immediately.",
+        "operationId": "rotate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotatedKey"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Live changes as server-sent events.",
+        "description": "`event` carries `{\"event_id\"}` when an event has been routed. `delivery` carries\n`{\"event_ids\", \"delivery_id\", \"state\"}` after each delivery attempt. `resync` means changes\nwere missed and the client should reload.",
+        "operationId": "stream",
+        "responses": {
+          "200": {
+            "description": "A stream of server-sent events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "All admin API tokens, without their values.",
+        "operationId": "tokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiToken"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Create an admin API token. The response is the only time its value is shown.",
+        "operationId": "create_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Revoke an admin API token.",
+        "operationId": "delete_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "All users.",
+        "operationId": "users",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Add a user. Every user is an administrator.",
+        "operationId": "create_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUser"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Remove a user and end their sessions. The last user cannot be removed.",
+        "operationId": "delete_user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiToken": {
+        "type": "object",
+        "description": "An admin API token. The token itself is never stored, only its hash and a display prefix.",
+        "required": [
+          "id",
+          "name",
+          "token_prefix",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        }
+      },
+      "Attempt": {
+        "type": "object",
+        "required": [
+          "id",
+          "delivery_id",
+          "started_at",
+          "duration_ms",
+          "outcome"
+        ],
+        "properties": {
+          "delivery_id": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`delivered`, `retry` or `failed`."
+          },
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "HTTP status, when the service answered."
+          }
+        }
+      },
+      "BulkReplay": {
+        "type": "object",
+        "required": [
+          "delivery_ids"
+        ],
+        "properties": {
+          "delivery_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BulkReplayed": {
+        "type": "object",
+        "required": [
+          "replayed",
+          "missing"
+        ],
+        "properties": {
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids that did not exist."
+          },
+          "replayed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Capabilities": {
+        "type": "object",
+        "required": [
+          "rich",
+          "update",
+          "threads",
+          "buttons",
+          "max_len"
+        ],
+        "properties": {
+          "buttons": {
+            "type": "boolean"
+          },
+          "max_len": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rich": {
+            "type": "boolean"
+          },
+          "threads": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConnectionUpdate": {
+        "type": "object",
+        "required": [
+          "name",
+          "settings"
+        ],
+        "properties": {
+          "credentials": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Leave out to keep the stored credentials."
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object"
+          }
+        }
+      },
+      "ConnectionView": {
+        "type": "object",
+        "description": "A connection as the API shows it: without its credentials.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "settings",
+          "has_credentials",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_credentials": {
+            "type": "boolean",
+            "description": "Whether secret fields have been stored. Their values are never returned."
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "description": "The connector's non-secret settings."
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ConnectorDescriptor": {
+        "type": "object",
+        "description": "What a connector is and which settings it needs. Drives the setup form in the UI.",
+        "required": [
+          "kind",
+          "name",
+          "description",
+          "fields",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "description": {
+            "type": "string"
+          },
+          "destination_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What a route's destination means for this connector, when it uses one."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Delivery": {
+        "type": "object",
+        "description": "One send of a notification to one target.",
+        "required": [
+          "id",
+          "workspace_id",
+          "notification_id",
+          "connection_id",
+          "state",
+          "attempts",
+          "next_attempt_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Attempts made so far."
+          },
+          "connection_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The service's id for the delivered message, when it gives one."
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "notification_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DeliveryState"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DeliveryState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "in_progress",
+          "delivered",
+          "failed",
+          "dead"
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "The body of every error response.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "A stable machine-readable code."
+          },
+          "message": {
+            "type": "string",
+            "description": "What went wrong, for people."
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "description": "A stored event.",
+        "required": [
+          "id",
+          "workspace_id",
+          "source_id",
+          "topic",
+          "severity",
+          "status",
+          "title",
+          "labels",
+          "payload",
+          "occurred_at",
+          "received_at"
+        ],
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dedup_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "occurred_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "payload": {},
+          "received_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EventStatus"
+          },
+          "title": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "EventPage": {
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventRow"
+            }
+          },
+          "next_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `before` to get the next page; absent on the last page."
+          }
+        }
+      },
+      "EventReplayed": {
+        "type": "object",
+        "required": [
+          "deliveries"
+        ],
+        "properties": {
+          "deliveries": {
+            "type": "integer",
+            "description": "Deliveries queued by the current routes.",
+            "minimum": 0
+          }
+        }
+      },
+      "EventRow": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Event"
+          },
+          {
+            "type": "object",
+            "required": [
+              "routed",
+              "route_count",
+              "deliveries_total",
+              "deliveries_delivered",
+              "deliveries_failed"
+            ],
+            "properties": {
+              "deliveries_delivered": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "deliveries_failed": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "deliveries_total": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "route_count": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "routed": {
+                "type": "boolean"
+              }
+            }
+          }
+        ],
+        "description": "An event with a summary of what happened to it, for lists."
+      },
+      "EventStatus": {
+        "type": "string",
+        "enum": [
+          "firing",
+          "resolved"
+        ]
+      },
+      "FailureRow": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Delivery"
+          },
+          {
+            "type": "object",
+            "required": [
+              "event_id",
+              "event_title",
+              "route_name"
+            ],
+            "properties": {
+              "connection_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`None` when the connection has been deleted."
+              },
+              "event_id": {
+                "type": "string"
+              },
+              "event_title": {
+                "type": "string"
+              },
+              "route_name": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "A failed or dead delivery with enough context to show in a list."
+      },
+      "Field": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "help",
+          "secret",
+          "required",
+          "kind"
+        ],
+        "properties": {
+          "help": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FieldKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "Secret fields are stored encrypted and never returned by the API."
+          }
+        }
+      },
+      "FieldKind": {
+        "type": "string",
+        "enum": [
+          "text",
+          "url"
+        ]
+      },
+      "Journey": {
+        "type": "object",
+        "description": "Everything that happened to one event.",
+        "required": [
+          "event",
+          "routed",
+          "route_count",
+          "notifications"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JourneyNotification"
+            }
+          },
+          "route_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "routed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JourneyDelivery": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Delivery"
+          },
+          {
+            "type": "object",
+            "required": [
+              "attempts"
+            ],
+            "properties": {
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Attempt"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "JourneyNotification": {
+        "type": "object",
+        "required": [
+          "id",
+          "route_id",
+          "route_name",
+          "connection_id",
+          "state",
+          "replay",
+          "created_at",
+          "deliveries"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JourneyDelivery"
+            }
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "route_id": {
+            "type": "string"
+          },
+          "route_name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "LabelCond": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "value",
+              "op"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "equals"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "`pattern` is a regular expression searched for in the label value; anchor it to match the whole value.",
+            "required": [
+              "key",
+              "pattern",
+              "op"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "matches"
+                ]
+              },
+              "pattern": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "op"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "exists"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the request used an API token."
+          }
+        }
+      },
+      "NewConnection": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name",
+          "settings"
+        ],
+        "properties": {
+          "credentials": {
+            "type": "object",
+            "description": "Values for the connector's secret fields."
+          },
+          "kind": {
+            "type": "string",
+            "description": "A connector kind from `GET /api/connectors`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Values for the connector's non-secret fields."
+          }
+        }
+      },
+      "NewSource": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NewToken": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NewUser": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Reorder": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every route id exactly once, in the new evaluation order."
+          }
+        }
+      },
+      "RotatedKey": {
+        "type": "object",
+        "required": [
+          "key",
+          "key_prefix"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The new ingest key. Shown only in this response."
+          },
+          "key_prefix": {
+            "type": "string"
+          }
+        }
+      },
+      "Route": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "position",
+          "enabled",
+          "stop",
+          "match",
+          "targets"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "match": {
+            "$ref": "#/components/schemas/RouteMatch"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stop": {
+            "type": "boolean",
+            "description": "When this route matches, routes after it are not evaluated."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            }
+          }
+        }
+      },
+      "RouteInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "match",
+          "targets"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "match": {
+            "$ref": "#/components/schemas/RouteMatch"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stop": {
+            "type": "boolean",
+            "description": "When this route matches, routes after it are not evaluated."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            }
+          }
+        }
+      },
+      "RouteMatch": {
+        "type": "object",
+        "description": "The conditions of a route. Every condition that is set must hold.",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelCond"
+            }
+          },
+          "min_severity": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Severity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "topic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Glob over the whole topic: `*` matches any run of characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Settings": {
+        "type": "object",
+        "required": [
+          "retention_days",
+          "retention_overrides"
+        ],
+        "properties": {
+          "public_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Address of this ramzes instance, used for links in messages."
+          },
+          "retention_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Days events are kept. Zero keeps them forever."
+          },
+          "retention_overrides": {
+            "type": "object",
+            "description": "Days per topic, overriding `retention_days`. Zero keeps that topic forever.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SetupStatus": {
+        "type": "object",
+        "required": [
+          "needs_setup"
+        ],
+        "properties": {
+          "needs_setup": {
+            "type": "boolean",
+            "description": "True until the first user has been created."
+          }
+        }
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "debug",
+          "info",
+          "warning",
+          "error",
+          "critical"
+        ]
+      },
+      "Source": {
+        "type": "object",
+        "description": "A producer of events. The ingest key itself is never stored, only its hash and a display prefix.",
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "kind",
+          "key_prefix",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Source"
+          },
+          {
+            "type": "object",
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "The ingest key. Shown only in this response."
+              }
+            }
+          }
+        ]
+      },
+      "SourceRequest": {
+        "type": "object",
+        "description": "A request a source sent that ramzes rejected, kept for debugging.",
+        "required": [
+          "id",
+          "received_at",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Target": {
+        "type": "object",
+        "description": "Where a route sends: a connection and an optional destination within it (for example a channel).",
+        "required": [
+          "connection_id"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "TestResult": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "HTTP status the service answered with, if it answered.",
+            "minimum": 0
+          }
+        }
+      },
+      "TokenCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiToken"
+          },
+          {
+            "type": "object",
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "value": {
+                "type": "string",
+                "description": "The token. Shown only in this response."
+              }
+            }
+          }
+        ]
+      },
+      "UserView": {
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

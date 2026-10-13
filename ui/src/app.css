@@ -1,0 +1,225 @@
+@import 'tailwindcss';
+
+/*
+ * Every colour in the UI comes from these tokens. Dark is the default; the light theme
+ * redefines the same names, so components never mention a colour directly.
+ */
+:root {
+	color-scheme: dark;
+	--bg: #0b1020;
+	--surface: #111831;
+	--raised: #18213f;
+	--line: #232e4d;
+	--fg: #dbe3f4;
+	--muted: #8f9dbd;
+	--faint: #5d6a8d;
+	--accent: #7aa7ff;
+	--accent-fg: #0b1020;
+	--gold: #e3b341;
+
+	--sev-critical: #ff6b86;
+	--sev-error: #ff9357;
+	--sev-warning: #e3b341;
+	--sev-info: #7aa7ff;
+	--sev-debug: #7c88a8;
+
+	--st-delivered: #4cc38a;
+	--st-pending: #8f9dbd;
+	--st-in_progress: #7aa7ff;
+	--st-failed: #ff6b86;
+	--st-dead: #d9608c;
+	--st-unrouted: #e3b341;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+	--bg: #f3f5fa;
+	--surface: #ffffff;
+	--raised: #e9edf6;
+	--line: #cfd6e6;
+	--fg: #131a2c;
+	--muted: #4f5b78;
+	--faint: #7d88a3;
+	--accent: #1f4fc4;
+	--accent-fg: #ffffff;
+	--gold: #8a5f00;
+
+	--sev-critical: #c01a45;
+	--sev-error: #b3470a;
+	--sev-warning: #7d5a00;
+	--sev-info: #1f4fc4;
+	--sev-debug: #5d6884;
+
+	--st-delivered: #126b42;
+	--st-pending: #4f5b78;
+	--st-in_progress: #1f4fc4;
+	--st-failed: #c01a45;
+	--st-dead: #a01560;
+	--st-unrouted: #7d5a00;
+}
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-raised: var(--raised);
+	--color-line: var(--line);
+	--color-fg: var(--fg);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-accent: var(--accent);
+	--color-accent-fg: var(--accent-fg);
+	--color-gold: var(--gold);
+	--color-ok: var(--st-delivered);
+	--color-bad: var(--st-failed);
+	--font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+	html {
+		font-family: var(--font-mono);
+		font-size: 13px;
+		line-height: 1.5;
+		background: var(--bg);
+		color: var(--fg);
+		font-variant-ligatures: none;
+	}
+
+	body {
+		min-height: 100dvh;
+	}
+
+	h1 {
+		font-size: 1.25rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+
+	h2 {
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	a {
+		color: var(--accent);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+
+	::selection {
+		background: var(--accent);
+		color: var(--accent-fg);
+	}
+}
+
+@layer components {
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 2.25rem;
+		padding: 0 0.85rem;
+		border: 1px solid var(--line);
+		border-radius: 2px;
+		background: var(--surface);
+		color: var(--fg);
+		font-weight: 500;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.btn:hover:not(:disabled) {
+		border-color: var(--muted);
+	}
+
+	.btn:disabled {
+		color: var(--faint);
+		cursor: not-allowed;
+	}
+
+	.btn-primary {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--accent-fg);
+	}
+
+	.btn-primary:disabled {
+		background: var(--raised);
+		border-color: var(--line);
+	}
+
+	.btn-danger {
+		color: var(--st-failed);
+	}
+
+	.btn-quiet {
+		border-color: transparent;
+		background: transparent;
+		color: var(--muted);
+	}
+
+	.input {
+		width: 100%;
+		height: 2.25rem;
+		padding: 0 0.6rem;
+		border: 1px solid var(--line);
+		border-radius: 2px;
+		background: var(--bg);
+		color: var(--fg);
+	}
+
+	.input::placeholder {
+		color: var(--faint);
+	}
+
+	select.input {
+		padding-right: 1.5rem;
+	}
+
+	.field-label {
+		display: block;
+		margin-bottom: 0.25rem;
+		color: var(--muted);
+	}
+
+	.hint {
+		color: var(--muted);
+	}
+
+	.problem {
+		color: var(--st-failed);
+	}
+
+	/* A bordered region: forms, code, lists. Not a card: no shadow, no rounding. */
+	.panel {
+		border: 1px solid var(--line);
+		background: var(--surface);
+	}
+
+	.code {
+		padding: 0.75rem 0.9rem;
+		border: 1px solid var(--line);
+		background: var(--bg);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	.tag {
+		display: inline-block;
+		padding: 0 0.4rem;
+		border: 1px solid var(--line);
+		color: var(--muted);
+		white-space: nowrap;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

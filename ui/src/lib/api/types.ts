@@ -1,0 +1,39 @@
+import type { components } from './schema';
+
+type Schemas = components['schemas'];
+
+export type Severity = Schemas['Severity'];
+export type EventStatus = Schemas['EventStatus'];
+export type RamzesEvent = Schemas['Event'];
+export type EventRow = Schemas['EventRow'];
+export type EventPage = Schemas['EventPage'];
+export type Journey = Schemas['Journey'];
+export type JourneyNotification = Schemas['JourneyNotification'];
+export type JourneyDelivery = Schemas['JourneyDelivery'];
+export type Delivery = Schemas['Delivery'];
+export type DeliveryState = Schemas['DeliveryState'];
+export type Attempt = Schemas['Attempt'];
+export type FailureRow = Schemas['FailureRow'];
+export type Source = Schemas['Source'];
+export type SourceCreated = Schemas['SourceCreated'];
+export type SourceRequest = Schemas['SourceRequest'];
+export type ConnectorDescriptor = Schemas['ConnectorDescriptor'];
+export type ConnectorField = Schemas['Field'];
+export type ConnectionView = Schemas['ConnectionView'];
+export type TestResult = Schemas['TestResult'];
+export type Route = Schemas['Route'];
+export type RouteInput = Schemas['RouteInput'];
+export type RouteMatch = Schemas['RouteMatch'];
+export type LabelCond = Schemas['LabelCond'];
+export type Target = Schemas['Target'];
+export type Settings = Schemas['Settings'];
+export type UserView = Schemas['UserView'];
+export type ApiToken = Schemas['ApiToken'];
+export type TokenCreated = Schemas['TokenCreated'];
+export type Me = Schemas['Me'];
+
+export const SEVERITIES: Severity[] = ['debug', 'info', 'warning', 'error', 'critical'];
+
+/** What became of an event, as the feed shows it. */
+export type Outcome = 'pending' | 'delivered' | 'failed' | 'unrouted';
+export const OUTCOMES: Outcome[] = ['pending', 'delivered', 'failed', 'unrouted'];

@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest';
+import { ago, clock, duration, outcomeOf, until } from './format';
+
+describe('clock', () => {
+	it('shows local time with seconds', () => {
+		const ms = new Date(2026, 9, 13, 9, 41, 7).getTime();
+		expect(clock(ms)).toBe('09:41:07');
+	});
+
+	it('adds the date when the time is not today', () => {
+		const now = new Date(2026, 9, 13, 12, 0, 0).getTime();
+		const yesterday = new Date(2026, 9, 12, 23, 5, 9).getTime();
+		expect(clock(yesterday, now)).toBe('Oct 12 23:05:09');
+		expect(clock(new Date(2026, 9, 13, 0, 0, 1).getTime(), now)).toBe('00:00:01');
+	});
+});
+
+describe('ago', () => {
+	it('picks the largest fitting unit', () => {
+		const now = 10_000_000_000;
+		expect(ago(now - 400, now)).toBe('just now');
+		expect(ago(now - 42_000, now)).toBe('42 s ago');
+		expect(ago(now - 5 * 60_000, now)).toBe('5 min ago');
+		expect(ago(now - 3 * 3_600_000, now)).toBe('3 h ago');
+		expect(ago(now - 4 * 86_400_000, now)).toBe('4 d ago');
+	});
+});
+
+describe('until', () => {
+	it('describes a future time', () => {
+		const now = 10_000_000_000;
+		expect(until(now + 5_000, now)).toBe('in 5 s');
+		expect(until(now + 8 * 60_000, now)).toBe('in 8 min');
+		expect(until(now - 1, now)).toBe('now');
+	});
+});
+
+describe('duration', () => {
+	it('uses milliseconds below a second and seconds above', () => {
+		expect(duration(212)).toBe('212 ms');
+		expect(duration(1500)).toBe('1.5 s');
+		expect(duration(0)).toBe('0 ms');
+	});
+});
+
+describe('outcomeOf', () => {
+	const row = { routed: true, route_count: 1, deliveries_total: 2, deliveries_delivered: 2, deliveries_failed: 0 };
+
+	it('is pending until the event is routed', () => {
+		expect(outcomeOf({ ...row, routed: false })).toBe('pending');
+	});
+
+	it('is unrouted when no route matched', () => {
+		expect(outcomeOf({ ...row, route_count: 0, deliveries_total: 0, deliveries_delivered: 0 })).toBe('unrouted');
+	});
+
+	it('is failed as soon as one delivery failed for good', () => {
+		expect(outcomeOf({ ...row, deliveries_delivered: 1, deliveries_failed: 1 })).toBe('failed');
+	});
+
+	it('is delivered only when every delivery arrived', () => {
+		expect(outcomeOf(row)).toBe('delivered');
+		expect(outcomeOf({ ...row, deliveries_delivered: 1 })).toBe('pending');
+	});
+});
