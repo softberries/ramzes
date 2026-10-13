@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use ramzes_core::Severity;
-use ramzes_store::{Delivery, EventFilter, EventRow, FailureRow, Journey, Outcome};
+use ramzes_store::{Delivery, EventFilter, EventRow, EventSort, FailureRow, Journey, Outcome};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -49,6 +49,30 @@ pub(crate) struct FeedQuery {
     outcome: Option<OutcomeParam>,
     /// Page size, 1 to 200. Default 50.
     limit: Option<i64>,
+    /// What to order by. Default `received`; ties go by arrival.
+    #[param(inline)]
+    sort: Option<SortParam>,
+    /// `desc` (default: newest or largest first) or `asc`.
+    #[param(inline)]
+    order: Option<OrderParam>,
+    /// Events to skip, for paging through a sorted list. `before` pages faster through the default order.
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SortParam {
+    Received,
+    Severity,
+    Topic,
+    Title,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum OrderParam {
+    Asc,
+    Desc,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -56,6 +80,8 @@ pub(crate) struct EventPage {
     events: Vec<EventRow>,
     /// Pass as `before` to get the next page; absent on the last page.
     next_before: Option<String>,
+    /// How many events match the filters in all.
+    total: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -90,6 +116,10 @@ pub(crate) async fn feed(
     if !(1..=MAX_PAGE).contains(&limit) {
         return Err(ApiError::invalid(format!("limit must be 1 to {MAX_PAGE}")));
     }
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(ApiError::invalid("offset must not be negative"));
+    }
     let label = match query.label.as_deref() {
         None => None,
         Some(pair) => {
@@ -117,8 +147,20 @@ pub(crate) async fn feed(
             OutcomeParam::NotSent => Outcome::NotSent,
         }),
         limit,
+        sort: match query.sort {
+            None | Some(SortParam::Received) => EventSort::Received,
+            Some(SortParam::Severity) => EventSort::Severity,
+            Some(SortParam::Topic) => EventSort::Topic,
+            Some(SortParam::Title) => EventSort::Title,
+        },
+        ascending: query.order == Some(OrderParam::Asc),
+        offset,
     };
     let events = state.store.list_events(&auth.workspace_id, &filter).await?;
+    let total = state
+        .store
+        .count_events(&auth.workspace_id, &filter)
+        .await?;
     let full_page = i64::try_from(events.len()).is_ok_and(|n| n == limit);
     let next_before = if full_page {
         events.last().map(|row| row.event.id.clone())
@@ -128,6 +170,7 @@ pub(crate) async fn feed(
     Ok(Json(EventPage {
         events,
         next_before,
+        total,
     }))
 }
 

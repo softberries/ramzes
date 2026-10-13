@@ -26,7 +26,7 @@ pub use deliveries::{
     Attempt, Delivery, DeliveryState, FailureRow, Finish, Join, NewDelivery, NewDispatch,
     QueueDepth,
 };
-pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
+pub use events::{EventFilter, EventRow, EventSort, InsertOutcome, Outcome};
 pub use notifications::{
     Journey, JourneyDelivery, JourneyNotification, NotificationDetail, NotificationEvent,
     NotificationFilter, NotificationRow,

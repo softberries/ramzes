@@ -352,6 +352,20 @@ async fn the_overview_summarises_the_last_hours() {
     assert_eq!(overview["failing"][0]["failed"], 1);
     assert_eq!(overview["bucket_ms"], 3_600_000);
     assert!(overview["buckets"][0]["start"].is_i64() && overview["buckets"][0]["events"].is_i64());
+    // A bucket says what its events were and how its deliveries ended.
+    let bucket = &overview["buckets"][0];
+    assert_eq!(
+        (&bucket["info"], &bucket["warning"], &bucket["critical"]),
+        (&json!(3), &json!(1), &json!(0))
+    );
+    assert_eq!(
+        (&bucket["delivered"], &bucket["failed"]),
+        (&json!(1), &json!(1))
+    );
+    assert_eq!(
+        overview["previous"],
+        json!({"events": 0, "deliveries_delivered": 0, "deliveries_failed": 0})
+    );
     assert_eq!(
         api.get("/api/overview?hours=0").await.0,
         StatusCode::UNPROCESSABLE_ENTITY

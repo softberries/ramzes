@@ -48,6 +48,22 @@ pub struct EventFilter {
     pub until_ms: Option<i64>,
     pub outcome: Option<Outcome>,
     pub limit: i64,
+    /// What the list is ordered by. Ties, and the default, go by arrival.
+    pub sort: EventSort,
+    /// Oldest or smallest first. The default is newest first.
+    pub ascending: bool,
+    /// Rows to skip, for paging through a sorted list.
+    pub offset: i64,
+}
+
+/// What a list of events can be ordered by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EventSort {
+    #[default]
+    Received,
+    Severity,
+    Topic,
+    Title,
 }
 
 /// An event with a summary of what happened to it, for lists.
@@ -79,6 +95,78 @@ const DELIVERIES_OF_E: &str = "FROM notification_events ne JOIN deliveries d ON 
 /// Notifications belonging to event `e`.
 const NOTIFICATIONS_OF_E: &str = "FROM notification_events ne JOIN notifications n ON n.id = ne.notification_id \
                                   WHERE ne.event_id = e.id";
+
+/// Appends the conditions of a filter, apart from its paging, to a query over `events e`.
+fn push_filters(sql: &mut Sql, f: &EventFilter) {
+    if let Some(source) = &f.source_id {
+        sql.push(" AND e.source_id = ").text(source.as_str());
+    }
+    if let Some(topic) = &f.topic {
+        if topic.contains('*') {
+            sql.push(" AND e.topic LIKE ")
+                .text(like_escape(topic).replace('*', "%"))
+                .push(" ESCAPE '\\'");
+        } else {
+            sql.push(" AND e.topic = ").text(topic.as_str());
+        }
+    }
+    if let Some(min) = f.min_severity {
+        sql.push(" AND e.severity >= ").int(min.as_i64());
+    }
+    if let Some((key, value)) = &f.label {
+        sql.push(" AND EXISTS (SELECT 1 FROM event_labels l WHERE l.event_id = e.id AND l.key = ")
+            .text(key.as_str())
+            .push(" AND l.value = ")
+            .text(value.as_str())
+            .push(")");
+    }
+    if let Some(text) = &f.title_contains {
+        sql.push(" AND LOWER(e.title) LIKE ")
+            .text(format!("%{}%", like_escape(&text.to_lowercase())))
+            .push(" ESCAPE '\\'");
+    }
+    if let Some(since) = f.since_ms {
+        sql.push(" AND e.received_at >= ").int(since);
+    }
+    if let Some(until) = f.until_ms {
+        sql.push(" AND e.received_at <= ").int(until);
+    }
+    match f.outcome {
+        None => {}
+        Some(Outcome::Pending) => {
+            sql.push(&format!(
+                " AND (e.routed_at IS NULL OR EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('pending', 'in_progress')))"
+            ));
+        }
+        Some(Outcome::Delivered) => {
+            sql.push(&format!(
+                " AND e.routed_at IS NOT NULL AND EXISTS (SELECT 1 {DELIVERIES_OF_E}) \
+                 AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state <> 'delivered')"
+            ));
+        }
+        Some(Outcome::Failed) => {
+            sql.push(&format!(
+                " AND EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
+            ));
+        }
+        Some(Outcome::Unrouted) => {
+            sql.push(" AND e.routed_at IS NOT NULL AND e.route_count = 0");
+        }
+        Some(Outcome::Waiting) => {
+            sql.push(&format!(
+                " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
+                 AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
+            ));
+        }
+        Some(Outcome::NotSent) => {
+            sql.push(&format!(
+                " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state = 'suppressed') \
+                 AND NOT EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
+                 AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E})"
+            ));
+        }
+    }
+}
 
 /// An event row before its text columns are parsed.
 pub(crate) struct RawEvent {
@@ -356,7 +444,21 @@ impl Store {
         Ok(by_event)
     }
 
-    /// A page of events, newest first.
+    /// How many events match a filter, whatever its paging.
+    pub async fn count_events(&self, workspace_id: &str, f: &EventFilter) -> Result<i64> {
+        let mut sql = Sql::new("SELECT COUNT(*) FROM events e WHERE e.workspace_id = ");
+        sql.text(workspace_id);
+        push_filters(&mut sql, f);
+        let text = self.sql(&sql.text).into_owned();
+        let (count,): (i64,) = with_db!(self, |pool| {
+            bind_args!(sqlx::query_as(AssertSqlSafe(text.as_str())), sql.args)
+                .fetch_one(pool)
+                .await
+        })?;
+        Ok(count)
+    }
+
+    /// A page of events, newest first unless the filter orders them otherwise.
     pub async fn list_events(&self, workspace_id: &str, f: &EventFilter) -> Result<Vec<EventRow>> {
         let cols = EVENT_COLS
             .split(", ")
@@ -376,78 +478,24 @@ impl Store {
         if let Some(before) = &f.before_id {
             sql.push(" AND e.id < ").text(before.as_str());
         }
-        if let Some(source) = &f.source_id {
-            sql.push(" AND e.source_id = ").text(source.as_str());
+        push_filters(&mut sql, f);
+        let direction = if f.ascending { "ASC" } else { "DESC" };
+        let column = match f.sort {
+            EventSort::Received => None,
+            EventSort::Severity => Some("e.severity"),
+            EventSort::Topic => Some("e.topic"),
+            EventSort::Title => Some("LOWER(e.title)"),
+        };
+        sql.push(" ORDER BY ");
+        if let Some(column) = column {
+            sql.push(&format!("{column} {direction}, "));
         }
-        if let Some(topic) = &f.topic {
-            if topic.contains('*') {
-                sql.push(" AND e.topic LIKE ")
-                    .text(like_escape(topic).replace('*', "%"))
-                    .push(" ESCAPE '\\'");
-            } else {
-                sql.push(" AND e.topic = ").text(topic.as_str());
-            }
-        }
-        if let Some(min) = f.min_severity {
-            sql.push(" AND e.severity >= ").int(min.as_i64());
-        }
-        if let Some((key, value)) = &f.label {
-            sql.push(
-                " AND EXISTS (SELECT 1 FROM event_labels l WHERE l.event_id = e.id AND l.key = ",
-            )
-            .text(key.as_str())
-            .push(" AND l.value = ")
-            .text(value.as_str())
-            .push(")");
-        }
-        if let Some(text) = &f.title_contains {
-            sql.push(" AND LOWER(e.title) LIKE ")
-                .text(format!("%{}%", like_escape(&text.to_lowercase())))
-                .push(" ESCAPE '\\'");
-        }
-        if let Some(since) = f.since_ms {
-            sql.push(" AND e.received_at >= ").int(since);
-        }
-        if let Some(until) = f.until_ms {
-            sql.push(" AND e.received_at <= ").int(until);
-        }
-        match f.outcome {
-            None => {}
-            Some(Outcome::Pending) => {
-                sql.push(&format!(
-                    " AND (e.routed_at IS NULL OR EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('pending', 'in_progress')))"
-                ));
-            }
-            Some(Outcome::Delivered) => {
-                sql.push(&format!(
-                    " AND e.routed_at IS NOT NULL AND EXISTS (SELECT 1 {DELIVERIES_OF_E}) \
-                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state <> 'delivered')"
-                ));
-            }
-            Some(Outcome::Failed) => {
-                sql.push(&format!(
-                    " AND EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
-                ));
-            }
-            Some(Outcome::Unrouted) => {
-                sql.push(" AND e.routed_at IS NOT NULL AND e.route_count = 0");
-            }
-            Some(Outcome::Waiting) => {
-                sql.push(&format!(
-                    " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
-                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
-                ));
-            }
-            Some(Outcome::NotSent) => {
-                sql.push(&format!(
-                    " AND EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state = 'suppressed') \
-                     AND NOT EXISTS (SELECT 1 {NOTIFICATIONS_OF_E} AND n.state IN ('grouping', 'held')) \
-                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E})"
-                ));
-            }
-        }
-        sql.push(" ORDER BY e.id DESC LIMIT ")
+        // Ids are time-ordered, so the id is the order of arrival and breaks every tie.
+        sql.push(&format!("e.id {direction} LIMIT "))
             .int(f.limit.clamp(1, MAX_PAGE));
+        if f.offset > 0 {
+            sql.push(" OFFSET ").int(f.offset);
+        }
 
         let text = self.sql(&sql.text).into_owned();
         struct Extra {

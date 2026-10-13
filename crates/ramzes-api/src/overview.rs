@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+
 use axum::Json;
 use axum::extract::{Query, State};
+use ramzes_core::Severity;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -20,7 +23,25 @@ pub(crate) struct OverviewQuery {
 pub(crate) struct Bucket {
     /// Start of the bucket, unix milliseconds.
     start: i64,
+    /// Events received in the bucket; the five severities below add up to it.
     events: i64,
+    critical: i64,
+    error: i64,
+    warning: i64,
+    info: i64,
+    debug: i64,
+    /// Deliveries created in the bucket that arrived.
+    delivered: i64,
+    /// Deliveries created in the bucket that failed for good.
+    failed: i64,
+}
+
+/// The stretch of the same length just before the period.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct Previous {
+    events: i64,
+    deliveries_delivered: i64,
+    deliveries_failed: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -47,8 +68,9 @@ pub(crate) struct OverviewView {
     bucket_ms: i64,
     /// Events received in the period.
     events: i64,
-    /// Events per bucket, for buckets that have any, oldest first.
+    /// Events and delivery results per bucket, for buckets that have any, oldest first.
     buckets: Vec<Bucket>,
+    previous: Previous,
     deliveries_pending: i64,
     deliveries_delivered: i64,
     deliveries_failed: i64,
@@ -83,7 +105,11 @@ pub(crate) async fn overview(
     // Hour buckets up to two days, day buckets beyond.
     let bucket_ms = if hours <= 48 { HOUR_MS } else { 24 * HOUR_MS };
     let since = (now - hours * HOUR_MS) / bucket_ms * bucket_ms;
-    let found = state.store.overview(ws, since, bucket_ms).await?;
+    let previous_since = since - hours * HOUR_MS;
+    let found = state
+        .store
+        .overview(ws, since, bucket_ms, previous_since)
+        .await?;
     let health = state.store.connection_health(ws, since).await?;
     let status = state.store.connection_status(ws).await?;
     let connections = state.store.list_connections(ws).await?;
@@ -115,15 +141,45 @@ pub(crate) async fn overview(
             .map(|(name, events)| Counted { name, events })
             .collect()
     };
+    let mut buckets: BTreeMap<i64, Bucket> = BTreeMap::new();
+    let empty = |start| Bucket {
+        start,
+        events: 0,
+        critical: 0,
+        error: 0,
+        warning: 0,
+        info: 0,
+        debug: 0,
+        delivered: 0,
+        failed: 0,
+    };
+    for (start, severity, count) in found.severity_buckets {
+        let bucket = buckets.entry(start).or_insert_with(|| empty(start));
+        bucket.events += count;
+        match Severity::from_i64(severity) {
+            Some(Severity::Critical) => bucket.critical += count,
+            Some(Severity::Error) => bucket.error += count,
+            Some(Severity::Warning) => bucket.warning += count,
+            Some(Severity::Debug) => bucket.debug += count,
+            Some(Severity::Info) | None => bucket.info += count,
+        }
+    }
+    for (start, delivered, failed) in found.delivery_buckets {
+        let bucket = buckets.entry(start).or_insert_with(|| empty(start));
+        bucket.delivered = delivered;
+        bucket.failed = failed;
+    }
+    let (previous_events, previous_delivered, previous_failed) = found.previous;
     Ok(Json(OverviewView {
         since,
         bucket_ms,
         events: found.events,
-        buckets: found
-            .buckets
-            .into_iter()
-            .map(|(start, events)| Bucket { start, events })
-            .collect(),
+        buckets: buckets.into_values().collect(),
+        previous: Previous {
+            events: previous_events,
+            deliveries_delivered: previous_delivered,
+            deliveries_failed: previous_failed,
+        },
         deliveries_pending: found.deliveries_pending,
         deliveries_delivered: found.deliveries_delivered,
         deliveries_failed: found.deliveries_failed,

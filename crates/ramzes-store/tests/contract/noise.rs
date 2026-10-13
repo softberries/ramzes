@@ -881,9 +881,18 @@ async fn the_overview_counts_events_and_deliveries(store: Store) {
         .await
         .unwrap();
 
-    let overview = store.overview(&ws, 9 * hour, hour).await.unwrap();
+    let overview = store.overview(&ws, 9 * hour, hour, 0).await.unwrap();
     assert_eq!(overview.events, 3);
     assert_eq!(overview.buckets, vec![(10 * hour, 2), (11 * hour, 1)]);
+    // Every stored event here is informational (severity 1).
+    assert_eq!(
+        overview.severity_buckets,
+        vec![(10 * hour, 1, 2), (11 * hour, 1, 1)]
+    );
+    // One delivery was created in the period and has not arrived, so no bucket has a result.
+    assert_eq!(overview.delivery_buckets, vec![(10 * hour, 0, 0)]);
+    // Before the period: one event, whose delivery has not arrived either.
+    assert_eq!(overview.previous, (1, 0, 0));
     assert_eq!(
         (
             overview.deliveries_pending,

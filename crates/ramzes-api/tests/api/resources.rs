@@ -543,6 +543,36 @@ async fn the_feed_filters_and_pages() {
     assert_eq!(page["events"][2]["labels"], json!({"env": "prod"}));
     assert_eq!(page["events"][2]["severity"], json!("error"));
 
+    // Sorted and paged by offset, with the number of events that match in all.
+    let (status, sorted) = api
+        .get("/api/events?sort=topic&order=asc&limit=2&offset=1")
+        .await;
+    assert_eq!(status, StatusCode::OK, "{sorted}");
+    let topics: Vec<&str> = sorted["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["topic"].as_str().unwrap())
+        .collect();
+    let mut all_topics: Vec<&str> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["topic"].as_str().unwrap())
+        .collect();
+    all_topics.sort();
+    assert_eq!(topics, all_topics[1..3]);
+    assert_eq!(sorted["total"], json!(all_topics.len()));
+    assert_eq!(page["total"], json!(all_topics.len()));
+    assert_eq!(
+        api.get("/api/events?sort=colour").await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        api.get("/api/events?offset=-1").await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
     let (_, first) = api.get("/api/events?limit=2").await;
     assert_eq!(ids(&first), newest_first[..2]);
     let before = first["next_before"].as_str().unwrap();

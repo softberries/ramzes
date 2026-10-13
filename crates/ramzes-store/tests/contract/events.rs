@@ -16,6 +16,7 @@ crate::contract!(
     list_is_newest_first_and_pages_with_before_id,
     filters_narrow_the_list,
     outcome_filters_pending_and_unrouted,
+    events_are_sorted_paged_by_offset_and_counted,
     claim_unrouted_hands_out_each_event_once_per_lease,
     retention_deletes_old_events_and_their_labels,
     retention_respects_topic_arguments_and_limit,
@@ -464,4 +465,68 @@ async fn a_duplicate_batch_returns_its_ids_in_the_original_order(store: Store) {
     assert!(again.duplicate);
     assert_eq!(again.ids, first.ids);
     assert_eq!(again.ids.len(), 12);
+}
+
+async fn events_are_sorted_paged_by_offset_and_counted(store: Store) {
+    use ramzes_store::EventSort;
+    let (ws, source) = seed(&store).await;
+    let mut made = Vec::new();
+    for (topic, severity) in [
+        ("b.one", Severity::Info),
+        ("a.two", Severity::Critical),
+        ("c.three", Severity::Warning),
+        ("a.four", Severity::Critical),
+    ] {
+        let mut e = event(&ws, &source, topic, 1);
+        e.severity = severity;
+        made.push(e);
+    }
+    store.insert_events(&made, None).await.unwrap();
+    let topics = |filter: EventFilter| {
+        let (store, ws) = (store.clone(), ws.clone());
+        async move {
+            store
+                .list_events(&ws, &filter)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.event.topic)
+                .collect::<Vec<_>>()
+        }
+    };
+    let by = |sort, ascending| EventFilter {
+        sort,
+        ascending,
+        ..all()
+    };
+    assert_eq!(
+        topics(by(EventSort::Topic, true)).await,
+        vec!["a.four", "a.two", "b.one", "c.three"]
+    );
+    // Equal severities keep the order of arrival, in the direction asked for.
+    assert_eq!(
+        topics(by(EventSort::Severity, false)).await,
+        vec!["a.four", "a.two", "c.three", "b.one"]
+    );
+    assert_eq!(
+        topics(by(EventSort::Severity, true)).await,
+        vec!["b.one", "c.three", "a.two", "a.four"]
+    );
+    assert_eq!(
+        topics(by(EventSort::Received, true)).await,
+        vec!["b.one", "a.two", "c.three", "a.four"]
+    );
+    let page = EventFilter {
+        limit: 2,
+        offset: 2,
+        ..by(EventSort::Topic, true)
+    };
+    assert_eq!(topics(page.clone()).await, vec!["b.one", "c.three"]);
+    // The count is of everything that matches, not of the page.
+    assert_eq!(store.count_events(&ws, &page).await.unwrap(), 4);
+    let critical = EventFilter {
+        min_severity: Some(Severity::Critical),
+        ..page
+    };
+    assert_eq!(store.count_events(&ws, &critical).await.unwrap(), 2);
 }
