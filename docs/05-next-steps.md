@@ -17,6 +17,16 @@ Before a public launch:
 5. **Install the Helm chart** on a cluster; it has only been linted.
 6. **Go through the UI by hand** on a phone and in the light theme.
 
+Known gaps in what is built:
+
+- Templates and expressions have no memory limit (see the README).
+- `POST /v1/in/{source_id}` answers 404 for an unknown source before it checks
+  anything, so it tells a caller whether an id exists. Ids are random.
+- A notification's page shows the escalation chain its route has now, not the
+  one it had when the notification was sent.
+- The Notifications, Silences and Overview pages have browser tests but no
+  component tests of the whole page.
+
 Still open:
 
 - **Verify the landscape** — fresh competitor scan (Novu self-host, Keep,

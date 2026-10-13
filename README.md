@@ -85,7 +85,7 @@ after the events are written to the database.
 |---|---|
 | ramzes API, Alertmanager, Grafana | `Authorization: Bearer <source key>` |
 | GitHub | `X-Hub-Signature-256` (HMAC-SHA256 of the body with the source key as the webhook secret) |
-| GitLab | `X-Gitlab-Token` equal to the source key. GitLab's newer signing token is not checked |
+| GitLab | `X-Gitlab-Token` equal to the source key, or, when you give ramzes the signing token GitLab generated (GitLab 19.0 and later), the `webhook-signature` header; a signed request more than 5 minutes old is refused |
 | Sentry | `Sentry-Hook-Signature`; you give ramzes the client secret Sentry generated |
 | Any JSON | Bearer by default; the mapping can choose a header, a URL parameter or an HMAC header |
 
@@ -95,6 +95,9 @@ after the events are written to the database.
   labels (equals, regular expression, present) and an optional expression over
   the event, for example `payload.amount > 100 and labels.env == 'prod'`.
 - A route can stop evaluation of the ones below it.
+- A resolved event that is less severe than a route's minimum still closes
+  what that route opened (a passing build is `info`, the failure was `error`).
+  It does nothing else there and does not stop evaluation.
 - The **route tester** shows what every route would do with a stored or sample
   event, including routes you have not saved, without sending anything.
 
@@ -115,7 +118,8 @@ Besides the policy:
 - A **resolved** event closes the open notification with the same key and tells
   everyone who had been told.
 - A connection that fails five attempts in a row is **paused** (1 minute,
-  doubling to 15) and resumed when it answers again.
+  doubling to 15). When a pause ends, one delivery tests the connection; the
+  rest follow when it answers.
 - Deliveries that fail for good, and paused connections, raise events on the
   topics `ramzes.delivery.failed` and `ramzes.connection.paused`, which you can
   route like any other.
@@ -136,8 +140,8 @@ Besides the policy:
 | Discord | Channel webhook |
 | Email | SMTP |
 | ntfy, Telegram, Pushover | Their HTTP APIs |
-| PagerDuty | Events API v2: trigger, and resolve when the event is resolved |
-| Opsgenie | Alert API: create, and close when resolved. Atlassian shuts Opsgenie down on 5 April 2027 |
+| PagerDuty | Events API v2: trigger, acknowledge when acknowledged in ramzes, resolve when the event is resolved |
+| Opsgenie | Alert API: create, acknowledge when acknowledged in ramzes, close when resolved. Atlassian shuts Opsgenie down on 5 April 2027 |
 | Webhook | Signed JSON to any URL |
 | Your own | A YAML definition of one HTTP request, added in the UI |
 
@@ -239,11 +243,11 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
 
 | Claim | How it was checked |
 |---|---|
-| Every feature listed above | Automated tests, last run on 13 October 2026: 508 Rust tests on SQLite and on Postgres 18 (including 17 that start the real binary), 275 UI unit and component tests, 21 browser tests against the real binary |
-| Quickstart with Docker | The image was built from this tree and started: health check, the UI and the setup endpoint answered, and it exited with status 0 on SIGTERM. The compose files were last run for milestone 1 |
-| Quickstart from source | `make build` was last run by hand for milestone 1; the test suites build the same binary |
+| Every feature listed above | Automated tests, last run on 13 October 2026: 524 Rust tests on SQLite and on Postgres 18 (including 13 that start the real binary), 275 UI unit and component tests, 21 browser tests against the real binary |
+| Quickstart with Docker | The image was built from this tree and started: health check, the UI and the setup endpoint answered, and it exited with status 0 on SIGTERM. Both compose files were built and started on 13 October 2026: the health and readiness checks and the UI answered, and with the Postgres one the first user was created and found in Postgres |
+| Quickstart from source | `make build` was run on 13 October 2026; the binary started, served the UI and exited with status 0 on SIGTERM |
 | Request formats of Slack, Teams, Discord, ntfy, Telegram, Pushover, PagerDuty, Opsgenie | Written from each service's documentation as read on 13 October 2026, pinned by snapshot tests. **Not sent to the live services** |
-| Payload shapes of Alertmanager, Grafana, GitHub, GitLab, Sentry | From their documentation; GitHub's signature is checked against GitHub's published example. **Not received from the live tools** |
+| Payload shapes of Alertmanager, Grafana, GitHub, GitLab, Sentry | From their documentation; GitHub's signature is checked against GitHub's published example. GitLab's signing-token check follows GitLab's webhook documentation as read on 13 October 2026; the documentation does not say which base64 alphabet the token uses, and ramzes assumes the standard one, as GitLab's examples do. **Not received from the live tools** |
 | Email | Sent to a test SMTP server inside the test suite. Not sent through a real provider; TLS modes are untested |
 | Opsgenie shutdown on 5 April 2027 | Atlassian's migration page, read on 13 October 2026 |
 | Helm chart | `helm lint` and `helm template`. Not installed on a cluster |
@@ -255,8 +259,6 @@ To work on the UI with hot reload, run `make run` and, in another terminal,
 - Single sign-on, roles, an audit log. Every user can change everything.
 - Full-text search; the feed filters by time, source, topic, severity, label,
   outcome and a substring of the title.
-- Pushing an acknowledgement made in ramzes to PagerDuty or Opsgenie.
-- GitLab's signing-token verification.
 - A memory limit for templates and expressions. They are stopped after a fixed
   amount of work, but a signed-in user can still write one that builds a very
   large string. Everyone who can sign in is an administrator; do not give
