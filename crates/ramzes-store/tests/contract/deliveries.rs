@@ -29,13 +29,12 @@ crate::contract!(
 fn dispatch(connection_id: &str) -> NewDispatch {
     NewDispatch {
         notification_id: ramzes_core::new_id(),
-        delivery_id: ramzes_core::new_id(),
+        delivery_id: Some(ramzes_core::new_id()),
         route_id: "route-1".into(),
         route_name: "Payment failures".into(),
         connection_id: connection_id.into(),
         destination: Some("#ops".into()),
-        template_id: None,
-        replay: false,
+        ..NewDispatch::default()
     }
 }
 
@@ -61,7 +60,7 @@ async fn routed(store: &Store, connections: &[&str], now: i64) -> (String, Event
         .unwrap();
     let dispatches: Vec<_> = connections.iter().map(|c| dispatch(c)).collect();
     store
-        .write_routing(&e, &dispatches, true, now)
+        .write_routing(&e, &dispatches, &[], true, now)
         .await
         .unwrap();
     let claimed = store.claim_due_deliveries(now, 60_000, 10).await.unwrap();
@@ -76,7 +75,7 @@ async fn write_routing_creates_notifications_and_pending_deliveries(store: Store
         .await
         .unwrap();
     store
-        .write_routing(&e, &[dispatch("c1"), dispatch("c2")], true, 100)
+        .write_routing(&e, &[dispatch("c1"), dispatch("c2")], &[], true, 100)
         .await
         .unwrap();
 
@@ -111,7 +110,7 @@ async fn write_routing_with_no_dispatches_marks_the_event_unrouted(store: Store)
         .insert_events(std::slice::from_ref(&e), None)
         .await
         .unwrap();
-    store.write_routing(&e, &[], true, 100).await.unwrap();
+    store.write_routing(&e, &[], &[], true, 100).await.unwrap();
     let j = store.journey(&ws, &e.id).await.unwrap().unwrap();
     assert!(j.routed);
     assert_eq!(j.route_count, 0);
@@ -122,7 +121,10 @@ async fn write_routing_for_a_replay_leaves_the_routed_state_alone(store: Store) 
     let (ws, e, _) = routed(&store, &["c1"], 100).await;
     let mut again = dispatch("c1");
     again.replay = true;
-    store.write_routing(&e, &[again], false, 200).await.unwrap();
+    store
+        .write_routing(&e, &[again], &[], false, 200)
+        .await
+        .unwrap();
     let j = store.journey(&ws, &e.id).await.unwrap().unwrap();
     assert_eq!(j.route_count, 1);
     assert_eq!(j.notifications.len(), 2);
@@ -414,7 +416,7 @@ async fn queue_depth_counts_unrouted_and_pending(store: Store) {
     let (a, b) = (event(&ws, &source, "a", 1), event(&ws, &source, "b", 1));
     store.insert_events(&[a.clone(), b], None).await.unwrap();
     store
-        .write_routing(&a, &[dispatch("c1"), dispatch("c2")], true, 1)
+        .write_routing(&a, &[dispatch("c1"), dispatch("c2")], &[], true, 1)
         .await
         .unwrap();
     let depth = store.queue_depth().await.unwrap();
@@ -430,11 +432,11 @@ async fn outcome_filters_delivered_and_failed(store: Store) {
         .await
         .unwrap();
     store
-        .write_routing(&ok, &[dispatch("c1")], true, 10)
+        .write_routing(&ok, &[dispatch("c1")], &[], true, 10)
         .await
         .unwrap();
     store
-        .write_routing(&bad, &[dispatch("c1"), dispatch("c2")], true, 10)
+        .write_routing(&bad, &[dispatch("c1"), dispatch("c2")], &[], true, 10)
         .await
         .unwrap();
     for d in store.claim_due_deliveries(10, 60_000, 10).await.unwrap() {
@@ -525,7 +527,7 @@ async fn retention_removes_notifications_deliveries_and_attempts(store: Store) {
         .await
         .unwrap();
     store
-        .write_routing(&fresh, &[dispatch("c1")], true, 900)
+        .write_routing(&fresh, &[dispatch("c1")], &[], true, 900)
         .await
         .unwrap();
 

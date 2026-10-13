@@ -28,6 +28,15 @@ pub struct ConnectionHealth {
     pub last_error: Option<String>,
 }
 
+/// Whether a connection is paused after failing repeatedly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, utoipa::ToSchema)]
+pub struct ConnectionStatus {
+    /// Deliveries wait until this time. Absent when the connection is not paused.
+    pub paused_until: Option<i64>,
+    /// Attempts that failed in a row.
+    pub failure_streak: i64,
+}
+
 const CONNECTION_COLS: &str =
     "id, workspace_id, kind, name, settings, credentials, created_at, updated_at";
 
@@ -191,5 +200,100 @@ impl Store {
                 })
                 .collect()
         })
+    }
+
+    /// Pause state and failure streak per connection id.
+    pub async fn connection_status(
+        &self,
+        workspace_id: &str,
+    ) -> Result<std::collections::HashMap<String, ConnectionStatus>> {
+        let sql = self.sql(
+            "SELECT id, paused_until, failure_streak FROM connections WHERE workspace_id = $1",
+        );
+        let rows: Vec<(String, Option<i64>, i64)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(workspace_id)
+                .fetch_all(pool)
+                .await
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, paused_until, failure_streak)| {
+                (
+                    id,
+                    ConnectionStatus {
+                        paused_until,
+                        failure_streak,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// Counts a failed attempt, or clears the count after a success. Returns the new streak.
+    pub async fn record_connection_result(&self, connection_id: &str, ok: bool) -> Result<i64> {
+        let sql = self.sql(
+            "UPDATE connections SET failure_streak = CASE WHEN $1 = 1 THEN 0 ELSE failure_streak + 1 END, \
+             paused_until = CASE WHEN $1 = 1 THEN NULL ELSE paused_until END WHERE id = $2 RETURNING failure_streak",
+        );
+        let row: Option<(i64,)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*sql))
+                .bind(i64::from(ok))
+                .bind(connection_id)
+                .fetch_optional(pool)
+                .await
+        })?;
+        Ok(row.map_or(0, |(streak,)| streak))
+    }
+
+    /// Stops sending through a connection until `until_ms`: its waiting deliveries are put off.
+    pub async fn pause_connection(&self, connection_id: &str, until_ms: i64) -> Result<()> {
+        let pause = self.sql("UPDATE connections SET paused_until = $1 WHERE id = $2");
+        let defer = self.sql(
+            "UPDATE deliveries SET next_attempt_at = $1 WHERE connection_id = $2 AND state = 'pending' \
+             AND next_attempt_at < $1",
+        );
+        with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*pause))
+                .bind(until_ms)
+                .bind(connection_id)
+                .execute(pool)
+                .await?;
+            sqlx::query(AssertSqlSafe(&*defer))
+                .bind(until_ms)
+                .bind(connection_id)
+                .execute(pool)
+                .await
+                .map(|_| ())
+        })?;
+        Ok(())
+    }
+
+    /// Ends a pause by hand; deliveries that were put off become due at once.
+    pub async fn resume_connection(&self, workspace_id: &str, id: &str) -> Result<()> {
+        let due = self.sql(
+            "UPDATE deliveries SET next_attempt_at = 0 WHERE connection_id = $1 AND state = 'pending' \
+             AND next_attempt_at <= (SELECT COALESCE(paused_until, 0) FROM connections WHERE id = $1)",
+        );
+        let resume = self.sql(
+            "UPDATE connections SET paused_until = NULL, failure_streak = 0 WHERE workspace_id = $1 AND id = $2",
+        );
+        let changed = with_db!(self, |pool| {
+            sqlx::query(AssertSqlSafe(&*due))
+                .bind(id)
+                .execute(pool)
+                .await?;
+            sqlx::query(AssertSqlSafe(&*resume))
+                .bind(workspace_id)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map(|r| r.rows_affected())
+        })?;
+        if changed == 0 {
+            Err(StoreError::NotFound)
+        } else {
+            Ok(())
+        }
     }
 }

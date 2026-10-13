@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use ramzes_core::Event;
+use ramzes_core::shaping::NotificationState;
+use ramzes_core::{Event, Severity};
 use serde::Serialize;
 use sqlx::{AssertSqlSafe, Row};
 
 use crate::deliveries::{Attempt, DELIVERY_COLS, Delivery, delivery_from};
 use crate::events::{EVENT_COLS, RawEvent, raw_event};
+use crate::shaping::{severity_of, state_of};
 use crate::sql::{Sql, bind_args};
 use crate::{Result, Store, with_db};
 
@@ -28,8 +30,101 @@ pub struct JourneyNotification {
     pub state: String,
     pub reason: Option<String>,
     pub replay: bool,
+    /// How this event relates to the notification: `first`, `duplicate`, `grouped` or `resolved`.
+    pub role: String,
+    /// Events the notification covers.
+    pub event_count: i64,
+    /// When a held notification is released.
+    pub held_until: Option<i64>,
     pub created_at: i64,
     pub deliveries: Vec<JourneyDelivery>,
+}
+
+/// A notification in a list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct NotificationRow {
+    pub id: String,
+    pub route_id: String,
+    pub route_name: String,
+    pub connection_id: String,
+    /// Absent when the connection was deleted.
+    pub connection_name: Option<String>,
+    pub destination: Option<String>,
+    pub state: NotificationState,
+    pub reason: Option<String>,
+    /// The title of the event that opened it.
+    pub title: String,
+    /// The highest severity among its events.
+    pub severity: Severity,
+    pub event_count: i64,
+    /// Messages sent for it so far.
+    pub sent_count: i64,
+    pub held_until: Option<i64>,
+    /// When it is next due to be sent, released or repeated.
+    pub next_timer_at: Option<i64>,
+    pub acked_by: Option<String>,
+    pub acked_at: Option<i64>,
+    pub resolved_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NotificationFilter {
+    /// Only these states. Empty means all.
+    pub states: Vec<NotificationState>,
+    /// Return only notifications older than this id.
+    pub before_id: Option<String>,
+    /// Page size; 100 when zero.
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+pub struct NotificationEvent {
+    #[serde(flatten)]
+    pub event: Event,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+pub struct NotificationDetail {
+    #[serde(flatten)]
+    pub row: NotificationRow,
+    pub events: Vec<NotificationEvent>,
+    pub deliveries: Vec<JourneyDelivery>,
+}
+
+const ROW_COLS: &str = "n.id, n.route_id, n.route_name, n.connection_id, c.name AS connection_name, n.destination, \
+     n.state, n.reason, n.title, n.severity, n.event_count, n.sent_count, n.held_until, n.acked_by, n.acked_at, \
+     n.resolved_at, n.created_at, n.updated_at, \
+     (SELECT MIN(t.due_at) FROM timers t WHERE t.notification_id = n.id) AS next_timer_at";
+
+macro_rules! notification_row {
+    ($row:expr) => {{
+        let id: String = $row.try_get("id")?;
+        let state: String = $row.try_get("state")?;
+        NotificationRow {
+            state: state_of(&id, &state)?,
+            severity: severity_of(&id, $row.try_get("severity")?)?,
+            id,
+            route_id: $row.try_get("route_id")?,
+            route_name: $row.try_get("route_name")?,
+            connection_id: $row.try_get("connection_id")?,
+            connection_name: $row.try_get("connection_name")?,
+            destination: $row.try_get("destination")?,
+            reason: $row.try_get("reason")?,
+            title: $row.try_get("title")?,
+            event_count: $row.try_get("event_count")?,
+            sent_count: $row.try_get("sent_count")?,
+            held_until: $row.try_get("held_until")?,
+            next_timer_at: $row.try_get("next_timer_at")?,
+            acked_by: $row.try_get("acked_by")?,
+            acked_at: $row.try_get("acked_at")?,
+            resolved_at: $row.try_get("resolved_at")?,
+            created_at: $row.try_get("created_at")?,
+            updated_at: $row.try_get("updated_at")?,
+        }
+    }};
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
@@ -78,7 +173,7 @@ impl Store {
 
         let notifications_sql = self.sql(
             "SELECT n.id, n.route_id, n.route_name, n.connection_id, n.destination, n.state, n.reason, n.replay, \
-             n.created_at FROM notifications n JOIN notification_events ne ON ne.notification_id = n.id \
+             n.created_at, ne.role, n.event_count, n.held_until FROM notifications n JOIN notification_events ne ON ne.notification_id = n.id \
              WHERE ne.event_id = $1 AND n.workspace_id = $2 ORDER BY n.id",
         );
         let mut notifications: Vec<JourneyNotification> = with_db!(self, |pool| {
@@ -98,6 +193,9 @@ impl Store {
                         state: row.try_get("state")?,
                         reason: row.try_get("reason")?,
                         replay: row.try_get::<i64, _>("replay")? != 0,
+                        role: row.try_get("role")?,
+                        event_count: row.try_get("event_count")?,
+                        held_until: row.try_get("held_until")?,
                         created_at: row.try_get("created_at")?,
                         deliveries: Vec::new(),
                     })
@@ -126,6 +224,93 @@ impl Store {
             routed: routed_at.is_some(),
             route_count,
             notifications,
+        }))
+    }
+
+    /// Notifications, newest first.
+    pub async fn list_notifications(
+        &self,
+        workspace_id: &str,
+        f: &NotificationFilter,
+    ) -> Result<Vec<NotificationRow>> {
+        let mut sql = Sql::new(&format!(
+            "SELECT {ROW_COLS} FROM notifications n LEFT JOIN connections c ON c.id = n.connection_id \
+             WHERE n.workspace_id = "
+        ));
+        sql.text(workspace_id);
+        if !f.states.is_empty() {
+            let states: Vec<String> = f.states.iter().map(|s| s.as_str().to_owned()).collect();
+            sql.push(" AND n.state IN ").list(&states);
+        }
+        if let Some(before) = &f.before_id {
+            sql.push(" AND n.id < ").text(before.as_str());
+        }
+        let limit = if f.limit <= 0 { 100 } else { f.limit.min(500) };
+        sql.push(" ORDER BY n.id DESC LIMIT ").int(limit);
+        let text = self.sql(&sql.text).into_owned();
+        with_db!(self, |pool| {
+            let rows = bind_args!(sqlx::query(AssertSqlSafe(text.as_str())), sql.args)
+                .fetch_all(pool)
+                .await?;
+            rows.iter().map(|row| Ok(notification_row!(row))).collect()
+        })
+    }
+
+    /// One notification with its events and deliveries.
+    pub async fn get_notification(
+        &self,
+        workspace_id: &str,
+        id: &str,
+    ) -> Result<Option<NotificationDetail>> {
+        let sql = self
+            .sql(&format!(
+                "SELECT {ROW_COLS} FROM notifications n LEFT JOIN connections c ON c.id = n.connection_id \
+                 WHERE n.workspace_id = $1 AND n.id = $2"
+            ))
+            .into_owned();
+        let row: Option<NotificationRow> = with_db!(self, |pool| {
+            let row = sqlx::query(AssertSqlSafe(sql.as_str()))
+                .bind(workspace_id)
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+            row.map(|row| Ok::<_, crate::StoreError>(notification_row!(row)))
+                .transpose()
+        })?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let roles_sql =
+            self.sql("SELECT event_id, role FROM notification_events WHERE notification_id = $1");
+        let roles: Vec<(String, String)> = with_db!(self, |pool| {
+            sqlx::query_as(AssertSqlSafe(&*roles_sql))
+                .bind(id)
+                .fetch_all(pool)
+                .await
+        })?;
+        let roles: HashMap<String, String> = roles.into_iter().collect();
+        let events = self
+            .notification_events(id)
+            .await?
+            .into_iter()
+            .map(|event| NotificationEvent {
+                role: roles.get(&event.id).cloned().unwrap_or_default(),
+                event,
+            })
+            .collect();
+        let deliveries = self.deliveries_of(&[id.to_owned()]).await?;
+        let delivery_ids: Vec<String> = deliveries.iter().map(|d| d.id.clone()).collect();
+        let mut attempts = self.attempts_of(&delivery_ids).await?;
+        Ok(Some(NotificationDetail {
+            row,
+            events,
+            deliveries: deliveries
+                .into_iter()
+                .map(|delivery| JourneyDelivery {
+                    attempts: attempts.remove(&delivery.id).unwrap_or_default(),
+                    delivery,
+                })
+                .collect(),
         }))
     }
 

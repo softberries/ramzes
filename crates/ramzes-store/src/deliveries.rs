@@ -1,15 +1,18 @@
 use ramzes_core::Event;
+use ramzes_core::shaping::{HoldKind, NotificationState, Role};
 use serde::Serialize;
 use sqlx::{AssertSqlSafe, Row};
 
+use crate::shaping::{INSERT_DELIVERY_OF, INSERT_TIMER, NewTimer};
 use crate::sql::BeginWrite;
 use crate::{Result, Store, StoreError, with_db};
 
-/// One matched target of a route: a notification and its first delivery, to be created together.
+/// A notification to create for one matched target of a route.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewDispatch {
     pub notification_id: String,
-    pub delivery_id: String,
+    /// The first delivery, for a notification that is sent at once.
+    pub delivery_id: Option<String>,
     pub route_id: String,
     pub route_name: String,
     pub connection_id: String,
@@ -18,6 +21,49 @@ pub struct NewDispatch {
     pub template_id: Option<String>,
     /// Created by replaying an event rather than by its first routing.
     pub replay: bool,
+    /// Identifies the route target: later events look up open notifications by it.
+    pub target_key: String,
+    pub state: NotificationState,
+    pub reason: Option<String>,
+    pub dedup_key: Option<String>,
+    pub group_key: Option<String>,
+    /// Why and until when it is held.
+    pub hold: Option<(HoldKind, i64)>,
+    pub silence_id: Option<String>,
+    pub timer: Option<NewTimer>,
+}
+
+impl Default for NewDispatch {
+    fn default() -> Self {
+        NewDispatch {
+            notification_id: String::new(),
+            delivery_id: None,
+            route_id: String::new(),
+            route_name: String::new(),
+            connection_id: String::new(),
+            destination: None,
+            template_id: None,
+            replay: false,
+            target_key: String::new(),
+            state: NotificationState::Sent,
+            reason: None,
+            dedup_key: None,
+            group_key: None,
+            hold: None,
+            silence_id: None,
+            timer: None,
+        }
+    }
+}
+
+/// An event joining a notification that already exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Join {
+    pub notification_id: String,
+    pub role: Role,
+    /// The event resolves the notification. The inner value is the id of the delivery that
+    /// tells the target, when it is to be told.
+    pub resolve: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
@@ -145,62 +191,147 @@ macro_rules! delivery_from {
 pub(crate) use delivery_from;
 
 impl Store {
-    /// Writes the result of routing one event in a single transaction: a notification and a
-    /// pending delivery per dispatch. With `mark_routed` the event is also marked as routed.
+    /// Writes the result of routing one event in a single transaction: the notifications it
+    /// opens (with a delivery, a timer, or neither) and the ones it joins or resolves. With
+    /// `mark_routed` the event is also marked as routed.
     pub async fn write_routing(
         &self,
         event: &Event,
         dispatches: &[NewDispatch],
+        joins: &[Join],
         mark_routed: bool,
         now_ms: i64,
     ) -> Result<()> {
-        let notification = self.sql(
+        let q = |text: &str| self.sql(text).into_owned();
+        let notification = q(
             "INSERT INTO notifications (id, workspace_id, route_id, route_name, connection_id, destination, dedup_key, \
-             state, event_count, replay, created_at, updated_at, template_id) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', 1, $8, $9, $9, $10)",
+             state, event_count, replay, created_at, updated_at, template_id, target_key, reason, group_key, \
+             held_until, hold_kind, silence_id, title, severity, sent_at, sent_count) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
         );
-        let link =
-            self.sql("INSERT INTO notification_events (notification_id, event_id, workspace_id) VALUES ($1, $2, $3)");
-        let delivery = self.sql(
+        let link = q(
+            "INSERT INTO notification_events (notification_id, event_id, workspace_id, role) VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (notification_id, event_id) DO NOTHING",
+        );
+        let delivery = q(
             "INSERT INTO deliveries (id, workspace_id, notification_id, connection_id, destination, state, attempts, \
              next_attempt_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6, $6)",
         );
-        let routed = self.sql("UPDATE events SET routed_at = $1, route_count = $2, claimed_until = NULL WHERE id = $3");
-        let count = i64::try_from(dispatches.len()).map_err(|e| StoreError::Data(e.to_string()))?;
+        let timer = q(INSERT_TIMER);
+        let joined = q(
+            "UPDATE notifications SET event_count = event_count + 1, updated_at = $1, \
+             severity = CASE WHEN severity < $2 THEN $2 ELSE severity END WHERE id = $3",
+        );
+        let resolved = q(
+            "UPDATE notifications SET state = 'resolved', resolved_at = $1, updated_at = $1, \
+             held_until = NULL, hold_kind = NULL WHERE id = $2",
+        );
+        let cancel = q("DELETE FROM timers WHERE notification_id = $1");
+        let notice = q(INSERT_DELIVERY_OF);
+        let routed = q(
+            "UPDATE events SET routed_at = $1, route_count = $2, claimed_until = NULL WHERE id = $3",
+        );
+        let count = i64::try_from(dispatches.len() + joins.len())
+            .map_err(|e| StoreError::Data(e.to_string()))?;
         with_db!(self, |pool| {
             let mut tx = pool.begin_write().await?;
             for d in dispatches {
-                sqlx::query(AssertSqlSafe(&*notification))
+                let sent = d.delivery_id.is_some();
+                sqlx::query(AssertSqlSafe(notification.as_str()))
                     .bind(&d.notification_id)
                     .bind(&event.workspace_id)
                     .bind(&d.route_id)
                     .bind(&d.route_name)
                     .bind(&d.connection_id)
                     .bind(&d.destination)
-                    .bind(&event.dedup_key)
+                    .bind(&d.dedup_key)
+                    .bind(d.state.as_str())
                     .bind(i64::from(d.replay))
                     .bind(now_ms)
                     .bind(&d.template_id)
+                    .bind(&d.target_key)
+                    .bind(&d.reason)
+                    .bind(&d.group_key)
+                    .bind(d.hold.map(|(_, until)| until))
+                    .bind(d.hold.map(|(kind, _)| kind.as_str()))
+                    .bind(&d.silence_id)
+                    .bind(&event.title)
+                    .bind(event.severity.as_i64())
+                    .bind(sent.then_some(now_ms))
+                    .bind(i64::from(sent))
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query(AssertSqlSafe(&*link))
+                sqlx::query(AssertSqlSafe(link.as_str()))
                     .bind(&d.notification_id)
                     .bind(&event.id)
                     .bind(&event.workspace_id)
+                    .bind(Role::First.as_str())
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query(AssertSqlSafe(&*delivery))
-                    .bind(&d.delivery_id)
+                if let Some(delivery_id) = &d.delivery_id {
+                    sqlx::query(AssertSqlSafe(delivery.as_str()))
+                        .bind(delivery_id)
+                        .bind(&event.workspace_id)
+                        .bind(&d.notification_id)
+                        .bind(&d.connection_id)
+                        .bind(&d.destination)
+                        .bind(now_ms)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+                if let Some(t) = &d.timer {
+                    sqlx::query(AssertSqlSafe(timer.as_str()))
+                        .bind(ramzes_core::new_id())
+                        .bind(&event.workspace_id)
+                        .bind(&t.kind)
+                        .bind(t.due_at)
+                        .bind(&d.notification_id)
+                        .bind(&t.data)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+            for j in joins {
+                let added = sqlx::query(AssertSqlSafe(link.as_str()))
+                    .bind(&j.notification_id)
+                    .bind(&event.id)
                     .bind(&event.workspace_id)
-                    .bind(&d.notification_id)
-                    .bind(&d.connection_id)
-                    .bind(&d.destination)
+                    .bind(j.role.as_str())
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                // A routing pass that is repeated after a crash finds the event already attached.
+                if added == 0 {
+                    continue;
+                }
+                sqlx::query(AssertSqlSafe(joined.as_str()))
                     .bind(now_ms)
+                    .bind(event.severity.as_i64())
+                    .bind(&j.notification_id)
                     .execute(&mut *tx)
                     .await?;
+                if let Some(notify) = &j.resolve {
+                    sqlx::query(AssertSqlSafe(resolved.as_str()))
+                        .bind(now_ms)
+                        .bind(&j.notification_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query(AssertSqlSafe(cancel.as_str()))
+                        .bind(&j.notification_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    if let Some(delivery_id) = notify {
+                        sqlx::query(AssertSqlSafe(notice.as_str()))
+                            .bind(delivery_id)
+                            .bind(now_ms)
+                            .bind(&j.notification_id)
+                            .execute(&mut *tx)
+                            .await?;
+                    }
+                }
             }
             if mark_routed {
-                sqlx::query(AssertSqlSafe(&*routed))
+                sqlx::query(AssertSqlSafe(routed.as_str()))
                     .bind(now_ms)
                     .bind(count)
                     .bind(&event.id)

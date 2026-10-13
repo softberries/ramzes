@@ -190,16 +190,16 @@ async fn dispatch(store: &Store, ws: &str, source: &str, connection: &str, at: i
         .unwrap();
     let d = NewDispatch {
         notification_id: ramzes_core::new_id(),
-        delivery_id: ramzes_core::new_id(),
+        delivery_id: Some(ramzes_core::new_id()),
         route_id: "r".into(),
         route_name: "r".into(),
         connection_id: connection.into(),
         destination: None,
         template_id: Some("t9".into()),
-        replay: false,
+        ..NewDispatch::default()
     };
     store
-        .write_routing(&event, std::slice::from_ref(&d), true, at)
+        .write_routing(&event, std::slice::from_ref(&d), &[], true, at)
         .await
         .unwrap();
     d
@@ -225,7 +225,7 @@ async fn a_delivery_warning_is_stored(store: Store) {
     let (ws, source) = crate::seed(&store).await;
     let d = dispatch(&store, &ws, &source, "c1", 10).await;
     store
-        .set_delivery_warning(&d.delivery_id, "template failed: title")
+        .set_delivery_warning(d.delivery_id.as_deref().unwrap(), "template failed: title")
         .await
         .unwrap();
     let claimed = store.claim_due_deliveries(10, 1000, 10).await.unwrap();
@@ -460,16 +460,15 @@ async fn feed_rows_name_their_targets(store: Store) {
         .unwrap();
     let to = |connection: &str| NewDispatch {
         notification_id: ramzes_core::new_id(),
-        delivery_id: ramzes_core::new_id(),
+        delivery_id: Some(ramzes_core::new_id()),
         route_id: "r".into(),
         route_name: "r".into(),
         connection_id: connection.into(),
         destination: None,
-        template_id: None,
-        replay: false,
+        ..NewDispatch::default()
     };
     store
-        .write_routing(&event, &[to("a"), to("a"), to("gone")], true, 10)
+        .write_routing(&event, &[to("a"), to("a"), to("gone")], &[], true, 10)
         .await
         .unwrap();
     let quiet = crate::event(&ws, &source, "quiet", 11);

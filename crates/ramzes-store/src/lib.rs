@@ -9,22 +9,31 @@ mod definitions;
 mod deliveries;
 mod events;
 mod notifications;
+mod overview;
 mod revisions;
 mod routes;
 mod settings;
+mod shaping;
+mod silences;
 mod sources;
 mod sql;
 mod templates;
 
 pub use auth::{ApiToken, User};
-pub use connections::{Connection, ConnectionHealth};
+pub use connections::{Connection, ConnectionHealth, ConnectionStatus};
 pub use definitions::DefinitionRow;
 pub use deliveries::{
-    Attempt, Delivery, DeliveryState, FailureRow, Finish, NewDispatch, QueueDepth,
+    Attempt, Delivery, DeliveryState, FailureRow, Finish, Join, NewDispatch, QueueDepth,
 };
 pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
-pub use notifications::{Journey, JourneyDelivery, JourneyNotification};
+pub use notifications::{
+    Journey, JourneyDelivery, JourneyNotification, NotificationDetail, NotificationEvent,
+    NotificationFilter, NotificationRow,
+};
+pub use overview::Overview;
 pub use revisions::{ConfigSnapshot, ConnectionSnapshot, Revision, RevisionMeta, SourceSnapshot};
+pub use shaping::{NewTimer, NotificationCore, Timer};
+pub use silences::SilenceRow;
 pub use sources::{Source, SourceRequest};
 
 use std::borrow::Cow;

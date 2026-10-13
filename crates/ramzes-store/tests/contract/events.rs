@@ -267,7 +267,10 @@ async fn outcome_filters_pending_and_unrouted(store: Store) {
         .insert_events(&[waiting.clone(), unrouted.clone()], None)
         .await
         .unwrap();
-    store.write_routing(&unrouted, &[], true, 5).await.unwrap();
+    store
+        .write_routing(&unrouted, &[], &[], true, 5)
+        .await
+        .unwrap();
 
     let pending = store
         .list_events(
@@ -324,8 +327,14 @@ async fn claim_unrouted_hands_out_each_event_once_per_lease(store: Store) {
     let again = store.claim_unrouted(61_001, 60_000, 10).await.unwrap();
     assert_eq!(again.len(), 2);
 
-    store.write_routing(&a, &[], true, 70_000).await.unwrap();
-    store.write_routing(&b, &[], true, 70_000).await.unwrap();
+    store
+        .write_routing(&a, &[], &[], true, 70_000)
+        .await
+        .unwrap();
+    store
+        .write_routing(&b, &[], &[], true, 70_000)
+        .await
+        .unwrap();
     assert!(
         store
             .claim_unrouted(500_000, 60_000, 10)

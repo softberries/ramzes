@@ -9,6 +9,7 @@ mod config;
 mod deliveries;
 mod events;
 mod foundation;
+mod noise;
 mod sources;
 
 use ramzes_store::Store;

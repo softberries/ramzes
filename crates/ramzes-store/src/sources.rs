@@ -306,4 +306,35 @@ impl Store {
             Ok(())
         }
     }
+
+    /// The built-in source that ramzes's own events come from, created on first use.
+    pub async fn system_source(&self, workspace_id: &str, now_ms: i64) -> Result<Source> {
+        let sql = self
+            .sql(&format!(
+                "SELECT {SOURCE_COLS} FROM sources WHERE workspace_id = $1 AND kind = 'system' ORDER BY id LIMIT 1"
+            ))
+            .into_owned();
+        let existing = with_db!(self, |pool| {
+            let row = sqlx::query(AssertSqlSafe(sql.as_str()))
+                .bind(workspace_id)
+                .fetch_optional(pool)
+                .await?;
+            row.map(|row| Ok::<_, sqlx::Error>(source_from!(row)))
+                .transpose()
+        })?;
+        if let Some(source) = existing {
+            return Ok(source);
+        }
+        // Nothing can present this key: only its hash exists, of a value nobody was given.
+        let (unused_key, _) = ramzes_core::generate_key("rz_sys_");
+        self.create_source(
+            workspace_id,
+            "ramzes",
+            "system",
+            &ramzes_core::hash_key(&unused_key),
+            "internal",
+            now_ms,
+        )
+        .await
+    }
 }
