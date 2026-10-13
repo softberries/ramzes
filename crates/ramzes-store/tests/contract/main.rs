@@ -4,6 +4,7 @@
 //! notice and pass without running.
 
 mod config;
+mod deliveries;
 mod events;
 mod foundation;
 mod sources;

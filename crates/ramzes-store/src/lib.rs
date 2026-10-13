@@ -4,14 +4,20 @@
 //! (`TEXT` and `BIGINT`). [`with_db!`] expands the same body for each backend.
 
 mod connections;
+mod deliveries;
 mod events;
+mod notifications;
 mod routes;
 mod settings;
 mod sources;
 mod sql;
 
 pub use connections::Connection;
+pub use deliveries::{
+    Attempt, Delivery, DeliveryState, FailureRow, Finish, NewDispatch, QueueDepth,
+};
 pub use events::{EventFilter, EventRow, InsertOutcome, Outcome};
+pub use notifications::{Journey, JourneyDelivery, JourneyNotification};
 pub use sources::{Source, SourceRequest};
 
 use std::borrow::Cow;

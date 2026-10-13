@@ -58,7 +58,7 @@ pub struct EventRow {
     pub deliveries_failed: i64,
 }
 
-const EVENT_COLS: &str = "id, workspace_id, source_id, topic, severity, status, title, body, payload, dedup_key, \
+pub(crate) const EVENT_COLS: &str = "id, workspace_id, source_id, topic, severity, status, title, body, payload, dedup_key, \
                           occurred_at, received_at";
 const MAX_PAGE: i64 = 500;
 
@@ -100,6 +100,8 @@ macro_rules! raw_event {
         }
     };
 }
+
+pub(crate) use raw_event;
 
 impl RawEvent {
     pub(crate) fn into_event(self, labels: BTreeMap<String, String>) -> Result<Event> {
@@ -261,7 +263,7 @@ impl Store {
         Ok(labels)
     }
 
-    async fn with_labels(&self, raw: Vec<RawEvent>) -> Result<Vec<Event>> {
+    pub(crate) async fn with_labels(&self, raw: Vec<RawEvent>) -> Result<Vec<Event>> {
         let ids: Vec<String> = raw.iter().map(|r| r.id.clone()).collect();
         let mut labels = self.labels_for(&ids).await?;
         raw.into_iter()
