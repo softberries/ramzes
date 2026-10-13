@@ -6,6 +6,7 @@ use ramzes_store::{
 use crate::{event, seed};
 
 crate::contract!(
+    an_event_with_a_failure_is_failed_not_pending,
     write_routing_creates_notifications_and_pending_deliveries,
     write_routing_with_no_dispatches_marks_the_event_unrouted,
     write_routing_for_a_replay_leaves_the_routed_state_alone,
@@ -551,4 +552,41 @@ async fn retention_removes_notifications_deliveries_and_attempts(store: Store) {
     let j = store.journey(&ws, &fresh.id).await.unwrap().unwrap();
     assert_eq!(j.notifications[0].deliveries.len(), 1);
     assert_eq!(store.queue_depth().await.unwrap().pending_deliveries, 1);
+}
+
+async fn an_event_with_a_failure_is_failed_not_pending(store: Store) {
+    // Two deliveries: one fails for good, the other is still on its way.
+    let (ws, e, claimed) = routed(&store, &["c1", "c2"], 100).await;
+    let d = &claimed[0];
+    store
+        .finish_attempt(
+            d,
+            &attempt(d, 100),
+            &Finish::Failed {
+                error: "HTTP 401".into(),
+            },
+            110,
+        )
+        .await
+        .unwrap();
+    let ids = |outcome| {
+        let (store, ws) = (store.clone(), ws.clone());
+        async move {
+            let filter = EventFilter {
+                outcome: Some(outcome),
+                limit: 10,
+                ..EventFilter::default()
+            };
+            store
+                .list_events(&ws, &filter)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.event.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    // The feed calls such an event failed, so that is the one outcome it is found under.
+    assert_eq!(ids(Outcome::Failed).await, vec![e.id.clone()]);
+    assert!(ids(Outcome::Pending).await.is_empty());
 }

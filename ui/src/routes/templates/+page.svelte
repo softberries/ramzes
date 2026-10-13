@@ -34,7 +34,7 @@
 	/** Why the server refused to delete a template, shown in the confirmation. */
 	let deleteProblem = $state('');
 
-	/** The event and connection the preview is made with. Empty means a sample event, no connection. */
+	/** The event and connection the preview is made with. Empty means the newest event (a made-up one when there is none), no connection. */
 	let eventId = $state('');
 	let connectionId = $state('');
 	let destination = $state('');
@@ -109,6 +109,11 @@
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (!draft) return;
+		// Either may be left to the event's own wording, but a template that words neither does nothing.
+		if (draft.title.trim() === '' && draft.body.trim() === '') {
+			problem = 'Give the template a title, a body or both.';
+			return;
+		}
 		busy = true;
 		problem = '';
 		const body = { name: draft.name, title: draft.title, body: draft.body };
@@ -190,7 +195,7 @@
 			{#if template.body}
 				<span class="mono text-muted block max-w-sm truncate" title={template.body}>{template.body}</span>
 			{:else}
-				<span class="text-faint">the title alone</span>
+				<span class="text-faint">the event's own body</span>
 			{/if}
 		{:else}
 			<div class="flex flex-wrap justify-end gap-1">
@@ -226,7 +231,6 @@
 					<input
 						id="template-title"
 						class="input mono"
-						required
 						autocomplete="off"
 						spellcheck="false"
 						bind:value={draft.title}
@@ -240,7 +244,7 @@
 						spellcheck="false"
 						bind:value={draft.body}
 					></textarea>
-					<p class="hint mt-1">Leave empty to send the title alone.</p>
+					<p class="hint mt-1">Leave empty to keep the event's own body. An empty title keeps the event's own title.</p>
 				</div>
 				{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
 				<div class="flex gap-2">
@@ -271,7 +275,7 @@
 					<div>
 						<label class="field-label" for="preview-event">With the event</label>
 						<select id="preview-event" class="input" bind:value={eventId}>
-							<option value="">A sample event</option>
+							<option value="">{events.length > 0 ? 'The newest event' : 'A sample event'}</option>
 							{#each events as event (event.id)}
 								<option value={event.id}>{clock(event.received_at)} {event.title}</option>
 							{/each}

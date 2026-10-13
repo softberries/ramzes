@@ -17,7 +17,7 @@ pub struct InsertOutcome {
 /// What became of an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// Not routed yet, or has a delivery still to be sent.
+    /// Not routed yet, or has a delivery still to be sent and none that failed for good.
     Pending,
     /// Every delivery arrived.
     Delivered,
@@ -135,7 +135,8 @@ fn push_filters(sql: &mut Sql, f: &EventFilter) {
         None => {}
         Some(Outcome::Pending) => {
             sql.push(&format!(
-                " AND (e.routed_at IS NULL OR EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('pending', 'in_progress')))"
+                " AND (e.routed_at IS NULL OR EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('pending', 'in_progress'))) \
+                     AND NOT EXISTS (SELECT 1 {DELIVERIES_OF_E} AND d.state IN ('failed', 'dead'))"
             ));
         }
         Some(Outcome::Delivered) => {

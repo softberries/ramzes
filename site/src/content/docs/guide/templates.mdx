@@ -18,7 +18,7 @@ and [Expressions and templates](/ramzes/reference/expressions/).
 | --- | --- |
 | **Name** | The name you chose. It is what the route editor lists. |
 | **Title** | The template for the message title. |
-| **Body** | The template for the message body, or "the title alone" when it is empty. |
+| **Body** | The template for the message body, or "the event's own body" when it is empty. |
 | **Actions** | **Edit** and **Delete**. |
 
 The search box looks in the name, title and body. Headings sort the list; it starts sorted by name.
@@ -34,8 +34,8 @@ body."
 
 2. Give it a **Name**, up to 100 characters.
 
-3. Write the **Title** and the **Body**. Values go between double braces. Leave the body empty to send
-   the title alone.
+3. Write the **Title** and the **Body**. Values go between double braces. Leave either empty to keep
+   the event's own title or body; a template needs at least one of the two.
 
 4. Check the **Preview** beside the form. It updates shortly after you stop typing.
 
@@ -67,15 +67,9 @@ The preview shows the message as its reader would get it: the title, and the bod
 
 | Control | What it does |
 | --- | --- |
-| **With the event** | Chooses the event to word. The menu lists the 20 newest events. |
+| **With the event** | Chooses the event to word. The menu lists the 20 newest events and starts on **The newest event**. On an instance with no events at all the choice reads **A sample event**: a built-in failed payment on the topic `orders.payment.failed`. |
 | **As sent to** | Chooses a connection. The preview then also shows **The request this connection sends**: method, URL, headers and body, with secrets masked. With **No connection** only the wording is shown. |
 | Destination | Appears for connections whose channel takes a destination, labelled with what that channel calls it. Leave it empty to use the connection's own. |
-
-:::note
-With **A sample event** chosen, the server words the newest event it has. It falls back to a built-in
-sample (a failed payment on the topic `orders.payment.failed`) only when the instance has no events at
-all. To be sure which event is used, choose one from the menu.
-:::
 
 When the template fails on the chosen event, the preview shows the error in red, followed by "Until
 this is fixed, the event's own title and body are sent:" and that default wording. The same happens at

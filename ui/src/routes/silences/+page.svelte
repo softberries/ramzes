@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { api, messageOf } from '#lib/api/client.ts';
 	import type { RouteMatch, SilenceRow } from '#lib/api/types.ts';
+	import Confirm from '#lib/components/Confirm.svelte';
 	import DataTable, { type Column } from '#lib/components/DataTable.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import MatchEditor from '#lib/components/MatchEditor.svelte';
@@ -135,11 +136,21 @@
 		await load().catch((error) => toasts.problem(error));
 	}
 
-	function endNow(silence: SilenceRow) {
+	/** The silence a confirmation is open for: about to be ended, or about to be deleted. */
+	let ending = $state<SilenceRow | null>(null);
+	let deleting = $state<SilenceRow | null>(null);
+
+	function endNow() {
+		const silence = ending;
+		ending = null;
+		if (!silence) return;
 		act(() => api('POST', `/api/silences/${silence.id}/end`), 'Silence ended. Matching events are sent again.');
 	}
 
-	function remove(silence: SilenceRow) {
+	function remove() {
+		const silence = deleting;
+		deleting = null;
+		if (!silence) return;
 		act(() => api('DELETE', `/api/silences/${silence.id}`), 'Silence deleted.');
 	}
 </script>
@@ -234,9 +245,9 @@
 	{:else if column.key === 'created'}
 		<time class="text-muted whitespace-nowrap">{clock(silence.created_at, now)}</time>
 	{:else if kind === 'active'}
-		<button type="button" class="btn btn-sm max-md:h-10 max-md:px-3" onclick={() => endNow(silence)}>End now</button>
+		<button type="button" class="btn btn-sm max-md:h-10 max-md:px-3" onclick={() => (ending = silence)}>End now</button>
 	{:else}
-		<button type="button" class="btn btn-sm btn-danger max-md:h-10 max-md:px-3" onclick={() => remove(silence)}>
+		<button type="button" class="btn btn-sm btn-danger max-md:h-10 max-md:px-3" onclick={() => (deleting = silence)}>
 			Delete
 		</button>
 	{/if}
@@ -279,6 +290,28 @@
 		{/key}
 	</section>
 {/if}
+
+<Confirm
+	open={ending !== null}
+	title="End this silence now?"
+	action="End silence"
+	onconfirm={endNow}
+	oncancel={() => (ending = null)}
+>
+	Events that match it are sent again from now on: {ending ? matchOf(ending) : ''}. Events it suppressed while
+	it was active are not sent afterwards.
+</Confirm>
+
+<Confirm
+	open={deleting !== null}
+	title="Delete this silence?"
+	action="Delete silence"
+	onconfirm={remove}
+	oncancel={() => (deleting = null)}
+>
+	{deleting ? matchOf(deleting) : ''}. A silence that has ended is removed from this list; one that has not
+	started yet never starts.
+</Confirm>
 
 <style>
 	.chosen {

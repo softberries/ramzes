@@ -56,8 +56,9 @@
 	<div>
 		<h2>Export and import</h2>
 		<p class="hint">
-			The configuration as one YAML file: routes, templates, connections, connectors and source mappings. It
-			holds no credentials and no source keys, so it can be kept in version control.
+			The configuration as one YAML file: routes, templates, connections, connectors, source mappings, and the
+			instance's address and retention. It holds no credentials and no source keys, so it can be kept in
+			version control.
 		</p>
 	</div>
 	<div class="card">
@@ -100,6 +101,7 @@
 	oncancel={() => (confirming = false)}
 >
 	This replaces all routes, templates, connections and connector definitions with the ones in the file, and
-	sets the names and mappings of the sources it lists. Connections that already exist keep their credentials;
+	sets the names and mappings of the sources it lists and the instance's address and retention. Connections
+	that already exist keep their credentials;
 	new ones start without any. The change is recorded in the history, so it can be rolled back.
 </Confirm>

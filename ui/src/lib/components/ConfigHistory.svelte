@@ -131,7 +131,8 @@
 	onconfirm={rollBack}
 	oncancel={() => (rollingBack = null)}
 >
-	Routes, templates, connections and connectors go back to how they were after “{rollingBack?.summary}”.
+	Routes, templates, connections, connectors and the instance's address and retention go back to how they
+	were after “{rollingBack?.summary}”.
 	A connection that still exists keeps the credentials it has now; one that had been deleted comes back with the
 	credentials it had then. Source keys are not touched. The
 	rollback is itself recorded, so it can be undone.

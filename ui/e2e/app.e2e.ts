@@ -375,6 +375,7 @@ test('a silence is refused without conditions, suppresses a matching event and c
 
 	await page.getByRole('link', { name: 'Silences', exact: true }).click();
 	await active.getByRole('button', { name: 'End now' }).click();
+	await page.getByRole('button', { name: 'End silence' }).click();
 	await expect(active).toContainText('No silence is active');
 	await page.getByRole('button', { name: /^Ended/ }).click();
 	await expect(page.locator('[data-kind="ended"]')).toContainText('topic deploys.*');
