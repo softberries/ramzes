@@ -113,7 +113,7 @@
 					<div class="min-w-0">
 						<div class="flex flex-wrap items-baseline gap-x-3">
 							<span class="font-medium break-words">{result.name}</span>
-							{#if index === draftIndex}<span class="tag">not saved</span>{/if}
+							{#if index === draftIndex}<span class="tag">being edited</span>{/if}
 						</div>
 						<div class="{tone(result)} break-words">{outcomeWords(result)}</div>
 						{#each result.targets as target, i (i)}

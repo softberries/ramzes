@@ -252,9 +252,14 @@
 
 				<fieldset class="flex flex-col gap-2">
 					<legend class="mb-2 font-medium">Send to</legend>
+					<div class="text-muted hidden gap-2 md:grid md:grid-cols-[1fr_1fr_1fr_5rem]" aria-hidden="true">
+						<span>Connection</span>
+						<span>Destination</span>
+						<span>Wording</span>
+					</div>
 					{#each draft.targets as target, index (index)}
 						{@const label = destinationLabel(target.connection_id)}
-						<div class="border-line grid gap-2 border-b pb-2 md:grid-cols-[1fr_1fr_1fr_auto] md:border-b-0 md:pb-0">
+						<div class="border-line grid gap-2 border-b pb-2 md:grid-cols-[1fr_1fr_1fr_5rem] md:border-b-0 md:pb-0">
 							<select class="input" aria-label="Connection" bind:value={target.connection_id} required>
 								<option value="" disabled>Choose a connection</option>
 								{#each lookups.connections as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
@@ -263,11 +268,11 @@
 								<input
 									class="input"
 									aria-label={label}
-									placeholder="{label} (the connection's own when empty)"
+									placeholder="{label} (optional)"
 									bind:value={target.destination}
 								/>
 							{:else}
-								<span class="hidden md:block"></span>
+								<span class="text-faint hidden self-center md:block">The connection's own</span>
 							{/if}
 							<select class="input" aria-label="Template" bind:value={target.template_id}>
 								<option value="">The event's own wording</option>

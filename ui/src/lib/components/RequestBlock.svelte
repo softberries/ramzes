@@ -5,7 +5,7 @@
 	let { request }: { request: RequestPreview } = $props();
 </script>
 
-<div class="code" data-testid="request">
+<div class="code whitespace-normal" data-testid="request">
 	<div><span class="text-accent">{request.method}</span> {request.url}</div>
 	{#each request.headers as [name, value], index (index)}
 		<div><span class="text-muted">{name}:</span> {value}</div>

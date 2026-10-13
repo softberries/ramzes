@@ -72,12 +72,12 @@
 		{#each revisions.slice(0, listed) as revision, index (revision.id)}
 			<li class="border-line border-b px-2 py-2">
 				<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-					<span class="mr-auto min-w-0 font-medium break-words">{revision.summary || 'Configuration changed'}</span>
+					<span class="w-full min-w-0 font-medium break-words md:mr-auto md:w-auto">{revision.summary || 'Configuration changed'}</span>
 					<span class="text-muted break-all">{revision.author}</span>
 					<span class="text-faint">{ago(revision.created_at)}</span>
 					<button
 						type="button"
-						class="btn h-7 px-2"
+						class="btn ml-auto h-7 px-2 md:ml-0"
 						aria-expanded={shown?.id === revision.id}
 						onclick={() => show(revision)}
 					>

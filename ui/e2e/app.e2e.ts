@@ -197,7 +197,7 @@ test('the route tester shows what an unsaved expression would match', async ({ p
 	const results = page.getByRole('list', { name: 'Result for each route' }).getByRole('listitem');
 	const result = (name: string) => results.filter({ hasText: name });
 	await expect(result('Big orders')).toHaveAttribute('data-outcome', 'matched');
-	await expect(result('Big orders')).toContainText('not saved');
+	await expect(result('Big orders')).toContainText('being edited');
 	await expect(result('Big orders')).toContainText('to test receiver: Payment failed for order 1042');
 	await expect(result('Payment failures')).toHaveAttribute('data-outcome', 'not_matched');
 	await expect(result('Payment failures')).toContainText('not matched');

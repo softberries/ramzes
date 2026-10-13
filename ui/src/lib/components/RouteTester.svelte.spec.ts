@@ -49,7 +49,7 @@ describe('RouteTester', () => {
 
 		const rows = page.getByRole('list', { name: 'Result for each route' }).getByRole('listitem');
 		await expect.element(rows.nth(0)).toHaveTextContent('Big orders');
-		await expect.element(rows.nth(0)).toHaveTextContent('not saved');
+		await expect.element(rows.nth(0)).toHaveTextContent('being edited');
 		await expect.element(rows.nth(0)).toHaveTextContent('to ops (#alerts): Order 17 failed');
 		await expect.element(rows.nth(0)).toHaveTextContent('to a deleted connection: Order 17 failed');
 		await expect.element(rows.nth(0)).toHaveTextContent('the template failed');
