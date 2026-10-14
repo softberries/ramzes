@@ -23,6 +23,6 @@
     "@astrojs/check": "^0.9.10",
     "playwright": "^1.63.0",
     "starlight-links-validator": "^0.27.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }
