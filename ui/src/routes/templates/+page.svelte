@@ -354,7 +354,6 @@
 	.message {
 		padding: 0.75rem 0.9rem;
 		border: 1px solid var(--line);
-		border-left: 3px solid var(--accent);
 		border-radius: var(--radius-control);
 		background: var(--bg);
 	}

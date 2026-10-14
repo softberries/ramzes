@@ -4,7 +4,8 @@ import { ago, clock, countdown, duration, outcomeOf, timeOfDay, until } from './
 describe('clock', () => {
 	it('shows local time with seconds', () => {
 		const ms = new Date(2026, 9, 13, 9, 41, 7).getTime();
-		expect(clock(ms)).toBe('09:41:07');
+		const now = new Date(2026, 9, 13, 12, 0, 0).getTime();
+		expect(clock(ms, now)).toBe('09:41:07');
 	});
 
 	it('adds the date when the time is not today', () => {

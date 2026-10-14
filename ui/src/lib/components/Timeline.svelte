@@ -121,7 +121,6 @@
 	.message {
 		padding: 0.75rem 0.9rem;
 		border: 1px solid var(--line);
-		border-left: 2px solid var(--accent);
 		border-radius: var(--radius-control);
 		background: color-mix(in srgb, var(--raised) 45%, transparent);
 	}

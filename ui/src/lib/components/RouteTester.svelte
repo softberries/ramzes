@@ -168,10 +168,11 @@
 		border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 	}
 
-	/* One message that would go out, marked on its edge with what noise control would do with it. */
+	/* One message that would go out, tinted with what noise control would do with it. */
 	.target {
-		padding-left: 0.6rem;
-		border-left: 2px solid var(--tone);
+		padding: 0.5rem 0.65rem;
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--tone) 9%, transparent);
 	}
 
 	.outcome {

@@ -290,8 +290,7 @@
 	}
 
 	.feed tr.selected {
-		background: var(--raised);
-		box-shadow: inset 2px 0 0 var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
 	}
 
 	.title:hover {

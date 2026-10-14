@@ -155,9 +155,9 @@
 <Palette bind:open={paletteOpen} onnavigate={(href) => goto(resolve(href))} />
 
 <style>
-	/* The page in view is marked on the rail's edge as well as by its fill. */
-	.nav-link[aria-current='page'] {
-		box-shadow: inset 2px 0 0 var(--gold);
+	/* The page in view: its fill, and its icon in the brand colour. */
+	.nav-link[aria-current='page'] :global(svg) {
+		color: var(--gold);
 	}
 
 	.search {

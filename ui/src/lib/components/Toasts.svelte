@@ -22,7 +22,7 @@
 
 <style>
 	.toast {
-		border-left: 3px solid var(--tone);
+		border-color: color-mix(in srgb, var(--tone) 45%, var(--line));
 	}
 
 	.mark {
