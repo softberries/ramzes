@@ -7,7 +7,7 @@ RUN npm ci
 COPY ui/ ./
 RUN npm run build
 
-FROM rust:1.98-slim-bookworm AS build
+FROM rust:1.99-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
